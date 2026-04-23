@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(xargs grep *)",
+      "Bash(node -e \"console.log\\(require\\('./node_modules/react-native-vector-icons/package.json'\\).version\\)\")"
+    ]
+  }
+}

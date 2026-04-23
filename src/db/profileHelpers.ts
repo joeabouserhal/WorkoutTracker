@@ -43,22 +43,33 @@ export async function getProfile() {
   await ensureProfileTable()
 
   const result = await db.$client.execute(
-    'SELECT id, name, height, weight, height_unit, default_weight_unit FROM profile WHERE id = ?',
+    'SELECT id, name, height, height_unit, default_weight_unit FROM profile WHERE id = ?',
     [PROFILE_ID]
   )
 
-  const row = result.rows[0] as ProfileRow | undefined
+  const row = result.rows[0] as Omit<ProfileRow, 'weight'> | undefined
+  if (!row) return null
 
-  return row
-    ? {
-        id: row.id,
-        name: row.name,
-        height: row.height,
-        weight: row.weight,
-        heightUnit: row.height_unit,
-        defaultWeightUnit: row.default_weight_unit,
-      }
-    : null
+  // Current weight is always the latest body_weight_logs entry
+  let weight: number | null = null
+  try {
+    const bwlResult = await db.$client.execute(
+      'SELECT weight FROM body_weight_logs ORDER BY logged_at DESC LIMIT 1'
+    )
+    const bwlRow = bwlResult.rows[0] as { weight: number } | undefined
+    weight = bwlRow?.weight ?? null
+  } catch {
+    // Table not yet created; weight stays null
+  }
+
+  return {
+    id: row.id,
+    name: row.name,
+    height: row.height,
+    weight,
+    heightUnit: row.height_unit,
+    defaultWeightUnit: row.default_weight_unit,
+  }
 }
 
 export async function upsertProfile(data: {

@@ -80,10 +80,10 @@ export default function SettingsScreen({ navigation }: Props) {
         <Text style={styles.chevron}>›</Text>
       </TouchableOpacity>
 
-      <Text style={styles.sectionSubtitle}>Units</Text>
+      <Text style={styles.sectionSubtitle}>Default Units</Text>
 
       <View style={styles.unitsCard}>
-        <Text style={styles.unitLabel}>Default Weight Unit</Text>
+        <Text style={styles.unitLabel}>Weight Unit</Text>
         <View style={styles.unitButtonsRow}>
           <TouchableOpacity
             style={[

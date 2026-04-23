@@ -10,6 +10,7 @@ import {
 import type { NativeStackScreenProps } from '@react-navigation/native-stack'
 import { createStyleSheet, useStyles } from 'react-native-unistyles'
 import { getProfile, upsertProfile } from '@/db/profileHelpers'
+import { logBodyWeight } from '@/db/bodyWeightHelpers'
 import type { ProfileStackParamList } from '../navigation/TabNavigator'
 
 type Props = NativeStackScreenProps<ProfileStackParamList, 'EditProfile'>
@@ -82,8 +83,11 @@ export default function EditProfileScreen({ navigation }: Props) {
       await upsertProfile({
         name: name.trim(),
         height: storedHeight,
-        weight: storedWeight,
       })
+
+      if (storedWeight !== undefined) {
+        await logBodyWeight(storedWeight)
+      }
       Alert.alert('Success', 'Profile updated successfully')
       navigation.goBack()
     } catch (e) {

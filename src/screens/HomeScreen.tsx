@@ -1,13 +1,18 @@
 import React, { useEffect, useState } from 'react'
-import { View, Text, TouchableOpacity, ScrollView } from 'react-native'
+import { Alert, View, Text, TouchableOpacity, ScrollView } from 'react-native'
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons'
 import { createStyleSheet, useStyles } from 'react-native-unistyles'
 import { getProfile } from '@/db/profileHelpers'
+import { createWorkout } from '@/db/workoutHelpers'
+import { useSessionStore } from '@/store/sessionStore'
 
 export default function HomeScreen() {
   const { styles, theme } = useStyles(stylesheet)
   const [name, setName] = useState<string>('')
   const [loading, setLoading] = useState(true)
+  const startWorkout = useSessionStore((s) => s.startWorkout)
+  const openWorkoutSheet = useSessionStore((s) => s.openWorkoutSheet)
+  const activeWorkoutId = useSessionStore((s) => s.activeWorkoutId)
 
   useEffect(() => {
     async function loadProfile() {
@@ -26,9 +31,18 @@ export default function HomeScreen() {
     loadProfile()
   }, [])
 
-  function handleStartWorkout() {
-    // TODO: Navigate to workout screen or start workout
-    console.log('Start workout pressed')
+  async function handleStartWorkout() {
+    if (activeWorkoutId) {
+      openWorkoutSheet()
+      return
+    }
+    try {
+      const workoutId = await createWorkout()
+      startWorkout(workoutId)
+    } catch (e) {
+      Alert.alert('Error', 'Could not start workout.')
+      console.error(e)
+    }
   }
 
   return (

@@ -1,4 +1,8 @@
 import { create } from 'zustand'
+import { setString, removeKey } from '@/storage/mmkv'
+
+export const MMKV_WORKOUT_ID = 'active_workout_id'
+export const MMKV_STARTED_AT = 'workout_started_at'
 
 interface SetEntry {
   id: string
@@ -10,20 +14,31 @@ interface SetEntry {
 }
 
 interface ExerciseEntry {
-  exerciseId: string
+  workoutExerciseId: string
+  exerciseTypeId: string
+  exerciseTypeName: string
+  methodId: string
+  methodName: string
+  weightUnit: string
   sets: SetEntry[]
 }
 
 interface SessionState {
   activeWorkoutId: string | null
+  startedAt: number | null
   exercises: ExerciseEntry[]
   isResting: boolean
   restSecondsRemaining: number
   elapsedSeconds: number
+  isWorkoutSheetOpen: boolean
+
   startWorkout: (workoutId: string) => void
   endWorkout: () => void
-  addExercise: (exerciseId: string) => void
-  addSet: (exerciseId: string, set: SetEntry) => void
+  openWorkoutSheet: () => void
+  closeWorkoutSheet: () => void
+  addExercise: (entry: Omit<ExerciseEntry, 'sets'>) => void
+  removeExercise: (workoutExerciseId: string) => void
+  addSet: (workoutExerciseId: string, set: SetEntry) => void
   startRest: (seconds: number) => void
   tickRest: () => void
   tickElapsed: () => void
@@ -32,40 +47,61 @@ interface SessionState {
 
 export const useSessionStore = create<SessionState>()((set) => ({
   activeWorkoutId: null,
+  startedAt: null,
   exercises: [],
   isResting: false,
   restSecondsRemaining: 0,
   elapsedSeconds: 0,
+  isWorkoutSheetOpen: false,
 
-  startWorkout: (workoutId) =>
+  startWorkout: (workoutId) => {
+    const now = Date.now()
+    setString(MMKV_WORKOUT_ID, workoutId)
+    setString(MMKV_STARTED_AT, now.toString())
     set({
       activeWorkoutId: workoutId,
+      startedAt: now,
       exercises: [],
       isResting: false,
       restSecondsRemaining: 0,
       elapsedSeconds: 0,
-    }),
+      isWorkoutSheetOpen: true,
+    })
+  },
 
-  endWorkout: () =>
+  endWorkout: () => {
+    removeKey(MMKV_WORKOUT_ID)
+    removeKey(MMKV_STARTED_AT)
     set({
       activeWorkoutId: null,
+      startedAt: null,
       exercises: [],
       isResting: false,
       restSecondsRemaining: 0,
       elapsedSeconds: 0,
-    }),
+      isWorkoutSheetOpen: false,
+    })
+  },
 
-  addExercise: (exerciseId) =>
+  openWorkoutSheet: () => set({ isWorkoutSheetOpen: true }),
+  closeWorkoutSheet: () => set({ isWorkoutSheetOpen: false }),
+
+  addExercise: (entry) =>
     set((state) => ({
-      exercises: [...state.exercises, { exerciseId, sets: [] }],
+      exercises: [...state.exercises, { ...entry, sets: [] }],
     })),
 
-  addSet: (exerciseId, newSet) =>
+  removeExercise: (workoutExerciseId) =>
+    set((state) => ({
+      exercises: state.exercises.filter((ex) => ex.workoutExerciseId !== workoutExerciseId),
+    })),
+
+  addSet: (workoutExerciseId, newSet) =>
     set((state) => ({
       exercises: state.exercises.map((ex) =>
-        ex.exerciseId === exerciseId
+        ex.workoutExerciseId === workoutExerciseId
           ? { ...ex, sets: [...ex.sets, newSet] }
-          : ex
+          : ex,
       ),
     })),
 

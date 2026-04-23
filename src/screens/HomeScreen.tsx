@@ -92,6 +92,14 @@ const stylesheet = createStyleSheet((theme) => ({
     paddingHorizontal: theme.spacing.md,
     marginVertical: theme.spacing.xs,
     gap: theme.spacing.md,
+    // Add subtle shadow and border for depth
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 5,
+    borderWidth: 1.5,
+    borderColor: 'rgba(255, 255, 255, 0.3)',
   },
   plusIcon: {
     marginRight: theme.spacing.sm,

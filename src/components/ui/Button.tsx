@@ -56,14 +56,23 @@ const stylesheet = createStyleSheet((theme) => ({
     paddingHorizontal: theme.spacing.md,
     alignItems: 'center' as const,
     justifyContent: 'center' as const,
+    // Add subtle shadow for depth
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
     variants: {
       variant: {
         filled: {
           backgroundColor: theme.colors.accent,
+          // Add visible border with white highlight
+          borderWidth: 1.5,
+          borderColor: 'rgba(255, 255, 255, 0.3)',
         },
         ghost: {
           backgroundColor: 'transparent',
-          borderWidth: 1,
+          borderWidth: 2,
           borderColor: theme.colors.accent,
         },
       },

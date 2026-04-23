@@ -18,6 +18,8 @@ export default function ProfileScreen({ navigation }: Props) {
     name: string | null
     height: number | null
     weight: number | null
+    heightUnit: string
+    defaultWeightUnit: string
   } | null>(null)
   const [loading, setLoading] = useState(true)
 
@@ -35,7 +37,13 @@ export default function ProfileScreen({ navigation }: Props) {
   async function loadProfile() {
     try {
       const p = await getProfile()
-      setProfile(p ? { name: p.name, height: p.height, weight: p.weight } : null)
+      setProfile(p ? {
+        name: p.name,
+        height: p.height,
+        weight: p.weight,
+        heightUnit: p.heightUnit || 'cm',
+        defaultWeightUnit: p.defaultWeightUnit || 'kg'
+      } : null)
     } catch (e) {
       console.error('Failed to load profile', e)
     } finally {
@@ -68,7 +76,10 @@ export default function ProfileScreen({ navigation }: Props) {
           <>
             <Text style={styles.label}>Height</Text>
             <Text style={styles.profileValue}>
-              {profile.height} cm
+              {profile.heightUnit === 'ft'
+                ? `${(profile.height / 30.48).toFixed(2)} ft`
+                : `${profile.height} cm`
+              }
             </Text>
           </>
         )}
@@ -76,19 +87,29 @@ export default function ProfileScreen({ navigation }: Props) {
           <>
             <Text style={styles.label}>Weight</Text>
             <Text style={styles.profileValue}>
-              {profile.weight} kg
+              {profile.defaultWeightUnit === 'lb'
+                ? `${(profile.weight * 2.20462).toFixed(1)} lb`
+                : `${profile.weight} kg`
+              }
             </Text>
           </>
         )}
-        <TouchableOpacity
-          style={styles.editButton}
-          onPress={() => navigation.navigate('EditProfile')}
-        >
-          <Text style={styles.editButtonText}>Edit Profile</Text>
-        </TouchableOpacity>
       </View>
 
       <Text style={styles.sectionTitle}>Settings</Text>
+
+      <TouchableOpacity
+        style={styles.settingsButton}
+        onPress={() => navigation.navigate('EditProfile')}
+      >
+        <View>
+          <Text style={styles.settingsButtonTitle}>Edit Profile</Text>
+          <Text style={styles.settingsButtonDescription}>
+            Update your personal information and preferences.
+          </Text>
+        </View>
+        <Text style={styles.settingsChevron}>›</Text>
+      </TouchableOpacity>
 
       <TouchableOpacity
         style={styles.settingsButton}
@@ -161,28 +182,22 @@ const stylesheet = createStyleSheet((theme) => ({
     fontWeight: '600',
     paddingBottom: theme.spacing.sm,
   },
-  editButton: {
-    marginTop: theme.spacing.md,
-    paddingVertical: theme.spacing.md,
-    paddingHorizontal: theme.spacing.md,
-    borderRadius: theme.radius.md,
-    backgroundColor: theme.colors.accent,
-    alignItems: 'center',
-  },
-  editButtonText: {
-    color: '#FFFFFF',
-    fontSize: theme.fontSize.sm,
-    fontWeight: '600',
-  },
   settingsButton: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     backgroundColor: theme.colors.surface,
     borderRadius: theme.radius.lg,
-    borderWidth: 0.5,
+    borderWidth: 1,
     borderColor: theme.colors.border,
     padding: theme.spacing.md,
+    marginBottom: theme.spacing.md,
+    // Add subtle shadow for depth
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.08,
+    shadowRadius: 3,
+    elevation: 2,
   },
   settingsButtonTitle: {
     color: theme.colors.text,

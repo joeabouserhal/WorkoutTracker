@@ -91,7 +91,15 @@ export default function TabNavigator() {
         tabBarStyle: {
           backgroundColor: theme.colors.surface,
           borderTopColor: theme.colors.border,
-          borderTopWidth: 0.5,
+          borderTopWidth: 1,
+          height: 76,
+          paddingBottom: 10,
+          paddingTop: 2,
+        },
+        tabBarLabelStyle: {
+          fontSize: 12,
+          fontWeight: '600',
+          marginTop: 2,
         },
       }}
     >

@@ -153,14 +153,14 @@ const stylesheet = createStyleSheet((theme) => ({
     paddingBottom: theme.spacing.xl,
   },
   headerRow: {
-    marginTop: theme.spacing.md,
+    marginTop: theme.spacing.lg,
     marginBottom: theme.spacing.lg,
   },
   backButton: {
     alignSelf: 'flex-start',
     backgroundColor: theme.colors.surface,
     borderRadius: theme.radius.full,
-    borderWidth: 0.5,
+    borderWidth: 1,
     borderColor: theme.colors.border,
     paddingVertical: theme.spacing.xs,
     paddingHorizontal: theme.spacing.md,

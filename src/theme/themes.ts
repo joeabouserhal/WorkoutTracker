@@ -48,7 +48,7 @@ export const darkTheme = createTheme({
   surface2: '#2C2C2E',
   text: '#F5F5F7',
   textMuted: '#8E8E93',
-  accent: '#7cd35a',
+  accent: '#5ab7d3',
   accentMuted: '#FF6B6B26',
   danger: '#FF453A',
   border: '#2C2C2E',

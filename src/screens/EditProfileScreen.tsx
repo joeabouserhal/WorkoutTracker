@@ -19,6 +19,8 @@ export default function EditProfileScreen({ navigation }: Props) {
   const [name, setName] = useState('')
   const [weight, setWeight] = useState('')
   const [height, setHeight] = useState('')
+  const [weightUnit, setWeightUnit] = useState<'kg' | 'lb'>('kg')
+  const [heightUnit, setHeightUnit] = useState<'cm' | 'ft'>('cm')
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
 
@@ -28,8 +30,23 @@ export default function EditProfileScreen({ navigation }: Props) {
         const p = await getProfile()
         if (p) {
           setName(p.name || '')
-          setHeight(p.height ? p.height.toString() : '')
-          setWeight(p.weight ? p.weight.toString() : '')
+          setWeightUnit((p.defaultWeightUnit === 'lb' ? 'lb' : 'kg') as 'kg' | 'lb')
+          setHeightUnit((p.heightUnit === 'ft' ? 'ft' : 'cm') as 'cm' | 'ft')
+
+          // Convert stored values (always in kg/cm) to display units
+          if (p.weight) {
+            const displayWeight = p.defaultWeightUnit === 'lb'
+              ? (p.weight * 2.20462).toFixed(1) // kg to lb
+              : p.weight.toString()
+            setWeight(displayWeight)
+          }
+
+          if (p.height) {
+            const displayHeight = p.heightUnit === 'ft'
+              ? (p.height / 30.48).toFixed(2) // cm to ft
+              : p.height.toString()
+            setHeight(displayHeight)
+          }
         }
       } catch (e) {
         console.error('Failed to load profile', e)
@@ -50,12 +67,22 @@ export default function EditProfileScreen({ navigation }: Props) {
     setSaving(true)
 
     try {
+      // Convert display values back to kg/cm for storage
       const heightNum = height ? parseFloat(height) : undefined
       const weightNum = weight ? parseFloat(weight) : undefined
+
+      const storedHeight = heightNum && heightUnit === 'ft'
+        ? heightNum * 30.48 // ft to cm
+        : heightNum
+
+      const storedWeight = weightNum && weightUnit === 'lb'
+        ? weightNum / 2.20462 // lb to kg
+        : weightNum
+
       await upsertProfile({
         name: name.trim(),
-        height: heightNum,
-        weight: weightNum,
+        height: storedHeight,
+        weight: storedWeight,
       })
       Alert.alert('Success', 'Profile updated successfully')
       navigation.goBack()
@@ -105,24 +132,24 @@ export default function EditProfileScreen({ navigation }: Props) {
       </View>
 
       <View style={styles.card}>
-        <Text style={styles.label}>Height (cm)</Text>
+        <Text style={styles.label}>Height ({heightUnit})</Text>
         <TextInput
           style={styles.input}
           value={height}
           onChangeText={setHeight}
-          placeholder="Enter your height"
+          placeholder={`Enter your height in ${heightUnit}`}
           placeholderTextColor={theme.colors.textMuted}
           keyboardType="decimal-pad"
         />
       </View>
 
       <View style={styles.card}>
-        <Text style={styles.label}>Weight (kg)</Text>
+        <Text style={styles.label}>Weight ({weightUnit})</Text>
         <TextInput
           style={styles.input}
           value={weight}
           onChangeText={setWeight}
-          placeholder="Enter your weight"
+          placeholder={`Enter your weight in ${weightUnit}`}
           placeholderTextColor={theme.colors.textMuted}
           keyboardType="decimal-pad"
         />
@@ -169,14 +196,14 @@ const stylesheet = createStyleSheet((theme) => ({
     fontSize: theme.fontSize.md,
   },
   headerRow: {
-    marginTop: theme.spacing.md,
+    marginTop: theme.spacing.lg,
     marginBottom: theme.spacing.lg,
   },
   backButton: {
     alignSelf: 'flex-start',
     backgroundColor: theme.colors.surface,
     borderRadius: theme.radius.full,
-    borderWidth: 0.5,
+    borderWidth: 1,
     borderColor: theme.colors.border,
     paddingVertical: theme.spacing.xs,
     paddingHorizontal: theme.spacing.md,
@@ -228,6 +255,14 @@ const stylesheet = createStyleSheet((theme) => ({
     borderRadius: theme.radius.md,
     paddingVertical: theme.spacing.md,
     alignItems: 'center',
+    // Add subtle shadow and border for depth
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 6,
+    elevation: 4,
+    borderWidth: 1.5,
+    borderColor: 'rgba(255, 255, 255, 0.3)',
   },
   saveButtonDisabled: {
     opacity: 0.5,
@@ -242,9 +277,15 @@ const stylesheet = createStyleSheet((theme) => ({
     paddingVertical: theme.spacing.md,
     borderRadius: theme.radius.md,
     backgroundColor: theme.colors.surface2,
-    borderWidth: 0.5,
+    borderWidth: 1,
     borderColor: theme.colors.border,
     alignItems: 'center',
+    // Add subtle shadow for consistency
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.08,
+    shadowRadius: 3,
+    elevation: 2,
   },
   cancelButtonText: {
     color: theme.colors.text,

@@ -6,12 +6,14 @@ import { getProfile, upsertProfile } from '@/db/profileHelpers'
 import type { ProfileStackParamList } from '../navigation/TabNavigator'
 
 type WeightUnit = 'kg' | 'lb'
+type HeightUnit = 'cm' | 'ft'
 
 type Props = NativeStackScreenProps<ProfileStackParamList, 'Settings'>
 
 export default function SettingsScreen({ navigation }: Props) {
   const { styles, theme } = useStyles(stylesheet)
   const [weightUnit, setWeightUnit] = useState<WeightUnit>('kg')
+  const [heightUnit, setHeightUnit] = useState<HeightUnit>('cm')
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -20,6 +22,9 @@ export default function SettingsScreen({ navigation }: Props) {
         const profile = await getProfile()
         if (profile?.defaultWeightUnit) {
           setWeightUnit(profile.defaultWeightUnit as WeightUnit)
+        }
+        if (profile?.heightUnit) {
+          setHeightUnit(profile.heightUnit as HeightUnit)
         }
       } catch (e) {
         console.error('Failed to load settings', e)
@@ -37,6 +42,15 @@ export default function SettingsScreen({ navigation }: Props) {
       await upsertProfile({ defaultWeightUnit: unit })
     } catch (e) {
       console.error('Failed to update weight unit', e)
+    }
+  }
+
+  async function handleHeightUnitChange(unit: HeightUnit) {
+    setHeightUnit(unit)
+    try {
+      await upsertProfile({ heightUnit: unit })
+    } catch (e) {
+      console.error('Failed to update height unit', e)
     }
   }
 
@@ -105,6 +119,44 @@ export default function SettingsScreen({ navigation }: Props) {
           </TouchableOpacity>
         </View>
       </View>
+
+      <View style={styles.unitsCard}>
+        <Text style={styles.unitLabel}>Height Unit</Text>
+        <View style={styles.unitButtonsRow}>
+          <TouchableOpacity
+            style={[
+              styles.unitButton,
+              heightUnit === 'cm' && styles.unitButtonActive,
+            ]}
+            onPress={() => handleHeightUnitChange('cm')}
+          >
+            <Text
+              style={[
+                styles.unitButtonText,
+                heightUnit === 'cm' && styles.unitButtonTextActive,
+              ]}
+            >
+              cm
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[
+              styles.unitButton,
+              heightUnit === 'ft' && styles.unitButtonActive,
+            ]}
+            onPress={() => handleHeightUnitChange('ft')}
+          >
+            <Text
+              style={[
+                styles.unitButtonText,
+                heightUnit === 'ft' && styles.unitButtonTextActive,
+              ]}
+            >
+              ft
+            </Text>
+          </TouchableOpacity>
+        </View>
+      </View>
     </ScrollView>
   )
 }
@@ -119,14 +171,14 @@ const stylesheet = createStyleSheet((theme) => ({
     paddingBottom: theme.spacing.xl,
   },
   headerRow: {
-    marginTop: theme.spacing.md,
+    marginTop: theme.spacing.lg,
     marginBottom: theme.spacing.lg,
   },
   backButton: {
     alignSelf: 'flex-start',
     backgroundColor: theme.colors.surface,
     borderRadius: theme.radius.full,
-    borderWidth: 0.5,
+    borderWidth: 1,
     borderColor: theme.colors.border,
     paddingVertical: theme.spacing.xs,
     paddingHorizontal: theme.spacing.md,
@@ -157,9 +209,15 @@ const stylesheet = createStyleSheet((theme) => ({
     justifyContent: 'space-between',
     backgroundColor: theme.colors.surface,
     borderRadius: theme.radius.lg,
-    borderWidth: 0.5,
+    borderWidth: 1,
     borderColor: theme.colors.border,
     padding: theme.spacing.md,
+    // Add subtle shadow for depth
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.08,
+    shadowRadius: 3,
+    elevation: 2,
   },
   cardTitle: {
     color: theme.colors.text,
@@ -182,6 +240,7 @@ const stylesheet = createStyleSheet((theme) => ({
     borderWidth: 0.5,
     borderColor: theme.colors.border,
     padding: theme.spacing.md,
+    marginBottom: theme.spacing.md,
     gap: theme.spacing.md,
   },
   unitLabel: {
@@ -199,13 +258,27 @@ const stylesheet = createStyleSheet((theme) => ({
     paddingHorizontal: theme.spacing.md,
     borderRadius: theme.radius.md,
     backgroundColor: theme.colors.surface2,
-    borderWidth: 0.5,
+    borderWidth: 1,
     borderColor: theme.colors.border,
     alignItems: 'center',
+    // Add subtle shadow for inactive buttons
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 1,
   },
   unitButtonActive: {
     backgroundColor: theme.colors.accent,
-    borderColor: theme.colors.accent,
+    borderColor: 'rgba(255, 255, 255, 0.3)',
+    // Add enhanced shadow for active state
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+    elevation: 3,
+    // Add visible border with white highlight
+    borderWidth: 1.5,
   },
   unitButtonText: {
     color: theme.colors.text,

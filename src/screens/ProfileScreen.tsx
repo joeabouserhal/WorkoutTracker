@@ -1,65 +1,45 @@
 import React, { useEffect, useState } from 'react'
 import {
-  Alert,
   ScrollView,
   Text,
-  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native'
 import type { NativeStackScreenProps } from '@react-navigation/native-stack'
 import { createStyleSheet, useStyles } from 'react-native-unistyles'
-import { getProfile, upsertProfile } from '@/db/profileHelpers'
+import { getProfile } from '@/db/profileHelpers'
 import type { ProfileStackParamList } from '../navigation/TabNavigator'
 
 type Props = NativeStackScreenProps<ProfileStackParamList, 'Profile'>
 
 export default function ProfileScreen({ navigation }: Props) {
   const { styles, theme } = useStyles(stylesheet)
-  const [name, setName] = useState('')
-  const [storedName, setStoredName] = useState('')
+  const [profile, setProfile] = useState<{
+    name: string | null
+    height: number | null
+    weight: number | null
+  } | null>(null)
   const [loading, setLoading] = useState(true)
-  const [saving, setSaving] = useState(false)
-  const [isEditing, setIsEditing] = useState(true)
 
   useEffect(() => {
-    async function load() {
-      try {
-        const p = await getProfile()
-
-        if (p?.name) {
-          setName(p.name)
-          setStoredName(p.name)
-          setIsEditing(false)
-        }
-      } catch (e) {
-        console.error('Failed to load profile', e)
-      } finally {
-        setLoading(false)
-      }
-    }
-
-    load()
+    loadProfile()
   }, [])
 
-  async function handleSaveName() {
-    if (!name.trim()) {
-      Alert.alert('Name cannot be empty')
-      return
-    }
+  useEffect(() => {
+    const unsubscribe = navigation.addListener('focus', () => {
+      loadProfile()
+    })
+    return unsubscribe
+  }, [navigation])
 
-    setSaving(true)
-
+  async function loadProfile() {
     try {
-      await upsertProfile({ name: name.trim() })
-      setStoredName(name.trim())
-      setIsEditing(false)
-      Alert.alert('Saved', 'Your name has been saved.')
+      const p = await getProfile()
+      setProfile(p ? { name: p.name, height: p.height, weight: p.weight } : null)
     } catch (e) {
-      Alert.alert('Error', 'Could not save name.')
-      console.error(e)
+      console.error('Failed to load profile', e)
     } finally {
-      setSaving(false)
+      setLoading(false)
     }
   }
 
@@ -79,54 +59,34 @@ export default function ProfileScreen({ navigation }: Props) {
     >
       <Text style={styles.sectionTitle}>Profile</Text>
 
-      {storedName && !isEditing ? (
-        <View style={styles.card}>
-          <Text style={styles.profileName}>{storedName}</Text>
-          <TouchableOpacity
-            style={styles.editButton}
-            onPress={() => setIsEditing(true)}
-          >
-            <Text style={styles.editButtonText}>Edit Name</Text>
-          </TouchableOpacity>
-        </View>
-      ) : (
-        <View style={styles.card}>
-          <Text style={styles.label}>Your name</Text>
-          <TextInput
-            style={styles.input}
-            value={name}
-            onChangeText={setName}
-            placeholder="Enter your name"
-            placeholderTextColor={theme.colors.textMuted}
-            autoCorrect={false}
-          />
-          <View style={styles.formActions}>
-            <TouchableOpacity
-              style={[
-                styles.saveButton,
-                saving && styles.saveButtonDisabled,
-              ]}
-              onPress={handleSaveName}
-              disabled={saving}
-            >
-              <Text style={styles.saveButtonText}>
-                {saving ? 'Saving...' : 'Save'}
-              </Text>
-            </TouchableOpacity>
-            {storedName ? (
-              <TouchableOpacity
-                style={styles.cancelButton}
-                onPress={() => {
-                  setName(storedName)
-                  setIsEditing(false)
-                }}
-              >
-                <Text style={styles.cancelButtonText}>Cancel</Text>
-              </TouchableOpacity>
-            ) : null}
-          </View>
-        </View>
-      )}
+      <View style={styles.card}>
+        <Text style={styles.label}>Name</Text>
+        <Text style={styles.profileName}>
+          {profile?.name || 'Not set'}
+        </Text>
+        {profile?.height && (
+          <>
+            <Text style={styles.label}>Height</Text>
+            <Text style={styles.profileValue}>
+              {profile.height} cm
+            </Text>
+          </>
+        )}
+        {profile?.weight && (
+          <>
+            <Text style={styles.label}>Weight</Text>
+            <Text style={styles.profileValue}>
+              {profile.weight} kg
+            </Text>
+          </>
+        )}
+        <TouchableOpacity
+          style={styles.editButton}
+          onPress={() => navigation.navigate('EditProfile')}
+        >
+          <Text style={styles.editButtonText}>Edit Profile</Text>
+        </TouchableOpacity>
+      </View>
 
       <Text style={styles.sectionTitle}>Settings</Text>
 
@@ -180,74 +140,37 @@ const stylesheet = createStyleSheet((theme) => ({
     borderWidth: 0.5,
     borderColor: theme.colors.border,
     padding: theme.spacing.md,
-    gap: theme.spacing.sm,
+    gap: theme.spacing.xs,
+  },
+  label: {
+    color: theme.colors.textMuted,
+    fontSize: theme.fontSize.xs,
+    fontWeight: '500',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
   profileName: {
     color: theme.colors.text,
     fontSize: theme.fontSize.xl,
     fontWeight: '700',
-    marginTop: theme.spacing.sm,
+    paddingBottom: theme.spacing.sm,
+  },
+  profileValue: {
+    color: theme.colors.text,
+    fontSize: theme.fontSize.lg,
+    fontWeight: '600',
+    paddingBottom: theme.spacing.sm,
   },
   editButton: {
-    alignSelf: 'flex-start',
     marginTop: theme.spacing.md,
-    paddingVertical: theme.spacing.sm,
+    paddingVertical: theme.spacing.md,
     paddingHorizontal: theme.spacing.md,
     borderRadius: theme.radius.md,
     backgroundColor: theme.colors.accent,
+    alignItems: 'center',
   },
   editButtonText: {
     color: '#FFFFFF',
-    fontSize: theme.fontSize.sm,
-    fontWeight: '600',
-  },
-  formActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'flex-start',
-    gap: theme.spacing.sm,
-    marginTop: theme.spacing.md,
-  },
-  cancelButton: {
-    paddingVertical: theme.spacing.sm,
-    paddingHorizontal: theme.spacing.md,
-    borderRadius: theme.radius.md,
-    backgroundColor: theme.colors.surface2,
-    borderWidth: 0.5,
-    borderColor: theme.colors.border,
-  },
-  cancelButtonText: {
-    color: theme.colors.text,
-    fontSize: theme.fontSize.sm,
-    fontWeight: '600',
-  },
-  label: {
-    color: theme.colors.text,
-    fontSize: theme.fontSize.sm,
-    fontWeight: '500',
-  },
-  input: {
-    backgroundColor: theme.colors.surface2,
-    borderRadius: theme.radius.md,
-    borderWidth: 0.5,
-    borderColor: theme.colors.border,
-    paddingHorizontal: theme.spacing.md,
-    paddingVertical: theme.spacing.sm,
-    color: theme.colors.text,
-    fontSize: theme.fontSize.md,
-  },
-  saveButton: {
-    backgroundColor: theme.colors.accent,
-    borderRadius: theme.radius.md,
-    paddingVertical: theme.spacing.sm,
-    alignItems: 'center',
-  },
-  saveButtonDisabled: {
-    opacity: 0.5,
-  },
-  saveButtonText: {
-    color: '#FFFFFF',
-    paddingHorizontal: theme.spacing.md,
     fontSize: theme.fontSize.sm,
     fontWeight: '600',
   },

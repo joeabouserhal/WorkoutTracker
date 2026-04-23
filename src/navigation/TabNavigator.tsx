@@ -8,6 +8,7 @@ import CalendarScreen from '../screens/CalendarScreen'
 import ProgressScreen from '../screens/ProgressScreen'
 import LibraryScreen from '../screens/LibraryScreen'
 import ProfileScreen from '../screens/ProfileScreen'
+import EditProfileScreen from '../screens/EditProfileScreen'
 import SettingsScreen from '../screens/SettingsScreen'
 import ThemesScreen from '../screens/ThemesScreen'
 
@@ -18,6 +19,7 @@ const ProgressStack = createNativeStackNavigator()
 const LibraryStack = createNativeStackNavigator()
 export type ProfileStackParamList = {
   Profile: undefined
+  EditProfile: undefined
   Settings: undefined
   Themes: undefined
 }
@@ -69,6 +71,7 @@ function ProfileStackScreen() {
       }}
     >
       <ProfileStack.Screen name="Profile" component={ProfileScreen} />
+      <ProfileStack.Screen name="EditProfile" component={EditProfileScreen} />
       <ProfileStack.Screen name="Settings" component={SettingsScreen} />
       <ProfileStack.Screen name="Themes" component={ThemesScreen} />
     </ProfileStack.Navigator>

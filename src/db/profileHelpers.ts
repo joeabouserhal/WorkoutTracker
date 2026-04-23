@@ -6,6 +6,7 @@ type ProfileRow = {
   id: string
   name: string | null
   height: number | null
+  weight: number | null
   height_unit: string
   default_weight_unit: string
 }
@@ -16,6 +17,7 @@ async function ensureProfileTable() {
       id TEXT PRIMARY KEY,
       name TEXT,
       height REAL,
+      weight REAL,
       height_unit TEXT NOT NULL DEFAULT 'cm',
       default_weight_unit TEXT NOT NULL DEFAULT 'kg'
     )
@@ -25,9 +27,15 @@ async function ensureProfileTable() {
   const hasNameColumn = result.rows.some(
     (row: { name?: unknown }) => row.name === 'name'
   )
+  const hasWeightColumn = result.rows.some(
+    (row: { name?: unknown }) => row.name === 'weight'
+  )
 
   if (!hasNameColumn) {
     await db.$client.execute('ALTER TABLE profile ADD COLUMN name TEXT')
+  }
+  if (!hasWeightColumn) {
+    await db.$client.execute('ALTER TABLE profile ADD COLUMN weight REAL')
   }
 }
 
@@ -35,7 +43,7 @@ export async function getProfile() {
   await ensureProfileTable()
 
   const result = await db.$client.execute(
-    'SELECT id, name, height, height_unit, default_weight_unit FROM profile WHERE id = ?',
+    'SELECT id, name, height, weight, height_unit, default_weight_unit FROM profile WHERE id = ?',
     [PROFILE_ID]
   )
 
@@ -46,6 +54,7 @@ export async function getProfile() {
         id: row.id,
         name: row.name,
         height: row.height,
+        weight: row.weight,
         heightUnit: row.height_unit,
         defaultWeightUnit: row.default_weight_unit,
       }
@@ -55,6 +64,7 @@ export async function getProfile() {
 export async function upsertProfile(data: {
   name?: string
   height?: number
+  weight?: number
   heightUnit?: string
   defaultWeightUnit?: string
 }) {
@@ -67,14 +77,16 @@ export async function upsertProfile(data: {
         id,
         name,
         height,
+        weight,
         height_unit,
         default_weight_unit
-      ) VALUES (?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?)
     `,
     [
       PROFILE_ID,
       data.name ?? existing?.name ?? null,
       data.height ?? existing?.height ?? null,
+      data.weight ?? existing?.weight ?? null,
       data.heightUnit ?? existing?.heightUnit ?? 'cm',
       data.defaultWeightUnit ?? existing?.defaultWeightUnit ?? 'kg',
     ]

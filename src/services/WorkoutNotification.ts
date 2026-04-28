@@ -1,7 +1,12 @@
 import notifee, { AndroidImportance } from '@notifee/react-native'
+import { getString, setString } from '@/storage/mmkv'
+import { formatRestTimer } from './restTimerSettings'
 
 export const WORKOUT_CHANNEL_ID = 'workout'
 export const WORKOUT_NOTIFICATION_ID = 'workout_active'
+export const REST_DONE_CHANNEL_ID = 'rest_done'
+export const REST_DONE_NOTIFICATION_ID = 'rest_done'
+const REST_DONE_NOTIFIED_AT_KEY = 'rest_done_notified_at'
 
 export function formatElapsedNotif(seconds: number): string {
   const h = Math.floor(seconds / 3600)
@@ -23,28 +28,75 @@ export async function setupWorkoutChannel() {
   })
 }
 
-export async function showWorkoutNotification(elapsedSeconds: number) {
+export async function setupRestDoneChannel() {
+  await notifee.createChannel({
+    id: REST_DONE_CHANNEL_ID,
+    name: 'Rest Timer',
+    importance: AndroidImportance.HIGH,
+    sound: 'default',
+    vibration: true,
+  })
+}
+
+export async function showWorkoutNotification(
+  elapsedSeconds: number,
+  restSecondsRemaining = 0,
+) {
+  const hasRestTimer = restSecondsRemaining > 0
+  const elapsed = formatElapsedNotif(elapsedSeconds)
+  const actions = [
+    ...(hasRestTimer
+      ? [{
+          title: 'Skip Rest',
+          pressAction: { id: 'skip_rest', launchActivity: 'default' },
+        }]
+      : []),
+    {
+      title: 'End Workout',
+      pressAction: { id: 'end_workout', launchActivity: 'default' },
+    },
+  ]
   await notifee.displayNotification({
     id: WORKOUT_NOTIFICATION_ID,
-    title: 'Workout in Progress',
-    body: formatElapsedNotif(elapsedSeconds),
+    title: `Workout in Progress ${elapsed}`,
+    body: hasRestTimer
+      ? `Rest ${formatRestTimer(restSecondsRemaining)}`
+      : 'Keep going. Tap to return to your workout.',
     android: {
       channelId: WORKOUT_CHANNEL_ID,
       asForegroundService: true,
       ongoing: true,
       onlyAlertOnce: true,
       smallIcon: 'ic_launcher',
-      actions: [
-        {
-          title: 'Skip Rest',
-          pressAction: { id: 'skip_rest' },
-        },
-        {
-          title: 'End Workout',
-          pressAction: { id: 'end_workout' },
-        },
-      ],
+      actions,
       pressAction: { id: 'default', launchActivity: 'default' },
+    },
+  })
+}
+
+export async function showRestDoneNotification(restEndsAt?: number | string | null) {
+  if (restEndsAt) {
+    const marker = String(restEndsAt)
+    if (getString(REST_DONE_NOTIFIED_AT_KEY) === marker) return
+    setString(REST_DONE_NOTIFIED_AT_KEY, marker)
+  }
+
+  await setupRestDoneChannel()
+  await notifee.displayNotification({
+    id: REST_DONE_NOTIFICATION_ID,
+    title: 'Rest Time Done',
+    body: 'Time to start your next set.',
+    android: {
+      channelId: REST_DONE_CHANNEL_ID,
+      smallIcon: 'ic_launcher',
+      pressAction: { id: 'default', launchActivity: 'default' },
+    },
+    ios: {
+      sound: 'default',
+      foregroundPresentationOptions: {
+        alert: true,
+        sound: true,
+      },
     },
   })
 }

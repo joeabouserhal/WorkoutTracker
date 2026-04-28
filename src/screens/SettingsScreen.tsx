@@ -3,6 +3,11 @@ import { ScrollView, Text, TouchableOpacity, View } from 'react-native'
 import type { NativeStackScreenProps } from '@react-navigation/native-stack'
 import { createStyleSheet, useStyles } from 'react-native-unistyles'
 import { getProfile, upsertProfile } from '@/db/profileHelpers'
+import {
+  formatRestTimer,
+  getDefaultRestSeconds,
+  setDefaultRestSeconds,
+} from '@/services/restTimerSettings'
 import type { ProfileStackParamList } from '../navigation/TabNavigator'
 
 type WeightUnit = 'kg' | 'lb'
@@ -11,10 +16,10 @@ type HeightUnit = 'cm' | 'ft'
 type Props = NativeStackScreenProps<ProfileStackParamList, 'Settings'>
 
 export default function SettingsScreen({ navigation }: Props) {
-  const { styles, theme } = useStyles(stylesheet)
+  const { styles } = useStyles(stylesheet)
   const [weightUnit, setWeightUnit] = useState<WeightUnit>('kg')
   const [heightUnit, setHeightUnit] = useState<HeightUnit>('cm')
-  const [loading, setLoading] = useState(true)
+  const [restTimerSeconds, setRestTimerSeconds] = useState(getDefaultRestSeconds)
 
   useEffect(() => {
     async function loadSettings() {
@@ -26,10 +31,9 @@ export default function SettingsScreen({ navigation }: Props) {
         if (profile?.heightUnit) {
           setHeightUnit(profile.heightUnit as HeightUnit)
         }
+        setRestTimerSeconds(getDefaultRestSeconds())
       } catch (e) {
         console.error('Failed to load settings', e)
-      } finally {
-        setLoading(false)
       }
     }
 
@@ -52,6 +56,12 @@ export default function SettingsScreen({ navigation }: Props) {
     } catch (e) {
       console.error('Failed to update height unit', e)
     }
+  }
+
+  function handleRestTimerChange(delta: number) {
+    const next = Math.max(10, Math.min(600, restTimerSeconds + delta))
+    setRestTimerSeconds(next)
+    setDefaultRestSeconds(next)
   }
 
   return (
@@ -157,6 +167,35 @@ export default function SettingsScreen({ navigation }: Props) {
           </TouchableOpacity>
         </View>
       </View>
+
+      <Text style={styles.sectionSubtitle}>Workout Defaults</Text>
+
+      <View style={styles.unitsCard}>
+        <Text style={styles.unitLabel}>Rest Timer</Text>
+        <View style={styles.timerControlRow}>
+          <TouchableOpacity
+            style={[
+              styles.timerAdjustButton,
+              restTimerSeconds <= 10 && styles.timerAdjustButtonDisabled,
+            ]}
+            onPress={() => handleRestTimerChange(-10)}
+            disabled={restTimerSeconds <= 10}
+          >
+            <Text style={styles.timerAdjustText}>-10s</Text>
+          </TouchableOpacity>
+          <Text style={styles.timerValue}>{formatRestTimer(restTimerSeconds)}</Text>
+          <TouchableOpacity
+            style={[
+              styles.timerAdjustButton,
+              restTimerSeconds >= 600 && styles.timerAdjustButtonDisabled,
+            ]}
+            onPress={() => handleRestTimerChange(10)}
+            disabled={restTimerSeconds >= 600}
+          >
+            <Text style={styles.timerAdjustText}>+10s</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
     </ScrollView>
   )
 }
@@ -251,6 +290,36 @@ const stylesheet = createStyleSheet((theme) => ({
   unitButtonsRow: {
     flexDirection: 'row',
     gap: theme.spacing.sm,
+  },
+  timerControlRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: theme.spacing.sm,
+  },
+  timerAdjustButton: {
+    flex: 1,
+    paddingVertical: theme.spacing.sm,
+    paddingHorizontal: theme.spacing.md,
+    borderRadius: theme.radius.md,
+    backgroundColor: theme.colors.surface2,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    alignItems: 'center',
+  },
+  timerAdjustButtonDisabled: {
+    opacity: 0.45,
+  },
+  timerAdjustText: {
+    color: theme.colors.text,
+    fontSize: theme.fontSize.md,
+    fontWeight: '600',
+  },
+  timerValue: {
+    minWidth: 72,
+    color: theme.colors.accent,
+    fontSize: theme.fontSize.lg,
+    fontWeight: '700',
+    textAlign: 'center',
   },
   unitButton: {
     flex: 1,

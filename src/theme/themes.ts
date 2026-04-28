@@ -49,7 +49,7 @@ export const darkTheme = createTheme({
   text: '#F5F5F7',
   textMuted: '#8E8E93',
   accent: '#5ab7d3',
-  accentMuted: '#FF6B6B26',
+  accentMuted: '#6bdcff26',
   danger: '#FF453A',
   border: '#2C2C2E',
   borderStrong: '#48484A',

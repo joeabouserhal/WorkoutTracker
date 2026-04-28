@@ -19,8 +19,15 @@ async function ensureTables() {
     default_unit TEXT NOT NULL DEFAULT 'kg'
   )`)
   await db.$client.execute(`CREATE TABLE IF NOT EXISTS workouts (
-    id TEXT PRIMARY KEY, started_at INTEGER NOT NULL, ended_at INTEGER, notes TEXT
+    id TEXT PRIMARY KEY, name TEXT, started_at INTEGER NOT NULL, ended_at INTEGER, notes TEXT
   )`)
+  const workoutColumns = await db.$client.execute('PRAGMA table_info(workouts)')
+  const hasWorkoutNameColumn = workoutColumns.rows.some(
+    (row: { name?: unknown }) => row.name === 'name',
+  )
+  if (!hasWorkoutNameColumn) {
+    await db.$client.execute('ALTER TABLE workouts ADD COLUMN name TEXT')
+  }
   await db.$client.execute(`CREATE TABLE IF NOT EXISTS workout_exercises (
     id TEXT PRIMARY KEY, workout_id TEXT NOT NULL, exercise_id TEXT NOT NULL,
     order_index INTEGER NOT NULL DEFAULT 0
@@ -98,45 +105,74 @@ const EXERCISE_DEFS: ExerciseDef[] = [
   { section: 'Core', name: 'Ab Rollout' },
   { section: 'Core', name: 'Russian Twist' },
   { section: 'Core', name: 'Side Plank', methodLocked: true, lockedMethod: 'Bodyweight' },
-  { section: 'Cardio', name: 'Treadmill Run', methodLocked: true, lockedMethod: 'Machine' },
-  { section: 'Cardio', name: 'Cycling', methodLocked: true, lockedMethod: 'Machine' },
-  { section: 'Cardio', name: 'Rowing Machine', methodLocked: true, lockedMethod: 'Machine' },
-  { section: 'Cardio', name: 'Jump Rope', methodLocked: true, lockedMethod: 'Bodyweight' },
-  { section: 'Cardio', name: 'Stair Climber', methodLocked: true, lockedMethod: 'Machine' },
 ]
 
 export async function seedDatabaseIfEmpty(): Promise<void> {
   await ensureTables()
 
-  const result = await db.$client.execute('SELECT COUNT(*) as count FROM sections')
-  const count = (result.rows[0] as any)?.count ?? 0
-  if (count > 0) return
-
-  const sectionNames = ['Chest', 'Back', 'Shoulders', 'Biceps', 'Triceps', 'Forearms', 'Legs', 'Glutes', 'Core', 'Cardio']
-  const sectionRows = sectionNames.map((name, i) => ({
-    id: genId(i),
-    name,
-    isCustom: 0,
-  }))
-  await db.insert(sections).values(sectionRows)
+  const sectionNames = ['Chest', 'Back', 'Shoulders', 'Biceps', 'Triceps', 'Forearms', 'Legs', 'Glutes', 'Core']
+  const sectionRows = []
+  for (const [i, name] of sectionNames.entries()) {
+    const existing = await db.$client.execute(
+      'SELECT id, name, is_custom as isCustom FROM sections WHERE name = ? LIMIT 1',
+      [name],
+    )
+    if (existing.rows.length > 0) {
+      sectionRows.push(existing.rows[0] as { id: string; name: string; isCustom: number })
+      continue
+    }
+    const row = {
+      id: genId(i),
+      name,
+      isCustom: 0,
+    }
+    await db.insert(sections).values(row)
+    sectionRows.push(row)
+  }
 
   const methodNames = ['Barbell', 'Dumbbell', 'Cable', 'Machine', 'Bodyweight']
-  const methodRows = methodNames.map((name, i) => ({
-    id: genId(100 + i),
-    name,
-  }))
-  await db.insert(methods).values(methodRows)
+  const methodRows = []
+  for (const [i, name] of methodNames.entries()) {
+    const existing = await db.$client.execute(
+      'SELECT id, name FROM methods WHERE name = ? LIMIT 1',
+      [name],
+    )
+    if (existing.rows.length > 0) {
+      methodRows.push(existing.rows[0] as { id: string; name: string })
+      continue
+    }
+    const row = {
+      id: genId(100 + i),
+      name,
+    }
+    await db.insert(methods).values(row)
+    methodRows.push(row)
+  }
 
   const sectionMap: Record<string, string> = Object.fromEntries(sectionRows.map((s) => [s.name, s.id]))
   const methodMap: Record<string, string> = Object.fromEntries(methodRows.map((m) => [m.name, m.id]))
 
-  const exerciseTypeRows = EXERCISE_DEFS.map((def, i) => ({
-    id: genId(200 + i),
-    sectionId: sectionMap[def.section],
-    name: def.name,
-    isCustom: 0,
-    methodLocked: def.methodLocked ? 1 : 0,
-    lockedMethodId: def.lockedMethod ? methodMap[def.lockedMethod] ?? null : null,
-  }))
-  await db.insert(exerciseTypes).values(exerciseTypeRows)
+  for (const [i, def] of EXERCISE_DEFS.entries()) {
+    const sectionId = sectionMap[def.section]
+    const lockedMethodId = def.lockedMethod ? methodMap[def.lockedMethod] ?? null : null
+    const existing = await db.$client.execute(
+      'SELECT id FROM exercise_types WHERE section_id = ? AND name = ? LIMIT 1',
+      [sectionId, def.name],
+    )
+    if (existing.rows.length > 0) {
+      await db.$client.execute(
+        'UPDATE exercise_types SET method_locked = ?, locked_method_id = ? WHERE id = ?',
+        [def.methodLocked ? 1 : 0, lockedMethodId, (existing.rows[0] as { id: string }).id],
+      )
+      continue
+    }
+    await db.insert(exerciseTypes).values({
+      id: genId(200 + i),
+      sectionId,
+      name: def.name,
+      isCustom: 0,
+      methodLocked: def.methodLocked ? 1 : 0,
+      lockedMethodId,
+    })
+  }
 }

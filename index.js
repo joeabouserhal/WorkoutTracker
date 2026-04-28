@@ -8,14 +8,18 @@ import { AppRegistry } from 'react-native'
 import App from './App'
 import { name as appName } from './app.json'
 import notifee, { EventType } from '@notifee/react-native'
-import { storage, removeKey } from './src/storage/mmkv'
-import { finishWorkout } from './src/db/workoutHelpers'
+import { storage, removeKey, setString } from './src/storage/mmkv'
 import {
   WORKOUT_CHANNEL_ID,
-  WORKOUT_NOTIFICATION_ID,
   formatElapsedNotif,
+  showRestDoneNotification,
 } from './src/services/WorkoutNotification'
-import { MMKV_STARTED_AT, MMKV_WORKOUT_ID } from './src/store/sessionStore'
+import {
+  MMKV_PENDING_WORKOUT_ACTION,
+  MMKV_REST_ENDS_AT,
+  MMKV_STARTED_AT,
+} from './src/store/sessionStore'
+import { formatRestTimer } from './src/services/restTimerSettings'
 
 // Runs inside the Android foreground service — keeps the notification
 // timer ticking every second while the app is backgrounded.
@@ -28,20 +32,37 @@ notifee.registerForegroundService((notification) => {
         return
       }
       const elapsed = Math.floor((Date.now() - parseInt(startedAtStr, 10)) / 1000)
-      notifee.displayNotification({
+      const restEndsAtStr = storage.getString(MMKV_REST_ENDS_AT)
+      const restSecondsRemaining = restEndsAtStr
+        ? Math.ceil((parseInt(restEndsAtStr, 10) - Date.now()) / 1000)
+        : 0
+
+      if (restEndsAtStr && restSecondsRemaining <= 0) {
+        removeKey(MMKV_REST_ENDS_AT)
+        await showRestDoneNotification(restEndsAtStr)
+      }
+
+      const hasRestTimer = restSecondsRemaining > 0
+      const elapsedTitle = formatElapsedNotif(elapsed)
+      const actions = [
+        ...(hasRestTimer
+          ? [{ title: 'Skip Rest', pressAction: { id: 'skip_rest', launchActivity: 'default' } }]
+          : []),
+        { title: 'End Workout', pressAction: { id: 'end_workout', launchActivity: 'default' } },
+      ]
+      await notifee.displayNotification({
         id: notification.id,
-        title: 'Workout in Progress',
-        body: formatElapsedNotif(elapsed),
+        title: `Workout in Progress ${elapsedTitle}`,
+        body: hasRestTimer
+          ? `Rest ${formatRestTimer(restSecondsRemaining)}`
+          : 'Keep going. Tap to return to your workout.',
         android: {
           channelId: WORKOUT_CHANNEL_ID,
           asForegroundService: true,
           ongoing: true,
           onlyAlertOnce: true,
           smallIcon: 'ic_launcher',
-          actions: [
-            { title: 'Skip Rest', pressAction: { id: 'skip_rest' } },
-            { title: 'End Workout', pressAction: { id: 'end_workout' } },
-          ],
+          actions,
           pressAction: { id: 'default', launchActivity: 'default' },
         },
       })
@@ -51,19 +72,17 @@ notifee.registerForegroundService((notification) => {
 
 // Handles notification button presses while the app is backgrounded or killed.
 notifee.onBackgroundEvent(async ({ type, detail }) => {
+  if (type === EventType.PRESS) {
+    setString(MMKV_PENDING_WORKOUT_ACTION, 'open')
+  }
+
   if (type === EventType.ACTION_PRESS && detail.pressAction?.id === 'end_workout') {
-    const workoutId = storage.getString(MMKV_WORKOUT_ID)
-    if (workoutId) {
-      try {
-        await finishWorkout(workoutId)
-      } catch (e) {
-        console.error('Failed to finish workout from background', e)
-      }
-    }
-    removeKey(MMKV_WORKOUT_ID)
-    removeKey(MMKV_STARTED_AT)
-    await notifee.stopForegroundService()
-    await notifee.cancelNotification(WORKOUT_NOTIFICATION_ID)
+    setString(MMKV_PENDING_WORKOUT_ACTION, 'end_workout')
+  }
+
+  if (type === EventType.ACTION_PRESS && detail.pressAction?.id === 'skip_rest') {
+    removeKey(MMKV_REST_ENDS_AT)
+    setString(MMKV_PENDING_WORKOUT_ACTION, 'skip_rest')
   }
 })
 

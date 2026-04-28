@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from 'react'
 import {
-  Alert,
   ScrollView,
   Text,
   TextInput,
@@ -12,6 +11,7 @@ import { createStyleSheet, useStyles } from 'react-native-unistyles'
 import { getProfile, upsertProfile } from '@/db/profileHelpers'
 import { logBodyWeight } from '@/db/bodyWeightHelpers'
 import type { ProfileStackParamList } from '../navigation/TabNavigator'
+import ThemedDialog, { type ThemedDialogAction } from '@/components/ui/ThemedDialog'
 
 type Props = NativeStackScreenProps<ProfileStackParamList, 'EditProfile'>
 
@@ -24,6 +24,23 @@ export default function EditProfileScreen({ navigation }: Props) {
   const [heightUnit, setHeightUnit] = useState<'cm' | 'ft'>('cm')
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [dialog, setDialog] = useState<{
+    title: string
+    message?: string
+    actions: ThemedDialogAction[]
+  } | null>(null)
+
+  function closeDialog() {
+    setDialog(null)
+  }
+
+  function showDialog(
+    title: string,
+    message: string,
+    actions: ThemedDialogAction[] = [{ label: 'OK', variant: 'primary', onPress: closeDialog }],
+  ) {
+    setDialog({ title, message, actions })
+  }
 
   useEffect(() => {
     async function load() {
@@ -60,11 +77,6 @@ export default function EditProfileScreen({ navigation }: Props) {
   }, [])
 
   async function handleSave() {
-    if (!name.trim()) {
-      Alert.alert('Validation', 'Name cannot be empty')
-      return
-    }
-
     setSaving(true)
 
     try {
@@ -88,14 +100,47 @@ export default function EditProfileScreen({ navigation }: Props) {
       if (storedWeight !== undefined) {
         await logBodyWeight(storedWeight)
       }
-      Alert.alert('Success', 'Profile updated successfully')
-      navigation.goBack()
+      showDialog('Profile Updated', 'Your profile changes were saved.', [
+        {
+          label: 'OK',
+          variant: 'primary',
+          onPress: () => {
+            closeDialog()
+            navigation.goBack()
+          },
+        },
+      ])
     } catch (e) {
-      Alert.alert('Error', 'Could not save profile.')
+      showDialog('Something went wrong', 'Could not save profile.')
       console.error(e)
     } finally {
       setSaving(false)
     }
+  }
+
+  function requestSaveProfile() {
+    if (!name.trim()) {
+      showDialog('Validation', 'Name cannot be empty.')
+      return
+    }
+
+    setDialog({
+      title: 'Update Profile',
+      message: 'Save these profile changes?',
+      actions: [
+        { label: 'Cancel', onPress: closeDialog },
+        {
+          label: 'Save Changes',
+          variant: 'primary',
+          onPress: () => {
+            closeDialog()
+            handleSave().catch((e) => {
+              console.error('Could not save profile', e)
+            })
+          },
+        },
+      ],
+    })
   }
 
   if (loading) {
@@ -107,76 +152,84 @@ export default function EditProfileScreen({ navigation }: Props) {
   }
 
   return (
-    <ScrollView
-      style={styles.scroll}
-      contentContainerStyle={styles.content}
-      keyboardShouldPersistTaps="handled"
-    >
-      <View style={styles.headerRow}>
-        <TouchableOpacity
-          style={styles.backButton}
-          onPress={() => navigation.goBack()}
-        >
-          <Text style={styles.backButtonText}>Back</Text>
-        </TouchableOpacity>
-      </View>
+    <>
+      <ScrollView
+        style={styles.scroll}
+        contentContainerStyle={styles.content}
+        keyboardShouldPersistTaps="handled"
+      >
+        <View style={styles.headerRow}>
+          <TouchableOpacity
+            style={styles.backButton}
+            onPress={() => navigation.goBack()}
+          >
+            <Text style={styles.backButtonText}>Back</Text>
+          </TouchableOpacity>
+        </View>
 
-      <Text style={styles.sectionTitle}>Edit Profile</Text>
+        <Text style={styles.sectionTitle}>Edit Profile</Text>
 
-      <View style={styles.card}>
-        <Text style={styles.label}>Name</Text>
-        <TextInput
-          style={styles.input}
-          value={name}
-          onChangeText={setName}
-          placeholder="Enter your name"
-          placeholderTextColor={theme.colors.textMuted}
-          autoCorrect={false}
-        />
-      </View>
+        <View style={styles.card}>
+          <Text style={styles.label}>Name</Text>
+          <TextInput
+            style={styles.input}
+            value={name}
+            onChangeText={setName}
+            placeholder="Enter your name"
+            placeholderTextColor={theme.colors.textMuted}
+            autoCorrect={false}
+          />
+        </View>
 
-      <View style={styles.card}>
-        <Text style={styles.label}>Height ({heightUnit})</Text>
-        <TextInput
-          style={styles.input}
-          value={height}
-          onChangeText={setHeight}
-          placeholder={`Enter your height in ${heightUnit}`}
-          placeholderTextColor={theme.colors.textMuted}
-          keyboardType="decimal-pad"
-        />
-      </View>
+        <View style={styles.card}>
+          <Text style={styles.label}>Height ({heightUnit})</Text>
+          <TextInput
+            style={styles.input}
+            value={height}
+            onChangeText={setHeight}
+            placeholder={`Enter your height in ${heightUnit}`}
+            placeholderTextColor={theme.colors.textMuted}
+            keyboardType="decimal-pad"
+          />
+        </View>
 
-      <View style={styles.card}>
-        <Text style={styles.label}>Weight ({weightUnit})</Text>
-        <TextInput
-          style={styles.input}
-          value={weight}
-          onChangeText={setWeight}
-          placeholder={`Enter your weight in ${weightUnit}`}
-          placeholderTextColor={theme.colors.textMuted}
-          keyboardType="decimal-pad"
-        />
-      </View>
+        <View style={styles.card}>
+          <Text style={styles.label}>Weight ({weightUnit})</Text>
+          <TextInput
+            style={styles.input}
+            value={weight}
+            onChangeText={setWeight}
+            placeholder={`Enter your weight in ${weightUnit}`}
+            placeholderTextColor={theme.colors.textMuted}
+            keyboardType="decimal-pad"
+          />
+        </View>
 
-      <View style={styles.formActions}>
-        <TouchableOpacity
-          style={[styles.saveButton, saving && styles.saveButtonDisabled]}
-          onPress={handleSave}
-          disabled={saving}
-        >
-          <Text style={styles.saveButtonText}>
-            {saving ? 'Saving...' : 'Save Changes'}
-          </Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={styles.cancelButton}
-          onPress={() => navigation.goBack()}
-        >
-          <Text style={styles.cancelButtonText}>Cancel</Text>
-        </TouchableOpacity>
-      </View>
-    </ScrollView>
+        <View style={styles.formActions}>
+          <TouchableOpacity
+            style={[styles.saveButton, saving && styles.saveButtonDisabled]}
+            onPress={requestSaveProfile}
+            disabled={saving}
+          >
+            <Text style={styles.saveButtonText}>
+              {saving ? 'Saving...' : 'Save Changes'}
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.cancelButton}
+            onPress={() => navigation.goBack()}
+          >
+            <Text style={styles.cancelButtonText}>Cancel</Text>
+          </TouchableOpacity>
+        </View>
+      </ScrollView>
+      <ThemedDialog
+        visible={!!dialog}
+        title={dialog?.title ?? ''}
+        message={dialog?.message}
+        actions={dialog?.actions ?? []}
+      />
+    </>
   )
 }
 

@@ -1,5 +1,6 @@
-import React, { useEffect, useState } from 'react'
+import React, { useCallback, useState } from 'react'
 import { Alert, View, Text, TouchableOpacity, ScrollView } from 'react-native'
+import { useFocusEffect } from '@react-navigation/native'
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons'
 import { createStyleSheet, useStyles } from 'react-native-unistyles'
 import { getProfile } from '@/db/profileHelpers'
@@ -7,35 +8,47 @@ import { createWorkout } from '@/db/workoutHelpers'
 import { useSessionStore } from '@/store/sessionStore'
 
 export default function HomeScreen() {
-  const { styles, theme } = useStyles(stylesheet)
+  const { styles } = useStyles(stylesheet)
   const [name, setName] = useState<string>('')
   const [loading, setLoading] = useState(true)
   const startWorkout = useSessionStore((s) => s.startWorkout)
   const openWorkoutSheet = useSessionStore((s) => s.openWorkoutSheet)
   const activeWorkoutId = useSessionStore((s) => s.activeWorkoutId)
 
-  useEffect(() => {
-    async function loadProfile() {
-      try {
-        const profile = await getProfile()
-        if (profile?.name) {
-          setName(profile.name)
-        }
-      } catch (e) {
-        console.error('Failed to load profile', e)
-      } finally {
-        setLoading(false)
-      }
-    }
+  useFocusEffect(
+    useCallback(() => {
+      let isActive = true
 
-    loadProfile()
-  }, [])
+      async function loadProfile() {
+        setLoading(true)
+        try {
+          const profile = await getProfile()
+          if (isActive) {
+            setName(profile?.name ?? '')
+          }
+        } catch (e) {
+          console.error('Failed to load profile', e)
+        } finally {
+          if (isActive) {
+            setLoading(false)
+          }
+        }
+      }
+
+      loadProfile()
+
+      return () => {
+        isActive = false
+      }
+    }, []),
+  )
 
   async function handleStartWorkout() {
     if (activeWorkoutId) {
       openWorkoutSheet()
       return
     }
+
     try {
       const workoutId = await createWorkout()
       startWorkout(workoutId)

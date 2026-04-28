@@ -13,7 +13,7 @@ import type { ProfileStackParamList } from '../navigation/TabNavigator'
 type Props = NativeStackScreenProps<ProfileStackParamList, 'Profile'>
 
 export default function ProfileScreen({ navigation }: Props) {
-  const { styles, theme } = useStyles(stylesheet)
+  const { styles } = useStyles(stylesheet)
   const [profile, setProfile] = useState<{
     name: string | null
     height: number | null

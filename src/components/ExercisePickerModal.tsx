@@ -39,6 +39,7 @@ export default function ExercisePickerModal({ visible, onClose }: Props) {
 
   const [step, setStep] = useState<Step>('sections')
   const [loading, setLoading] = useState(false)
+  const [adding, setAdding] = useState(false)
 
   const [sectionList, setSectionList] = useState<SectionRow[]>([])
   const [exerciseTypeList, setExerciseTypeList] = useState<ExerciseTypeRow[]>([])
@@ -60,6 +61,8 @@ export default function ExercisePickerModal({ visible, onClose }: Props) {
     setMethodList([])
     setSelectedSection(null)
     setSelectedExerciseType(null)
+    setLoading(false)
+    setAdding(false)
   }, [])
 
   function handleClose() {
@@ -78,6 +81,7 @@ export default function ExercisePickerModal({ visible, onClose }: Props) {
   }
 
   async function handleSelectSection(section: SectionRow) {
+    if (loading || adding) return
     setSelectedSection(section)
     setLoading(true)
     try {
@@ -93,6 +97,7 @@ export default function ExercisePickerModal({ visible, onClose }: Props) {
   }
 
   async function handleSelectExerciseType(et: ExerciseTypeRow) {
+    if (loading || adding) return
     setSelectedExerciseType(et)
     if (et.methodLocked) {
       setLoading(true)
@@ -118,7 +123,13 @@ export default function ExercisePickerModal({ visible, onClose }: Props) {
   }
 
   async function handleSelectMethod(method: MethodRow) {
-    await confirmAdd(selectedExerciseType!, method.id, method.name)
+    if (loading || adding) return
+    if (!selectedExerciseType) {
+      Alert.alert('Error', 'Please select an exercise again.')
+      resetStep()
+      return
+    }
+    await confirmAdd(selectedExerciseType, method.id, method.name)
   }
 
   async function confirmAdd(et: ExerciseTypeRow, methodId: string, methodName: string) {
@@ -127,6 +138,13 @@ export default function ExercisePickerModal({ visible, onClose }: Props) {
       handleClose()
       return
     }
+    if (!et.id || !et.name || !methodId || !methodName) {
+      Alert.alert('Error', 'This exercise has incomplete data. Please select it again.')
+      handleClose()
+      return
+    }
+    setAdding(true)
+    setLoading(true)
     try {
       const workoutExerciseId = await addExerciseToWorkout({
         workoutId: activeWorkoutId,
@@ -145,17 +163,30 @@ export default function ExercisePickerModal({ visible, onClose }: Props) {
       })
       resetStep()
       onClose()
-    } catch {
+    } catch (e) {
+      console.error('Could not add exercise', e)
       Alert.alert('Error', 'Could not add exercise.')
+      handleClose()
+    } finally {
+      setAdding(false)
+      setLoading(false)
     }
   }
 
-  const stepTitle =
-    step === 'sections' ? 'Select Body Part' :
-    step === 'exerciseTypes' ? selectedSection?.name ?? 'Select Exercise' :
-    'Select Method'
+  const breadcrumbItems =
+    step === 'sections'
+      ? ['Select Body Part']
+      : step === 'exerciseTypes'
+        ? [selectedSection?.name ?? 'Body Part', 'Select Exercise']
+        : [
+            selectedSection?.name ?? 'Body Part',
+            selectedExerciseType?.name ?? 'Exercise',
+            'Select Method',
+          ]
 
   const showBack = step !== 'sections'
+
+  if (!visible) return null
 
   return (
     <Modal
@@ -178,14 +209,44 @@ export default function ExercisePickerModal({ visible, onClose }: Props) {
                 ) : (
                   <View style={styles.headerBtn} />
                 )}
-                <Text style={styles.headerTitle}>{stepTitle}</Text>
+                <View style={styles.breadcrumbWrap}>
+                  <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    contentContainerStyle={styles.breadcrumbContent}
+                  >
+                    {breadcrumbItems.map((item, index) => {
+                      const isLast = index === breadcrumbItems.length - 1
+                      return (
+                        <React.Fragment key={`${item}-${index}`}>
+                          <Text
+                            style={[
+                              styles.breadcrumbText,
+                              isLast && styles.breadcrumbCurrent,
+                            ]}
+                            numberOfLines={1}
+                          >
+                            {item}
+                          </Text>
+                          {!isLast ? (
+                            <MaterialCommunityIcons
+                              name="chevron-right"
+                              size={16}
+                              color={theme.colors.textMuted}
+                            />
+                          ) : null}
+                        </React.Fragment>
+                      )
+                    })}
+                  </ScrollView>
+                </View>
                 <TouchableOpacity style={styles.headerBtn} onPress={handleClose}>
                   <MaterialCommunityIcons name="close" size={20} color={theme.colors.textMuted} />
                 </TouchableOpacity>
               </View>
 
               {/* Content */}
-              {loading ? (
+              {loading || adding ? (
                 <View style={styles.centered}>
                   <ActivityIndicator color={theme.colors.accent} />
                 </View>
@@ -266,6 +327,7 @@ const stylesheet = createStyleSheet((theme) => ({
   panel: {
     backgroundColor: theme.colors.surface,
     borderRadius: theme.radius.lg,
+    height: '75%',
     maxHeight: '75%',
     overflow: 'hidden',
   },
@@ -284,20 +346,39 @@ const stylesheet = createStyleSheet((theme) => ({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  headerTitle: {
-    color: theme.colors.text,
+  breadcrumbWrap: {
+    flex: 1,
+    minWidth: 0,
+    marginHorizontal: theme.spacing.xs,
+  },
+  breadcrumbContent: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexGrow: 1,
+    gap: 2,
+  },
+  breadcrumbText: {
+    color: theme.colors.textMuted,
     fontSize: theme.fontSize.md,
+    fontWeight: '700',
+    maxWidth: 128,
+  },
+  breadcrumbCurrent: {
+    color: theme.colors.text,
+    fontSize: theme.fontSize.sm,
     fontWeight: '600',
   },
   scroll: {
-    flexGrow: 0,
+    flex: 1,
   },
   list: {
     paddingVertical: theme.spacing.xs,
+    flexGrow: 1,
   },
   centered: {
-    paddingVertical: theme.spacing.xl,
+    flex: 1,
     alignItems: 'center',
+    justifyContent: 'center',
   },
   row: {
     flexDirection: 'row',

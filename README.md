@@ -1,3 +1,4 @@
+![Logo](https://github.com/joeabouserhal/WorkoutTracker/blob/main/android/app/src/main/res/mipmap-xxhdpi/ic_launcher_monochrome.png)
 # WorkoutTracker
 
 A React Native application for tracking workouts, progress, and managing fitness routines.

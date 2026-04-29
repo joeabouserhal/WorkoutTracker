@@ -67,7 +67,7 @@ export async function showWorkoutNotification(
       asForegroundService: true,
       ongoing: true,
       onlyAlertOnce: true,
-      smallIcon: 'ic_launcher',
+      smallIcon: 'ic_stat_notification',
       actions,
       pressAction: { id: 'default', launchActivity: 'default' },
     },
@@ -88,7 +88,7 @@ export async function showRestDoneNotification(restEndsAt?: number | string | nu
     body: 'Time to start your next set.',
     android: {
       channelId: REST_DONE_CHANNEL_ID,
-      smallIcon: 'ic_launcher',
+      smallIcon: 'ic_stat_notification',
       pressAction: { id: 'default', launchActivity: 'default' },
     },
     ios: {

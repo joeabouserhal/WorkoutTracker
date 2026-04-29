@@ -1,6 +1,7 @@
 import React, { useState } from 'react'
 import { ScrollView, Text, TouchableOpacity, View } from 'react-native'
 import type { NativeStackScreenProps } from '@react-navigation/native-stack'
+import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons'
 import {
   createStyleSheet,
   UnistylesRuntime,
@@ -83,6 +84,7 @@ export default function ThemesScreen({ navigation }: Props) {
           style={styles.backButton}
           onPress={() => navigation.goBack()}
         >
+          <MaterialCommunityIcons name="chevron-left" size={17} color={theme.colors.text} />
           <Text style={styles.backButtonText}>Back</Text>
         </TouchableOpacity>
       </View>
@@ -158,6 +160,9 @@ const stylesheet = createStyleSheet((theme) => ({
   },
   backButton: {
     alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
     backgroundColor: theme.colors.surface,
     borderRadius: theme.radius.full,
     borderWidth: 1,

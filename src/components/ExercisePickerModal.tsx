@@ -17,7 +17,7 @@ import {
   ExerciseTypeRow,
   getExerciseTypesBySection,
   getMethodName,
-  getMethods,
+  getMethodsForExerciseType,
   getSections,
   MethodRow,
   SectionRow,
@@ -111,7 +111,7 @@ export default function ExercisePickerModal({ visible, onClose }: Props) {
     }
     setLoading(true)
     try {
-      const mList = await getMethods()
+      const mList = await getMethodsForExerciseType(et.id)
       setMethodList(mList)
       setStep('methods')
     } catch {

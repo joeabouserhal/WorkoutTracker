@@ -9,6 +9,7 @@ export const sections = sqliteTable('sections', {
 export const methods = sqliteTable('methods', {
   id: text('id').primaryKey(),
   name: text('name').notNull(),
+  isCustom: integer('is_custom').notNull().default(0),
 })
 
 export const exerciseTypes = sqliteTable('exercise_types', {
@@ -18,6 +19,11 @@ export const exerciseTypes = sqliteTable('exercise_types', {
   isCustom: integer('is_custom').notNull().default(0),
   methodLocked: integer('method_locked').notNull().default(0),
   lockedMethodId: text('locked_method_id'),
+})
+
+export const exerciseTypeMethodExclusions = sqliteTable('exercise_type_method_exclusions', {
+  exerciseTypeId: text('exercise_type_id').notNull(),
+  methodId: text('method_id').notNull(),
 })
 
 export const exercises = sqliteTable('exercises', {

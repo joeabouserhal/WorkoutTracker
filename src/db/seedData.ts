@@ -6,7 +6,7 @@ async function ensureTables() {
     id TEXT PRIMARY KEY, name TEXT NOT NULL, is_custom INTEGER NOT NULL DEFAULT 0
   )`)
   await db.$client.execute(`CREATE TABLE IF NOT EXISTS methods (
-    id TEXT PRIMARY KEY, name TEXT NOT NULL
+    id TEXT PRIMARY KEY, name TEXT NOT NULL, is_custom INTEGER NOT NULL DEFAULT 0
   )`)
   await db.$client.execute(`CREATE TABLE IF NOT EXISTS exercise_types (
     id TEXT PRIMARY KEY, section_id TEXT NOT NULL, name TEXT NOT NULL,
@@ -14,6 +14,48 @@ async function ensureTables() {
     method_locked INTEGER NOT NULL DEFAULT 0,
     locked_method_id TEXT
   )`)
+  await db.$client.execute(`CREATE TABLE IF NOT EXISTS exercise_type_method_exclusions (
+    exercise_type_id TEXT NOT NULL,
+    method_id TEXT NOT NULL,
+    PRIMARY KEY (exercise_type_id, method_id)
+  )`)
+
+  const sectionColumns = await db.$client.execute('PRAGMA table_info(sections)')
+  const hasSectionCustom = sectionColumns.rows.some(
+    (row: { name?: unknown }) => row.name === 'is_custom',
+  )
+  if (!hasSectionCustom) {
+    await db.$client.execute('ALTER TABLE sections ADD COLUMN is_custom INTEGER NOT NULL DEFAULT 0')
+  }
+
+  const methodColumns = await db.$client.execute('PRAGMA table_info(methods)')
+  const hasMethodCustom = methodColumns.rows.some(
+    (row: { name?: unknown }) => row.name === 'is_custom',
+  )
+  if (!hasMethodCustom) {
+    await db.$client.execute('ALTER TABLE methods ADD COLUMN is_custom INTEGER NOT NULL DEFAULT 0')
+  }
+
+  const exerciseTypeColumns = await db.$client.execute('PRAGMA table_info(exercise_types)')
+  const hasExerciseTypeCustom = exerciseTypeColumns.rows.some(
+    (row: { name?: unknown }) => row.name === 'is_custom',
+  )
+  const hasMethodLocked = exerciseTypeColumns.rows.some(
+    (row: { name?: unknown }) => row.name === 'method_locked',
+  )
+  const hasLockedMethodId = exerciseTypeColumns.rows.some(
+    (row: { name?: unknown }) => row.name === 'locked_method_id',
+  )
+  if (!hasExerciseTypeCustom) {
+    await db.$client.execute('ALTER TABLE exercise_types ADD COLUMN is_custom INTEGER NOT NULL DEFAULT 0')
+  }
+  if (!hasMethodLocked) {
+    await db.$client.execute('ALTER TABLE exercise_types ADD COLUMN method_locked INTEGER NOT NULL DEFAULT 0')
+  }
+  if (!hasLockedMethodId) {
+    await db.$client.execute('ALTER TABLE exercise_types ADD COLUMN locked_method_id TEXT')
+  }
+
   await db.$client.execute(`CREATE TABLE IF NOT EXISTS exercises (
     id TEXT PRIMARY KEY, exercise_type_id TEXT NOT NULL, method_id TEXT NOT NULL,
     default_unit TEXT NOT NULL DEFAULT 'kg'
@@ -144,6 +186,7 @@ export async function seedDatabaseIfEmpty(): Promise<void> {
     const row = {
       id: genId(100 + i),
       name,
+      isCustom: 0,
     }
     await db.insert(methods).values(row)
     methodRows.push(row)

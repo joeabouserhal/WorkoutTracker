@@ -37,6 +37,62 @@ async function ensureExerciseTables() {
   )`)
 }
 
+async function ensureLibraryTables() {
+  await db.$client.execute(`CREATE TABLE IF NOT EXISTS sections (
+    id TEXT PRIMARY KEY, name TEXT NOT NULL, is_custom INTEGER NOT NULL DEFAULT 0
+  )`)
+  await db.$client.execute(`CREATE TABLE IF NOT EXISTS methods (
+    id TEXT PRIMARY KEY, name TEXT NOT NULL, is_custom INTEGER NOT NULL DEFAULT 0
+  )`)
+  await db.$client.execute(`CREATE TABLE IF NOT EXISTS exercise_types (
+    id TEXT PRIMARY KEY, section_id TEXT NOT NULL, name TEXT NOT NULL,
+    is_custom INTEGER NOT NULL DEFAULT 0,
+    method_locked INTEGER NOT NULL DEFAULT 0,
+    locked_method_id TEXT
+  )`)
+  await db.$client.execute(`CREATE TABLE IF NOT EXISTS exercise_type_method_exclusions (
+    exercise_type_id TEXT NOT NULL,
+    method_id TEXT NOT NULL,
+    PRIMARY KEY (exercise_type_id, method_id)
+  )`)
+
+  const sectionColumns = await db.$client.execute('PRAGMA table_info(sections)')
+  const hasSectionCustom = sectionColumns.rows.some(
+    (row: { name?: unknown }) => row.name === 'is_custom',
+  )
+  if (!hasSectionCustom) {
+    await db.$client.execute('ALTER TABLE sections ADD COLUMN is_custom INTEGER NOT NULL DEFAULT 0')
+  }
+
+  const methodColumns = await db.$client.execute('PRAGMA table_info(methods)')
+  const hasMethodCustom = methodColumns.rows.some(
+    (row: { name?: unknown }) => row.name === 'is_custom',
+  )
+  if (!hasMethodCustom) {
+    await db.$client.execute('ALTER TABLE methods ADD COLUMN is_custom INTEGER NOT NULL DEFAULT 0')
+  }
+
+  const exerciseTypeColumns = await db.$client.execute('PRAGMA table_info(exercise_types)')
+  const hasExerciseTypeCustom = exerciseTypeColumns.rows.some(
+    (row: { name?: unknown }) => row.name === 'is_custom',
+  )
+  const hasMethodLocked = exerciseTypeColumns.rows.some(
+    (row: { name?: unknown }) => row.name === 'method_locked',
+  )
+  const hasLockedMethodId = exerciseTypeColumns.rows.some(
+    (row: { name?: unknown }) => row.name === 'locked_method_id',
+  )
+  if (!hasExerciseTypeCustom) {
+    await db.$client.execute('ALTER TABLE exercise_types ADD COLUMN is_custom INTEGER NOT NULL DEFAULT 0')
+  }
+  if (!hasMethodLocked) {
+    await db.$client.execute('ALTER TABLE exercise_types ADD COLUMN method_locked INTEGER NOT NULL DEFAULT 0')
+  }
+  if (!hasLockedMethodId) {
+    await db.$client.execute('ALTER TABLE exercise_types ADD COLUMN locked_method_id TEXT')
+  }
+}
+
 export async function createWorkout(): Promise<string> {
   await ensureTable()
   const id = `workout_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
@@ -239,9 +295,14 @@ export type ExerciseTypeRow = {
   methodLocked: number
   lockedMethodId: string | null
 }
-export type MethodRow = { id: string; name: string }
+export type MethodRow = { id: string; name: string; isCustom: number }
+
+function genLibraryId(prefix: string): string {
+  return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
+}
 
 export async function getSections(): Promise<SectionRow[]> {
+  await ensureLibraryTables()
   const result = await db.$client.execute(
     "SELECT id, name FROM sections WHERE name != 'Cardio' ORDER BY name ASC",
   )
@@ -249,6 +310,7 @@ export async function getSections(): Promise<SectionRow[]> {
 }
 
 export async function getExerciseTypesBySection(sectionId: string): Promise<ExerciseTypeRow[]> {
+  await ensureLibraryTables()
   const result = await db.$client.execute(
     'SELECT id, name, section_id as sectionId, is_custom as isCustom, method_locked as methodLocked, locked_method_id as lockedMethodId FROM exercise_types WHERE section_id = ? ORDER BY name ASC',
     [sectionId],
@@ -257,10 +319,222 @@ export async function getExerciseTypesBySection(sectionId: string): Promise<Exer
 }
 
 export async function getMethods(): Promise<MethodRow[]> {
+  await ensureLibraryTables()
   const result = await db.$client.execute(
-    'SELECT id, name FROM methods ORDER BY name ASC',
+    'SELECT id, name, is_custom as isCustom FROM methods ORDER BY name ASC',
   )
   return result.rows as MethodRow[]
+}
+
+export async function getMethodsForExerciseType(exerciseTypeId: string): Promise<MethodRow[]> {
+  await ensureLibraryTables()
+  const exerciseType = await db.$client.execute(
+    'SELECT is_custom as isCustom FROM exercise_types WHERE id = ?',
+    [exerciseTypeId],
+  )
+  const isCustom = Boolean((exerciseType.rows[0] as { isCustom?: number } | undefined)?.isCustom)
+  if (!isCustom) return getMethods()
+
+  const result = await db.$client.execute(
+    `SELECT m.id, m.name, m.is_custom as isCustom
+     FROM methods m
+     WHERE NOT EXISTS (
+       SELECT 1
+       FROM exercise_type_method_exclusions ex
+       WHERE ex.exercise_type_id = ? AND ex.method_id = m.id
+     )
+     ORDER BY m.name ASC`,
+    [exerciseTypeId],
+  )
+  return result.rows as MethodRow[]
+}
+
+export async function hasHiddenDefaultMethods(exerciseTypeId: string): Promise<boolean> {
+  await ensureLibraryTables()
+  const result = await db.$client.execute(
+    `SELECT 1
+     FROM exercise_type_method_exclusions ex
+     JOIN methods m ON m.id = ex.method_id
+     JOIN exercise_types et ON et.id = ex.exercise_type_id
+     WHERE ex.exercise_type_id = ?
+       AND et.is_custom = 1
+       AND m.is_custom = 0
+     LIMIT 1`,
+    [exerciseTypeId],
+  )
+  return result.rows.length > 0
+}
+
+export async function restoreDefaultMethodsForExerciseType(exerciseTypeId: string): Promise<void> {
+  await ensureLibraryTables()
+  const exerciseType = await db.$client.execute(
+    'SELECT is_custom as isCustom FROM exercise_types WHERE id = ?',
+    [exerciseTypeId],
+  )
+  const row = exerciseType.rows[0] as { isCustom?: number } | undefined
+  if (!row?.isCustom) {
+    throw new Error('Default methods can only be restored for custom exercises')
+  }
+
+  await db.$client.execute(
+    `DELETE FROM exercise_type_method_exclusions
+     WHERE exercise_type_id = ?
+       AND method_id IN (
+         SELECT id FROM methods WHERE is_custom = 0
+       )`,
+    [exerciseTypeId],
+  )
+}
+
+export async function createCustomSection(name: string): Promise<SectionRow> {
+  const trimmed = name.trim()
+  if (!trimmed) throw new Error('Section name is required')
+  await ensureLibraryTables()
+  const id = genLibraryId('section')
+  await db.$client.execute(
+    'INSERT INTO sections (id, name, is_custom) VALUES (?, ?, ?)',
+    [id, trimmed, 1],
+  )
+  return { id, name: trimmed }
+}
+
+export async function createCustomMethod(name: string): Promise<MethodRow> {
+  const trimmed = name.trim()
+  if (!trimmed) throw new Error('Method name is required')
+  await ensureLibraryTables()
+  const id = genLibraryId('method')
+  await db.$client.execute(
+    'INSERT INTO methods (id, name, is_custom) VALUES (?, ?, ?)',
+    [id, trimmed, 1],
+  )
+  return { id, name: trimmed, isCustom: 1 }
+}
+
+export async function deleteCustomExerciseType(exerciseTypeId: string): Promise<void> {
+  await ensureLibraryTables()
+  await ensureExerciseTables()
+
+  const exerciseType = await db.$client.execute(
+    'SELECT id, is_custom as isCustom FROM exercise_types WHERE id = ?',
+    [exerciseTypeId],
+  )
+  const row = exerciseType.rows[0] as { id: string; isCustom: number } | undefined
+  if (!row?.isCustom) {
+    throw new Error('Only custom exercises can be deleted')
+  }
+
+  const usage = await db.$client.execute(
+    `SELECT COUNT(*) as count
+     FROM workout_exercises we
+     JOIN exercises e ON e.id = we.exercise_id
+     WHERE e.exercise_type_id = ?`,
+    [exerciseTypeId],
+  )
+  const count = Number((usage.rows[0] as { count?: number } | undefined)?.count ?? 0)
+  if (count > 0) {
+    throw new Error('This exercise is used in saved workouts')
+  }
+
+  await db.$client.execute('DELETE FROM exercises WHERE exercise_type_id = ?', [exerciseTypeId])
+  await db.$client.execute('DELETE FROM exercise_types WHERE id = ?', [exerciseTypeId])
+}
+
+export async function deleteCustomMethodFromExercise(
+  exerciseTypeId: string,
+  methodId: string,
+): Promise<void> {
+  await ensureLibraryTables()
+  await ensureExerciseTables()
+
+  const exerciseType = await db.$client.execute(
+    'SELECT id, is_custom as isCustom, locked_method_id as lockedMethodId FROM exercise_types WHERE id = ?',
+    [exerciseTypeId],
+  )
+  const exerciseTypeRow = exerciseType.rows[0] as {
+    id: string
+    isCustom: number
+    lockedMethodId: string | null
+  } | undefined
+  if (!exerciseTypeRow?.isCustom) {
+    throw new Error('Methods can only be deleted from custom exercises')
+  }
+
+  const method = await db.$client.execute(
+    'SELECT id FROM methods WHERE id = ?',
+    [methodId],
+  )
+  if (method.rows.length === 0) {
+    throw new Error('Unknown method')
+  }
+
+  const usage = await db.$client.execute(
+    `SELECT COUNT(*) as count
+     FROM workout_exercises we
+     JOIN exercises e ON e.id = we.exercise_id
+     WHERE e.exercise_type_id = ? AND e.method_id = ?`,
+    [exerciseTypeId, methodId],
+  )
+  const count = Number((usage.rows[0] as { count?: number } | undefined)?.count ?? 0)
+  if (count > 0) {
+    throw new Error('This method is used in saved workouts')
+  }
+
+  await db.$client.execute(
+    'DELETE FROM exercises WHERE exercise_type_id = ? AND method_id = ?',
+    [exerciseTypeId, methodId],
+  )
+  await db.$client.execute(
+    'INSERT OR IGNORE INTO exercise_type_method_exclusions (exercise_type_id, method_id) VALUES (?, ?)',
+    [exerciseTypeId, methodId],
+  )
+  if (exerciseTypeRow.lockedMethodId === methodId) {
+    await db.$client.execute(
+      'UPDATE exercise_types SET method_locked = 0, locked_method_id = NULL WHERE id = ?',
+      [exerciseTypeId],
+    )
+  }
+}
+
+export async function createCustomExerciseType(params: {
+  sectionId: string
+  name: string
+  methodLocked: boolean
+  lockedMethodId?: string | null
+}): Promise<ExerciseTypeRow> {
+  const trimmed = params.name.trim()
+  if (!trimmed) throw new Error('Exercise name is required')
+  if (params.methodLocked && !params.lockedMethodId) {
+    throw new Error('A single-method exercise needs a method')
+  }
+
+  await ensureLibraryTables()
+  const id = genLibraryId('exercise_type')
+  await db.$client.execute(
+    `INSERT INTO exercise_types (
+      id,
+      section_id,
+      name,
+      is_custom,
+      method_locked,
+      locked_method_id
+    ) VALUES (?, ?, ?, ?, ?, ?)`,
+    [
+      id,
+      params.sectionId,
+      trimmed,
+      1,
+      params.methodLocked ? 1 : 0,
+      params.methodLocked ? params.lockedMethodId ?? null : null,
+    ],
+  )
+  return {
+    id,
+    sectionId: params.sectionId,
+    name: trimmed,
+    isCustom: 1,
+    methodLocked: params.methodLocked ? 1 : 0,
+    lockedMethodId: params.methodLocked ? params.lockedMethodId ?? null : null,
+  }
 }
 
 export async function getOrCreateExercise(
@@ -284,6 +558,7 @@ export async function getOrCreateExercise(
 }
 
 export async function getMethodName(methodId: string): Promise<string> {
+  await ensureLibraryTables()
   const result = await db.$client.execute(
     'SELECT name FROM methods WHERE id = ?',
     [methodId],
@@ -297,6 +572,7 @@ async function assertCanAddExerciseToWorkout(params: {
   methodId: string
 }) {
   await ensureTable()
+  await ensureLibraryTables()
 
   const workout = await db.$client.execute(
     'SELECT id FROM workouts WHERE id = ? AND ended_at IS NULL',
@@ -320,6 +596,16 @@ async function assertCanAddExerciseToWorkout(params: {
   )
   if (method.rows.length === 0) {
     throw new Error(`Unknown exercise method: ${params.methodId}`)
+  }
+
+  const excludedMethod = await db.$client.execute(
+    `SELECT 1
+     FROM exercise_type_method_exclusions
+     WHERE exercise_type_id = ? AND method_id = ?`,
+    [params.exerciseTypeId, params.methodId],
+  )
+  if (excludedMethod.rows.length > 0) {
+    throw new Error(`Method is not available for exercise type: ${params.exerciseTypeId}`)
   }
 }
 

@@ -439,6 +439,7 @@ function WorkoutDetailModal({
       <View style={styles.detailRoot}>
         <View style={styles.detailHeader}>
           <TouchableOpacity style={styles.viewButton} onPress={onClose}>
+            <MaterialCommunityIcons name="chevron-left" size={17} color={theme.colors.text} />
             <Text style={styles.viewButtonText}>Back</Text>
           </TouchableOpacity>
           <TouchableOpacity style={styles.deleteButton} onPress={() => onDelete(workout.id)}>
@@ -577,6 +578,9 @@ const stylesheet = createStyleSheet((theme) => ({
   },
   viewButton: {
     alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
     backgroundColor: theme.colors.surface,
     borderRadius: theme.radius.full,
     borderWidth: 1,

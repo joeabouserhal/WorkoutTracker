@@ -61,7 +61,7 @@ notifee.registerForegroundService((notification) => {
           asForegroundService: true,
           ongoing: true,
           onlyAlertOnce: true,
-          smallIcon: 'ic_launcher',
+          smallIcon: 'ic_stat_notification',
           actions,
           pressAction: { id: 'default', launchActivity: 'default' },
         },

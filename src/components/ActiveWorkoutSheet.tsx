@@ -725,9 +725,23 @@ export default function ActiveWorkoutSheet() {
               <MaterialCommunityIcons name="chevron-down" size={28} color={theme.colors.textMuted} />
             </TouchableOpacity>
             <Text style={styles.headerTitle}>Active Workout</Text>
-            <View style={styles.timerPill}>
-              <View style={styles.timerDot} />
-              <Text style={styles.timerText}>{formatElapsed(elapsed)}</Text>
+            <View style={styles.headerActions}>
+              <TouchableOpacity
+                style={styles.cancelIconButton}
+                onPress={requestCancelWorkout}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              >
+                <MaterialCommunityIcons
+                  name="close"
+                  size={14}
+                  color={theme.colors.textMuted}
+                />
+                <Text style={styles.cancelIconText}>Cancel</Text>
+              </TouchableOpacity>
+              <View style={styles.timerPill}>
+                <View style={styles.timerDot} />
+                <Text style={styles.timerText}>{formatElapsed(elapsed)}</Text>
+              </View>
             </View>
           </View>
 
@@ -901,9 +915,6 @@ export default function ActiveWorkoutSheet() {
               },
             ]}
           >
-            <TouchableOpacity style={styles.cancelButton} onPress={requestCancelWorkout}>
-              <Text style={styles.cancelButtonText}>Cancel Workout</Text>
-            </TouchableOpacity>
             {validationNotice ? (
               <View style={styles.validationNotice}>
                 <MaterialCommunityIcons
@@ -985,6 +996,28 @@ const stylesheet = createStyleSheet((theme) => ({
     fontSize: theme.fontSize.sm,
     fontWeight: '700',
     letterSpacing: 0.5,
+  },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: theme.spacing.xs,
+  },
+  cancelIconButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    height: 31,
+    borderRadius: theme.radius.full,
+    justifyContent: 'center',
+    backgroundColor: theme.colors.surface,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    paddingHorizontal: 9,
+  },
+  cancelIconText: {
+    color: theme.colors.textMuted,
+    fontSize: theme.fontSize.xs,
+    fontWeight: '700',
   },
   // ── Scroll area ──────────────────────────────────────────
   scroll: {
@@ -1209,22 +1242,6 @@ const stylesheet = createStyleSheet((theme) => ({
     borderTopWidth: 1,
     borderTopColor: theme.colors.border,
     gap: theme.spacing.sm,
-  },
-  cancelButton: {
-    alignSelf: 'center',
-    minHeight: 34,
-    borderRadius: theme.radius.full,
-    paddingHorizontal: theme.spacing.md,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: theme.colors.surface,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-  },
-  cancelButtonText: {
-    color: theme.colors.textMuted,
-    fontSize: theme.fontSize.sm,
-    fontWeight: '700',
   },
   validationNotice: {
     flexDirection: 'row',

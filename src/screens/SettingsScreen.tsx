@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { ScrollView, Text, TouchableOpacity, View } from 'react-native'
 import type { NativeStackScreenProps } from '@react-navigation/native-stack'
+import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons'
 import { createStyleSheet, useStyles } from 'react-native-unistyles'
 import { getProfile, upsertProfile } from '@/db/profileHelpers'
 import {
@@ -16,7 +17,7 @@ type HeightUnit = 'cm' | 'ft'
 type Props = NativeStackScreenProps<ProfileStackParamList, 'Settings'>
 
 export default function SettingsScreen({ navigation }: Props) {
-  const { styles } = useStyles(stylesheet)
+  const { styles, theme } = useStyles(stylesheet)
   const [weightUnit, setWeightUnit] = useState<WeightUnit>('kg')
   const [heightUnit, setHeightUnit] = useState<HeightUnit>('cm')
   const [restTimerSeconds, setRestTimerSeconds] = useState(getDefaultRestSeconds)
@@ -71,6 +72,7 @@ export default function SettingsScreen({ navigation }: Props) {
           style={styles.backButton}
           onPress={() => navigation.goBack()}
         >
+          <MaterialCommunityIcons name="chevron-left" size={17} color={theme.colors.text} />
           <Text style={styles.backButtonText}>Back</Text>
         </TouchableOpacity>
       </View>
@@ -215,6 +217,9 @@ const stylesheet = createStyleSheet((theme) => ({
   },
   backButton: {
     alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
     backgroundColor: theme.colors.surface,
     borderRadius: theme.radius.full,
     borderWidth: 1,

@@ -158,13 +158,42 @@ const EXERCISE_DEFS: ExerciseDef[] = [
   { section: 'Glutes', name: 'Cable Kickback' },
   { section: 'Glutes', name: 'Abductor Machine', methodLocked: true, lockedMethod: 'Machine' },
   { section: 'Core', name: 'Plank', methodLocked: true, lockedMethod: 'Bodyweight' },
-  { section: 'Core', name: 'Crunch', methodLocked: true, lockedMethod: 'Bodyweight' },
+  { section: 'Core', name: 'Crunch' },
   { section: 'Core', name: 'Hanging Leg Raise' },
-  { section: 'Core', name: 'Cable Crunch' },
   { section: 'Core', name: 'Ab Rollout' },
   { section: 'Core', name: 'Russian Twist' },
   { section: 'Core', name: 'Side Plank', methodLocked: true, lockedMethod: 'Bodyweight' },
 ]
+
+async function removeRedundantCableCrunch(sectionId: string) {
+  const crunchResult = await db.$client.execute(
+    'SELECT id FROM exercise_types WHERE section_id = ? AND name = ? LIMIT 1',
+    [sectionId, 'Crunch'],
+  )
+  const cableCrunchResult = await db.$client.execute(
+    'SELECT id, is_custom as isCustom FROM exercise_types WHERE section_id = ? AND name = ? LIMIT 1',
+    [sectionId, 'Cable Crunch'],
+  )
+  const crunchId = (crunchResult.rows[0] as { id?: string } | undefined)?.id
+  const cableCrunch = cableCrunchResult.rows[0] as {
+    id?: string
+    isCustom?: number
+  } | undefined
+  if (!crunchId || !cableCrunch?.id || cableCrunch.isCustom) return
+
+  await db.$client.execute(
+    'UPDATE exercises SET exercise_type_id = ? WHERE exercise_type_id = ?',
+    [crunchId, cableCrunch.id],
+  )
+  await db.$client.execute(
+    'DELETE FROM exercise_type_method_exclusions WHERE exercise_type_id = ?',
+    [cableCrunch.id],
+  )
+  await db.$client.execute(
+    'DELETE FROM exercise_types WHERE id = ?',
+    [cableCrunch.id],
+  )
+}
 
 export async function seedDatabaseIfEmpty(): Promise<void> {
   await ensureTables()
@@ -235,4 +264,6 @@ export async function seedDatabaseIfEmpty(): Promise<void> {
       lockedMethodId,
     })
   }
+
+  await removeRedundantCableCrunch(sectionMap.Core)
 }

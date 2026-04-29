@@ -164,6 +164,33 @@ export async function deleteWorkout(workoutId: string): Promise<void> {
   await db.$client.execute('DELETE FROM workouts WHERE id = ?', [workoutId])
 }
 
+export async function deleteWorkoutExercise(workoutExerciseId: string): Promise<void> {
+  await ensureExerciseTables()
+  const exerciseResult = await db.$client.execute(
+    `SELECT e.exercise_type_id as exerciseTypeId
+     FROM workout_exercises we
+     JOIN exercises e ON e.id = we.exercise_id
+     WHERE we.id = ?`,
+    [workoutExerciseId],
+  )
+  const exerciseTypeId = (
+    exerciseResult.rows[0] as { exerciseTypeId?: string } | undefined
+  )?.exerciseTypeId
+
+  await db.$client.execute(
+    'DELETE FROM sets WHERE workout_exercise_id = ?',
+    [workoutExerciseId],
+  )
+  await db.$client.execute(
+    'DELETE FROM workout_exercises WHERE id = ?',
+    [workoutExerciseId],
+  )
+
+  if (exerciseTypeId) {
+    await recomputeExerciseTypePrFlags(exerciseTypeId)
+  }
+}
+
 export type WorkoutSummary = {
   id: string
   name: string | null
@@ -226,6 +253,31 @@ export async function getCompletedWorkoutsInRange(
      GROUP BY w.id
      ORDER BY w.started_at DESC`,
     [startAt, endAt],
+  )
+  return result.rows as WorkoutSummary[]
+}
+
+export async function getRecentCompletedWorkouts(limit = 3): Promise<WorkoutSummary[]> {
+  await ensureTable()
+  await ensureExerciseTables()
+  const result = await db.$client.execute(
+    `SELECT
+       w.id,
+       w.name,
+       w.started_at as startedAt,
+       w.ended_at as endedAt,
+       COUNT(DISTINCT we.id) as exerciseCount,
+       COUNT(s.id) as setCount,
+       COALESCE(SUM(s.volume), 0) as volume,
+       SUM(CASE WHEN s.is_weight_pr = 1 OR s.is_reps_pr = 1 THEN 1 ELSE 0 END) as prCount
+     FROM workouts w
+     LEFT JOIN workout_exercises we ON we.workout_id = w.id
+     LEFT JOIN sets s ON s.workout_exercise_id = we.id
+     WHERE w.ended_at IS NOT NULL
+     GROUP BY w.id
+     ORDER BY w.started_at DESC
+     LIMIT ?`,
+    [limit],
   )
   return result.rows as WorkoutSummary[]
 }

@@ -1,13 +1,15 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Modal,
   ScrollView,
+  StatusBar,
   Text,
   TextInput,
   TouchableOpacity,
   View,
 } from 'react-native'
 import { useFocusEffect } from '@react-navigation/native'
+import { SafeAreaView } from 'react-native-safe-area-context'
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons'
 import { createStyleSheet, useStyles } from 'react-native-unistyles'
 import {
@@ -87,6 +89,13 @@ function formatSetWeight(weightKg: number, unit: string) {
   return `${formatCompactNumber(weightKg)} kg`
 }
 
+function formatExerciseSets(exercise: WorkoutDetail['exercises'][number]) {
+  if (exercise.sets.length === 0) return 'No sets'
+  return exercise.sets
+    .map((set) => `${formatSetWeight(set.weightKg, set.weightUnit)} x ${set.reps}`)
+    .join(', ')
+}
+
 function getRange(date: Date, view: CalendarView) {
   if (view === 'daily') {
     const start = startOfDay(date)
@@ -104,8 +113,14 @@ export default function CalendarScreen() {
   const [view, setView] = useState<CalendarView>('daily')
   const [selectedDate, setSelectedDate] = useState(() => new Date())
   const [workouts, setWorkouts] = useState<WorkoutSummary[]>([])
+  const [selectedWorkoutId, setSelectedWorkoutId] = useState<string | null>(null)
   const [selectedWorkout, setSelectedWorkout] = useState<WorkoutDetail | null>(null)
+  const [workoutDetailLoading, setWorkoutDetailLoading] = useState(false)
+  const [expandedWorkoutIds, setExpandedWorkoutIds] = useState<Record<string, boolean>>({})
+  const [workoutPreviews, setWorkoutPreviews] = useState<Record<string, WorkoutDetail | null>>({})
+  const [previewLoading, setPreviewLoading] = useState<Record<string, boolean>>({})
   const [loading, setLoading] = useState(true)
+  const workoutDetailRequestRef = useRef(0)
   const [dialog, setDialog] = useState<{
     title: string
     message?: string
@@ -139,13 +154,51 @@ export default function CalendarScreen() {
     }, [loadWorkouts]),
   )
 
-  async function openWorkout(workoutId: string) {
-    try {
-      const detail = await getWorkoutDetail(workoutId)
-      setSelectedWorkout(detail)
-    } catch (e) {
-      console.error('Failed to load workout detail', e)
-    }
+  function openWorkout(workoutId: string) {
+    const requestId = workoutDetailRequestRef.current + 1
+    workoutDetailRequestRef.current = requestId
+    setSelectedWorkoutId(workoutId)
+    setSelectedWorkout(null)
+    setWorkoutDetailLoading(true)
+
+    getWorkoutDetail(workoutId)
+      .then((detail) => {
+        if (workoutDetailRequestRef.current !== requestId) return
+        setSelectedWorkout(detail)
+      })
+      .catch((e) => {
+        if (workoutDetailRequestRef.current !== requestId) return
+        console.error('Failed to load workout detail', e)
+      })
+      .finally(() => {
+        if (workoutDetailRequestRef.current !== requestId) return
+        setWorkoutDetailLoading(false)
+      })
+  }
+
+  function closeWorkoutDetail() {
+    workoutDetailRequestRef.current += 1
+    setSelectedWorkoutId(null)
+    setSelectedWorkout(null)
+    setWorkoutDetailLoading(false)
+  }
+
+  function toggleWorkoutPreview(workoutId: string) {
+    setExpandedWorkoutIds((prev) => ({ ...prev, [workoutId]: !prev[workoutId] }))
+    if (workoutPreviews[workoutId] !== undefined || previewLoading[workoutId]) return
+
+    setPreviewLoading((prev) => ({ ...prev, [workoutId]: true }))
+    getWorkoutDetail(workoutId)
+      .then((detail) => {
+        setWorkoutPreviews((prev) => ({ ...prev, [workoutId]: detail }))
+      })
+      .catch((e) => {
+        console.error('Failed to load workout preview', e)
+        setWorkoutPreviews((prev) => ({ ...prev, [workoutId]: null }))
+      })
+      .finally(() => {
+        setPreviewLoading((prev) => ({ ...prev, [workoutId]: false }))
+      })
   }
 
   function handleWorkoutRenamed(workoutId: string, name: string) {
@@ -221,6 +274,7 @@ export default function CalendarScreen() {
             closeDialog()
             deleteWorkout(workoutId)
               .then(() => {
+                setSelectedWorkoutId(null)
                 setSelectedWorkout(null)
                 loadWorkouts().catch(console.error)
               })
@@ -308,38 +362,54 @@ export default function CalendarScreen() {
           </Text>
         ) : (
           listWorkouts.map((workout) => (
-            <TouchableOpacity
-              key={workout.id}
-              style={styles.workoutCard}
-              onPress={() => openWorkout(workout.id)}
-            >
-              <View style={styles.workoutCardBody}>
-                <Text style={styles.workoutTitle}>
-                  {workout.name || `${formatTime(workout.startedAt)} workout`}
-                </Text>
-                <Text style={styles.workoutMeta}>
-                  {formatDuration(workout.startedAt, workout.endedAt)} - {workout.exerciseCount} exercises - {workout.setCount} sets
-                </Text>
-                {workout.prCount > 0 ? (
-                  <View style={styles.prBadge}>
-                    <MaterialCommunityIcons name="trophy-outline" size={13} color={theme.colors.accent} />
-                    <Text style={styles.prBadgeText}>{workout.prCount} PR</Text>
-                  </View>
-                ) : null}
+            <View key={workout.id} style={styles.workoutCard}>
+              <View style={styles.workoutCardHeader}>
+                <TouchableOpacity
+                  style={styles.workoutCardBody}
+                  onPress={() => openWorkout(workout.id)}
+                  activeOpacity={0.75}
+                >
+                  <Text style={styles.workoutTitle}>
+                    {workout.name || `${formatTime(workout.startedAt)} workout`}
+                  </Text>
+                  <Text style={styles.workoutMeta}>
+                    {formatDuration(workout.startedAt, workout.endedAt)} - {workout.exerciseCount} exercises - {workout.setCount} sets
+                  </Text>
+                  {workout.prCount > 0 ? (
+                    <View style={styles.prBadge}>
+                      <MaterialCommunityIcons name="trophy-outline" size={13} color={theme.colors.accent} />
+                      <Text style={styles.prBadgeText}>{workout.prCount} PR</Text>
+                    </View>
+                  ) : null}
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.expandButton}
+                  onPress={() => toggleWorkoutPreview(workout.id)}
+                  activeOpacity={0.75}
+                >
+                  <MaterialCommunityIcons
+                    name={expandedWorkoutIds[workout.id] ? 'chevron-up' : 'chevron-down'}
+                    size={22}
+                    color={theme.colors.textMuted}
+                  />
+                </TouchableOpacity>
               </View>
-              <MaterialCommunityIcons
-                name="chevron-right"
-                size={22}
-                color={theme.colors.textMuted}
-              />
-            </TouchableOpacity>
+              {expandedWorkoutIds[workout.id] ? (
+                <WorkoutQuickPreview
+                  workout={workoutPreviews[workout.id]}
+                  loading={Boolean(previewLoading[workout.id])}
+                />
+              ) : null}
+            </View>
           ))
         )}
       </ScrollView>
 
       <WorkoutDetailModal
+        workoutId={selectedWorkoutId}
         workout={selectedWorkout}
-        onClose={() => setSelectedWorkout(null)}
+        loading={workoutDetailLoading}
+        onClose={closeWorkoutDetail}
         onDelete={requestDeleteWorkout}
         onRename={handleWorkoutRenamed}
       />
@@ -351,6 +421,69 @@ export default function CalendarScreen() {
         actions={dialog?.actions ?? []}
       />
     </>
+  )
+}
+
+function WorkoutQuickPreview({
+  workout,
+  loading,
+}: {
+  workout: WorkoutDetail | null | undefined
+  loading: boolean
+}) {
+  const { styles } = useStyles(stylesheet)
+
+  if (loading) {
+    return (
+      <View style={styles.quickPreview}>
+        <Text style={styles.quickPreviewText}>Loading exercises...</Text>
+      </View>
+    )
+  }
+
+  if (!workout) {
+    return (
+      <View style={styles.quickPreview}>
+        <Text style={styles.quickPreviewText}>Exercises unavailable.</Text>
+      </View>
+    )
+  }
+
+  return (
+    <View style={styles.quickPreview}>
+      {workout.exercises.length === 0 ? (
+        <Text style={styles.quickPreviewText}>No exercises saved.</Text>
+      ) : (
+        workout.exercises.map((exercise) => {
+          const hasCurrentPr = exercise.hasCurrentWeightPr || exercise.hasCurrentRepsPr
+          const hasPastPr = exercise.hasWeightPr || exercise.hasRepsPr
+
+          return (
+            <View key={exercise.id} style={styles.quickExerciseRow}>
+              <View style={styles.quickExerciseTextBlock}>
+                <Text style={styles.quickExerciseName} numberOfLines={1}>
+                  {exercise.exerciseName}
+                  {exercise.methodName ? (
+                    <Text style={styles.quickExerciseMethod}> - {exercise.methodName}</Text>
+                  ) : null}
+                </Text>
+                <Text style={styles.quickExerciseSets} numberOfLines={1}>
+                  {formatExerciseSets(exercise)}
+                </Text>
+              </View>
+              {hasPastPr ? (
+                <View
+                  style={[
+                    styles.quickPrDot,
+                    hasCurrentPr && styles.quickCurrentPrDot,
+                  ]}
+                />
+              ) : null}
+            </View>
+          )
+        })
+      )}
+    </View>
   )
 }
 
@@ -413,12 +546,16 @@ function CalendarStrip({
 }
 
 function WorkoutDetailModal({
+  workoutId,
   workout,
+  loading,
   onClose,
   onDelete,
   onRename,
 }: {
+  workoutId: string | null
   workout: WorkoutDetail | null
+  loading: boolean
   onClose: () => void
   onDelete: (workoutId: string) => void
   onRename: (workoutId: string, name: string) => void
@@ -432,30 +569,48 @@ function WorkoutDetailModal({
     setShowDefaultUnits({})
   }, [workout])
 
-  if (!workout) return null
-  const workoutId = workout.id
+  if (!workoutId) return null
+  const detailWorkoutId = workoutId
 
   function saveName() {
-    updateWorkoutName(workoutId, name)
-      .then(() => onRename(workoutId, name))
+    if (!workout) return
+    updateWorkoutName(detailWorkoutId, name)
+      .then(() => onRename(detailWorkoutId, name))
       .catch((e) => console.error('Failed to rename workout', e))
   }
 
   return (
-    <Modal visible animationType="slide" onRequestClose={onClose}>
-      <View style={styles.detailRoot}>
+    <Modal
+      visible
+      animationType="slide"
+      onRequestClose={onClose}
+      backdropColor={theme.colors.bg}
+      statusBarTranslucent
+      navigationBarTranslucent
+    >
+      <StatusBar translucent backgroundColor="transparent" barStyle="light-content" />
+      <SafeAreaView style={styles.detailRoot} edges={['top', 'bottom']}>
         <View style={styles.detailHeader}>
           <TouchableOpacity style={styles.viewButton} onPress={onClose}>
             <MaterialCommunityIcons name="chevron-left" size={17} color={theme.colors.text} />
             <Text style={styles.viewButtonText}>Back</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.deleteButton} onPress={() => onDelete(workout.id)}>
-            <MaterialCommunityIcons name="trash-can-outline" size={17} color={theme.colors.textMuted} />
+          <TouchableOpacity
+            style={styles.deleteButton}
+            onPress={() => onDelete(detailWorkoutId)}
+            disabled={loading}
+          >
+            <MaterialCommunityIcons name="trash-can-outline" size={17} color={theme.colors.danger} />
             <Text style={styles.deleteButtonText}>Delete</Text>
           </TouchableOpacity>
         </View>
 
-        <ScrollView contentContainerStyle={styles.detailContent}>
+        {loading || !workout ? (
+          <View style={styles.detailLoading}>
+            <Text style={styles.emptyText}>Loading workout...</Text>
+          </View>
+        ) : (
+          <ScrollView contentContainerStyle={styles.detailContent}>
           <View style={styles.renameCard}>
             <Text style={styles.renameLabel}>Workout Name</Text>
             <TextInput
@@ -581,48 +736,71 @@ function WorkoutDetailModal({
                 {exercise.sets.length === 0 ? (
                   <Text style={styles.emptySetText}>No completed sets</Text>
                 ) : (
-                  exercise.sets.map((set, index) => (
-                    <View key={set.id} style={styles.setRow}>
-                      <Text style={styles.setIndex}>{index + 1}</Text>
-                      <Text style={styles.setValue}>
-                        {formatSetWeight(set.weightKg, displayUnit ?? set.weightUnit)}
-                      </Text>
-                      <Text style={styles.setValue}>{set.reps} reps</Text>
-                      {set.isWeightPr || set.isRepsPr ? (
-                        <View style={styles.setPrWrap}>
+                  <View style={styles.setTable}>
+                    <View style={styles.setTableHeader}>
+                      <Text style={[styles.setHeaderText, styles.setIndexCol]}>Set</Text>
+                      <Text style={[styles.setHeaderText, styles.setWeightCol]}>Weight</Text>
+                      <Text style={[styles.setHeaderText, styles.setRepsCol]}>Reps</Text>
+                      <Text style={[styles.setHeaderText, styles.setVolumeCol]}>Volume</Text>
+                    </View>
+                    {exercise.sets.map((set, index) => (
+                      <View key={set.id} style={styles.setRow}>
+                        <Text style={[styles.setIndex, styles.setIndexCol]}>{index + 1}</Text>
+                        <View style={[styles.valueWithPrCol, styles.setWeightCol]}>
+                          <Text style={styles.setValue}>
+                            {formatSetWeight(set.weightKg, displayUnit ?? set.weightUnit)}
+                          </Text>
                           {set.isWeightPr ? (
-                            <Text
+                            <View
                               style={[
-                                styles.setPrText,
-                                set.isCurrentWeightPr && styles.currentSetPrText,
+                                styles.inlinePrPill,
+                                set.isCurrentWeightPr && styles.currentInlinePrPill,
                               ]}
                             >
-                              {set.isCurrentWeightPr ? 'Current Weight PR' : 'Weight PR'}
-                            </Text>
-                          ) : null}
-                          {set.isRepsPr ? (
-                            <Text
-                              style={[
-                                styles.setPrText,
-                                set.isCurrentRepsPr && styles.currentSetPrText,
-                              ]}
-                            >
-                              {set.isCurrentRepsPr ? 'Current Reps PR' : 'Reps PR'}
-                            </Text>
+                              <Text
+                                style={[
+                                  styles.inlinePrText,
+                                  set.isCurrentWeightPr && styles.currentInlinePrText,
+                                ]}
+                              >
+                                {set.isCurrentWeightPr ? 'Current PR' : 'PR'}
+                              </Text>
+                            </View>
                           ) : null}
                         </View>
-                      ) : null}
-                      <Text style={styles.setVolume}>
-                        {Math.round(set.volume)} kg
-                      </Text>
-                    </View>
-                  ))
+                        <View style={[styles.valueWithPrCol, styles.setRepsCol]}>
+                          <Text style={styles.setValue}>{set.reps}</Text>
+                          {set.isRepsPr ? (
+                            <View
+                              style={[
+                                styles.inlinePrPill,
+                                set.isCurrentRepsPr && styles.currentInlinePrPill,
+                              ]}
+                            >
+                              <Text
+                                style={[
+                                  styles.inlinePrText,
+                                  set.isCurrentRepsPr && styles.currentInlinePrText,
+                                ]}
+                              >
+                                {set.isCurrentRepsPr ? 'Current PR' : 'PR'}
+                              </Text>
+                            </View>
+                          ) : null}
+                        </View>
+                        <Text style={[styles.setVolume, styles.setVolumeCol]}>
+                          {Math.round(set.volume)} kg
+                        </Text>
+                      </View>
+                    ))}
+                  </View>
                 )}
               </View>
             )
           })}
-        </ScrollView>
-      </View>
+          </ScrollView>
+        )}
+      </SafeAreaView>
     </Modal>
   )
 }
@@ -789,19 +967,31 @@ const stylesheet = createStyleSheet((theme) => ({
     fontSize: theme.fontSize.sm,
   },
   workoutCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
     backgroundColor: theme.colors.surface,
     borderRadius: theme.radius.md,
     borderWidth: 1,
     borderColor: theme.colors.border,
-    padding: theme.spacing.md,
+    overflow: 'hidden',
+  },
+  workoutCardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
     gap: theme.spacing.sm,
+    padding: theme.spacing.md,
   },
   workoutCardBody: {
     flex: 1,
     minWidth: 0,
+  },
+  expandButton: {
+    width: 36,
+    height: 36,
+    borderRadius: theme.radius.full,
+    backgroundColor: theme.colors.surface2,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   workoutTitle: {
     color: theme.colors.text,
@@ -835,6 +1025,59 @@ const stylesheet = createStyleSheet((theme) => ({
   currentPrBadgeText: {
     color: PR_GOLD,
   },
+  quickPreview: {
+    borderTopWidth: 1,
+    borderTopColor: theme.colors.border,
+    paddingHorizontal: theme.spacing.md,
+    paddingTop: theme.spacing.xs,
+    paddingBottom: theme.spacing.sm,
+    gap: 2,
+  },
+  quickPreviewText: {
+    color: theme.colors.textMuted,
+    fontSize: theme.fontSize.xs,
+    fontWeight: '600',
+  },
+  quickExerciseRow: {
+    minHeight: 32,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: theme.spacing.sm,
+  },
+  quickExerciseTextBlock: {
+    flex: 1,
+    minWidth: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: theme.spacing.xs,
+  },
+  quickExerciseName: {
+    flex: 1,
+    minWidth: 0,
+    color: theme.colors.text,
+    fontSize: theme.fontSize.xs,
+    fontWeight: '800',
+  },
+  quickExerciseMethod: {
+    color: theme.colors.textMuted,
+    fontWeight: '600',
+  },
+  quickExerciseSets: {
+    flexShrink: 1,
+    color: theme.colors.textMuted,
+    fontSize: theme.fontSize.xs,
+    fontWeight: '600',
+  },
+  quickPrDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+    backgroundColor: theme.colors.accent,
+  },
+  quickCurrentPrDot: {
+    backgroundColor: PR_GOLD,
+  },
   detailRoot: {
     flex: 1,
     backgroundColor: theme.colors.bg,
@@ -851,15 +1094,15 @@ const stylesheet = createStyleSheet((theme) => ({
     flexDirection: 'row',
     alignItems: 'center',
     gap: theme.spacing.xs,
-    backgroundColor: theme.colors.surface,
+    backgroundColor: theme.colors.danger + '18',
     borderRadius: theme.radius.full,
     borderWidth: 1,
-    borderColor: theme.colors.border,
+    borderColor: theme.colors.danger + '40',
     paddingVertical: theme.spacing.xs,
     paddingHorizontal: theme.spacing.md,
   },
   deleteButtonText: {
-    color: theme.colors.textMuted,
+    color: theme.colors.danger,
     fontSize: theme.fontSize.sm,
     fontWeight: '700',
   },
@@ -867,6 +1110,12 @@ const stylesheet = createStyleSheet((theme) => ({
     padding: theme.spacing.md,
     paddingBottom: theme.spacing.xl,
     gap: theme.spacing.md,
+  },
+  detailLoading: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: theme.spacing.xl,
   },
   renameCard: {
     backgroundColor: theme.colors.surface,
@@ -956,43 +1205,85 @@ const stylesheet = createStyleSheet((theme) => ({
     fontSize: theme.fontSize.sm,
     padding: theme.spacing.md,
   },
-  setRow: {
+  setTable: {
+    width: '100%',
+  },
+  setTableHeader: {
     flexDirection: 'row',
     alignItems: 'center',
+    backgroundColor: theme.colors.bg,
+    paddingHorizontal: theme.spacing.md,
+    paddingVertical: theme.spacing.xs,
+    borderBottomWidth: 1,
+    borderBottomColor: theme.colors.border,
+  },
+  setHeaderText: {
+    color: theme.colors.textMuted,
+    fontSize: theme.fontSize.xs,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+  },
+  setRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
     paddingHorizontal: theme.spacing.md,
     paddingVertical: theme.spacing.sm,
     borderBottomWidth: 1,
     borderBottomColor: theme.colors.border,
   },
+  setIndexCol: {
+    width: 34,
+  },
+  setWeightCol: {
+    flex: 1.45,
+    minWidth: 104,
+    paddingRight: theme.spacing.xs,
+  },
+  setRepsCol: {
+    width: 82,
+    paddingRight: theme.spacing.xs,
+  },
+  setVolumeCol: {
+    width: 64,
+    textAlign: 'right',
+  },
   setIndex: {
-    width: 28,
     color: theme.colors.textMuted,
     fontSize: theme.fontSize.sm,
     fontWeight: '700',
   },
   setValue: {
-    flex: 1,
     color: theme.colors.text,
     fontSize: theme.fontSize.sm,
     fontWeight: '700',
   },
   setVolume: {
-    flex: 1,
     color: theme.colors.textMuted,
     fontSize: theme.fontSize.sm,
     fontWeight: '700',
   },
-  setPrWrap: {
-    flex: 1,
-    gap: 2,
+  valueWithPrCol: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    flexWrap: 'nowrap',
   },
-  setPrText: {
-    alignSelf: 'flex-start',
+  inlinePrPill: {
+    flexShrink: 0,
+    borderRadius: theme.radius.full,
+    backgroundColor: theme.colors.accentMuted,
+    paddingHorizontal: 4,
+    paddingVertical: 1,
+  },
+  inlinePrText: {
     color: theme.colors.accent,
-    fontSize: theme.fontSize.xs,
+    fontSize: theme.fontSize.xxs,
     fontWeight: '800',
   },
-  currentSetPrText: {
+  currentInlinePrPill: {
+    backgroundColor: PR_GOLD + '26',
+  },
+  currentInlinePrText: {
     color: PR_GOLD,
   },
 }))

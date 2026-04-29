@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   ActivityIndicator,
+  BackHandler,
   Modal,
   ScrollView,
   Switch,
@@ -9,6 +10,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native'
+import { useFocusEffect } from '@react-navigation/native'
 import ReanimatedSwipeable from 'react-native-gesture-handler/ReanimatedSwipeable'
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons'
 import { createStyleSheet, useStyles } from 'react-native-unistyles'
@@ -167,7 +169,7 @@ export default function LibraryScreen() {
     })
   }
 
-  function handleBack() {
+  const handleBack = useCallback(() => {
     if (step === 'methods') {
       setStep('exerciseTypes')
       setSelectedExerciseType(null)
@@ -182,10 +184,36 @@ export default function LibraryScreen() {
       setExerciseTypeList([])
       setExercisePrSummaries({})
     }
-  }
+  }, [step])
+
+  useFocusEffect(
+    useCallback(() => {
+      const onBackPress = () => {
+        if (createMode) {
+          setCreateMode(null)
+          setCreateName('')
+          setCreateError('')
+          setSingleMethodOnly(false)
+          return true
+        }
+        if (dialog) {
+          setDialog(null)
+          return true
+        }
+        if (step !== 'sections') {
+          handleBack()
+          return true
+        }
+        return false
+      }
+
+      const subscription = BackHandler.addEventListener('hardwareBackPress', onBackPress)
+      return () => subscription.remove()
+    }, [createMode, dialog, handleBack, step]),
+  )
 
   const breadcrumbItems = useMemo(() => {
-    if (step === 'sections') return ['Library']
+    if (step === 'sections') return []
     if (step === 'exerciseTypes') return [selectedSection?.name ?? 'Section', 'Exercises']
     return [
       selectedSection?.name ?? 'Section',
@@ -587,13 +615,23 @@ export default function LibraryScreen() {
             <View style={styles.backButtonSpacer} />
           )}
 
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.breadcrumbContent}
-            style={styles.breadcrumbScroll}
-          >
-            {breadcrumbItems.map((item, index) => {
+          <View style={styles.topRowSpacer} />
+
+          <TouchableOpacity style={styles.addButton} onPress={openCreateModal}>
+            <MaterialCommunityIcons name="plus" size={17} color={theme.colors.text} />
+            <Text style={styles.addButtonText}>Add</Text>
+          </TouchableOpacity>
+        </View>
+
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.breadcrumbContent}
+          style={styles.breadcrumbScroll}
+          scrollEnabled={breadcrumbItems.length > 0}
+        >
+          {breadcrumbItems.length > 0 ? (
+            breadcrumbItems.map((item, index) => {
               const isLast = index === breadcrumbItems.length - 1
               return (
                 <React.Fragment key={`${item}-${index}`}>
@@ -615,14 +653,11 @@ export default function LibraryScreen() {
                   ) : null}
                 </React.Fragment>
               )
-            })}
-          </ScrollView>
-
-          <TouchableOpacity style={styles.addButton} onPress={openCreateModal}>
-            <MaterialCommunityIcons name="plus" size={17} color={theme.colors.text} />
-            <Text style={styles.addButtonText}>Add</Text>
-          </TouchableOpacity>
-        </View>
+            })
+          ) : (
+            <Text style={styles.breadcrumbPlaceholder}> </Text>
+          )}
+        </ScrollView>
 
         <View style={styles.titleBlock}>
           <Text style={styles.pageTitle}>{pageTitle}</Text>
@@ -838,6 +873,9 @@ const stylesheet = createStyleSheet((theme) => ({
     alignItems: 'center',
     gap: theme.spacing.sm,
   },
+  topRowSpacer: {
+    flex: 1,
+  },
   backButton: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -859,7 +897,8 @@ const stylesheet = createStyleSheet((theme) => ({
     width: 68,
   },
   breadcrumbScroll: {
-    flex: 1,
+    marginTop: theme.spacing.md,
+    marginBottom: theme.spacing.md,
     minWidth: 0,
   },
   breadcrumbContent: {
@@ -879,6 +918,11 @@ const stylesheet = createStyleSheet((theme) => ({
     fontSize: theme.fontSize.xs,
     fontWeight: '600',
     maxWidth: 92,
+  },
+  breadcrumbPlaceholder: {
+    color: 'transparent',
+    fontSize: theme.fontSize.sm,
+    fontWeight: '700',
   },
   addButton: {
     flexDirection: 'row',
@@ -907,7 +951,6 @@ const stylesheet = createStyleSheet((theme) => ({
     flexDirection: 'row',
     alignItems: 'center',
     gap: theme.spacing.sm,
-    marginTop: theme.spacing.lg,
   },
   pageTitle: {
     flex: 1,

@@ -84,14 +84,28 @@ export default function ExercisePickerModal({ visible, onClose }: Props) {
     onClose()
   }
 
-  function handleBack() {
+  const handleBack = useCallback(() => {
     if (step === 'methods') {
       setStep('exerciseTypes')
+      setSelectedExerciseType(null)
+      setMethodList([])
     } else if (step === 'exerciseTypes') {
       setStep('sections')
       setSelectedSection(null)
       setExerciseTypeList([])
     }
+  }, [step])
+
+  function handleRequestClose() {
+    if (createMode) {
+      closeCreateModal()
+      return
+    }
+    if (step !== 'sections') {
+      handleBack()
+      return
+    }
+    handleClose()
   }
 
   async function handleSelectSection(section: SectionRow) {
@@ -315,7 +329,7 @@ export default function ExercisePickerModal({ visible, onClose }: Props) {
       visible={visible}
       transparent
       animationType="fade"
-      onRequestClose={handleClose}
+      onRequestClose={handleRequestClose}
       statusBarTranslucent
     >
       <TouchableWithoutFeedback onPress={handleClose}>

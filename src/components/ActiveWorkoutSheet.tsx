@@ -1,12 +1,21 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import {
   AppState,
+  Keyboard,
+  type LayoutChangeEvent,
+  type NativeScrollEvent,
+  type NativeSyntheticEvent,
   Text,
   TextInput,
   TouchableOpacity,
   View,
 } from 'react-native'
-import { BottomSheetModal, BottomSheetScrollView } from '@gorhom/bottom-sheet'
+import {
+  BottomSheetModal,
+  BottomSheetScrollView,
+  BottomSheetTextInput,
+  type BottomSheetScrollViewMethods,
+} from '@gorhom/bottom-sheet'
 import ReanimatedSwipeable from 'react-native-gesture-handler/ReanimatedSwipeable'
 import notifee, { EventType } from '@notifee/react-native'
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons'
@@ -21,6 +30,7 @@ import {
   addCompletedSetToWorkout,
   deleteCompletedSet,
   deleteWorkout,
+  deleteWorkoutExercise,
   finishWorkout,
   getWorkoutName,
   isExerciseTypeMethodLocked,
@@ -48,6 +58,8 @@ type LocalSet = {
   completed: boolean
   persistedSetId?: string
 }
+
+type NativeFocusTargetEvent = NativeSyntheticEvent<{ target: number }>
 
 const LB_PER_KG = 2.20462
 
@@ -111,6 +123,7 @@ export default function ActiveWorkoutSheet() {
   const { styles, theme } = useStyles(stylesheet)
   const insets = useSafeAreaInsets()
   const sheetRef = useRef<BottomSheetModal>(null)
+  const scrollRef = useRef<BottomSheetScrollViewMethods>(null)
   const [pickerVisible, setPickerVisible] = useState(false)
   const [localSets, setLocalSets] = useState<Record<string, LocalSet[]>>({})
   const [restSetKey, setRestSetKey] = useState<string | null>(null)
@@ -124,12 +137,21 @@ export default function ActiveWorkoutSheet() {
   const [validationNotice, setValidationNotice] = useState<string | null>(null)
   const [validationErrors, setValidationErrors] = useState<Record<string, boolean>>({})
   const [methodLockedByExerciseType, setMethodLockedByExerciseType] = useState<Record<string, boolean>>({})
+  const [keyboardHeight, setKeyboardHeight] = useState(0)
+  const [footerHeight, setFooterHeight] = useState(0)
   const elapsedRef = useRef(0)
   const activeWorkoutIdRef = useRef<string | null>(null)
   const isWorkoutSheetOpenRef = useRef(false)
   const sheetDismissRequestedRef = useRef(false)
   const restDoneNotifiedRef = useRef(false)
   const pickerVisibleRef = useRef(false)
+  const keyboardHeightRef = useRef(0)
+  const footerHeightRef = useRef(0)
+  const scrollOffsetRef = useRef(0)
+  const scrollHeightRef = useRef(0)
+  const setLayoutRef = useRef<Record<string, { y: number; height: number }>>({})
+  const focusedSetKeyRef = useRef<string | null>(null)
+  const focusedInputTargetRef = useRef<number | null>(null)
 
   const {
     activeWorkoutId,
@@ -163,6 +185,7 @@ export default function ActiveWorkoutSheet() {
   }, [activeWorkoutId, endWorkout])
 
   const getRestSetKey = useCallback((weId: string, setId: string) => `${weId}:${setId}`, [])
+  const getSetLayoutKey = useCallback((weId: string, setId: string) => `${weId}:${setId}`, [])
 
   const getFieldErrorKey = useCallback(
     (weId: string, setId: string, field: 'weight' | 'reps') => `${weId}:${setId}:${field}`,
@@ -534,6 +557,112 @@ export default function ActiveWorkoutSheet() {
     }
   }
 
+  function handleScroll(event: NativeSyntheticEvent<NativeScrollEvent>) {
+    scrollOffsetRef.current = event.nativeEvent.contentOffset.y
+  }
+
+  function handleScrollLayout(event: LayoutChangeEvent) {
+    scrollHeightRef.current = event.nativeEvent.layout.height
+  }
+
+  function handleFooterLayout(event: LayoutChangeEvent) {
+    const nextHeight = event.nativeEvent.layout.height
+    footerHeightRef.current = nextHeight
+    setFooterHeight(nextHeight)
+  }
+
+  function handleSetRowLayout(key: string, event: LayoutChangeEvent) {
+    setLayoutRef.current[key] = {
+      y: event.nativeEvent.layout.y,
+      height: event.nativeEvent.layout.height,
+    }
+  }
+
+  const scrollSetIntoView = useCallback((key: string, delay?: number) => {
+    setTimeout(() => {
+      const layout = setLayoutRef.current[key]
+      const viewportHeight = scrollHeightRef.current
+      if (!layout || viewportHeight <= 0) return
+
+      const currentOffset = scrollOffsetRef.current
+      const safeBottom = Math.max(
+        footerHeightRef.current + theme.spacing.sm,
+        keyboardHeightRef.current + theme.spacing.sm,
+      )
+      const visibleTop = currentOffset + theme.spacing.sm
+      const visibleBottom = currentOffset + viewportHeight - safeBottom
+      const rowTop = layout.y
+      const rowBottom = layout.y + layout.height
+
+      if (rowBottom > visibleBottom) {
+        scrollRef.current?.scrollTo({
+          y: Math.max(0, rowBottom - viewportHeight + safeBottom + theme.spacing.sm),
+          animated: true,
+        })
+        return
+      }
+
+      if (rowTop < visibleTop) {
+        scrollRef.current?.scrollTo({
+          y: Math.max(0, rowTop - theme.spacing.sm),
+          animated: true,
+        })
+      }
+    }, delay ?? (keyboardHeightRef.current > 0 ? 80 : 30))
+  }, [theme.spacing.sm])
+
+  const scrollInputToKeyboard = useCallback((target: number | null, delay = 0) => {
+    if (!target) return
+    setTimeout(() => {
+      const responder = scrollRef.current?.getScrollResponder()
+      responder?.scrollResponderScrollNativeHandleToKeyboard(
+        target,
+        footerHeightRef.current + theme.spacing.sm,
+        true,
+      )
+    }, delay)
+  }, [theme.spacing.sm])
+
+  function handleSetInputFocus(
+    key: string,
+    event: NativeFocusTargetEvent,
+  ) {
+    const target = event.nativeEvent.target
+    focusedSetKeyRef.current = key
+    focusedInputTargetRef.current = target
+    scrollInputToKeyboard(target, 30)
+    scrollInputToKeyboard(target, 180)
+    if (keyboardHeightRef.current === 0) {
+      scrollInputToKeyboard(target, 360)
+      scrollSetIntoView(key, 360)
+    }
+  }
+
+  useEffect(() => {
+    const showSub = Keyboard.addListener('keyboardDidShow', (event) => {
+      keyboardHeightRef.current = event.endCoordinates.height
+      setKeyboardHeight(event.endCoordinates.height)
+      const focusedTarget = focusedInputTargetRef.current
+      if (focusedTarget) {
+        scrollInputToKeyboard(focusedTarget, 40)
+        scrollInputToKeyboard(focusedTarget, 180)
+      }
+      const focusedKey = focusedSetKeyRef.current
+      if (focusedKey) {
+        scrollSetIntoView(focusedKey, 80)
+        scrollSetIntoView(focusedKey, 220)
+      }
+    })
+    const hideSub = Keyboard.addListener('keyboardDidHide', () => {
+      keyboardHeightRef.current = 0
+      setKeyboardHeight(0)
+    })
+    return () => {
+      showSub.remove()
+      hideSub.remove()
+    }
+  }, [scrollInputToKeyboard, scrollSetIntoView])
+
   function saveWorkoutName() {
     if (!activeWorkoutId) return
     updateWorkoutName(activeWorkoutId, workoutName).catch((e) => {
@@ -553,6 +682,7 @@ export default function ActiveWorkoutSheet() {
         ? previousCompletedSet.weightInput
         : fromKgInput(previousCompletedSet.weightKg, weightUnit)
       nextSet.weightInputUnit = weightUnit
+      nextSet.reps = previousCompletedSet.reps
     }
 
     setLocalSets((prev) => ({
@@ -723,7 +853,15 @@ export default function ActiveWorkoutSheet() {
     }
   }
 
-  function handleDeleteExercise(weId: string) {
+  async function handleDeleteExercise(weId: string) {
+    try {
+      await deleteWorkoutExercise(weId)
+    } catch (e) {
+      console.error('Could not delete workout exercise', e)
+      showErrorDialog('Could not remove this exercise.')
+      return
+    }
+
     if (restSetKey?.startsWith(`${weId}:`)) {
       clearRest()
       setRestSetKey(null)
@@ -760,6 +898,9 @@ export default function ActiveWorkoutSheet() {
         snapPoints={['100%']}
         enablePanDownToClose={false}
         enableDynamicSizing={false}
+        keyboardBehavior="interactive"
+        keyboardBlurBehavior="restore"
+        android_keyboardInputMode="adjustResize"
         onDismiss={handleSheetDismiss}
         backgroundStyle={styles.background}
         handleIndicatorStyle={styles.handleIndicator}
@@ -769,7 +910,7 @@ export default function ActiveWorkoutSheet() {
           {/* Fixed header */}
           <View style={styles.header}>
             <TouchableOpacity style={styles.iconBtn} onPress={handleCloseSheet}>
-              <MaterialCommunityIcons name="chevron-down" size={28} color={theme.colors.textMuted} />
+              <MaterialCommunityIcons name="chevron-down" size={17} color={theme.colors.text} />
             </TouchableOpacity>
             <Text style={styles.headerTitle}>Active Workout</Text>
             <View style={styles.headerActions}>
@@ -780,8 +921,8 @@ export default function ActiveWorkoutSheet() {
               >
                 <MaterialCommunityIcons
                   name="close"
-                  size={14}
-                  color={theme.colors.textMuted}
+                  size={17}
+                  color={theme.colors.text}
                 />
                 <Text style={styles.cancelIconText}>Cancel</Text>
               </TouchableOpacity>
@@ -794,12 +935,23 @@ export default function ActiveWorkoutSheet() {
 
           {/* Scrollable exercise list */}
           <BottomSheetScrollView
+            ref={scrollRef}
             style={styles.scroll}
             contentContainerStyle={[
               styles.scrollContent,
-              { paddingBottom: theme.spacing.lg },
+              {
+                paddingBottom: keyboardHeight > 0
+                  ? Math.max(
+                    footerHeight + insets.bottom + theme.spacing.sm,
+                    keyboardHeight + theme.spacing.sm,
+                  )
+                  : theme.spacing.lg,
+              },
             ]}
             keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="interactive"
+            onLayout={handleScrollLayout}
+            onScroll={handleScroll}
           >
             <View style={styles.workoutNameCard}>
               <Text style={styles.workoutNameLabel}>Workout Name</Text>
@@ -849,13 +1001,19 @@ export default function ActiveWorkoutSheet() {
                   {/* Set rows — swipe left to delete set */}
                   {sets.map((s, i) => {
                     const setRestKey = getRestSetKey(ex.workoutExerciseId, s.id)
+                    const setLayoutKey = getSetLayoutKey(ex.workoutExerciseId, s.id)
                     return (
                       <React.Fragment key={s.id}>
                         <ReanimatedSwipeable
                           renderRightActions={() => renderDeleteAction(() => removeLocalSet(ex.workoutExerciseId, s.id))}
+                          childrenContainerStyle={styles.swipeableSetContent}
+                          dragOffsetFromRightEdge={3}
                           overshootRight={false}
                         >
-                          <View style={[styles.setRow, s.completed && styles.setRowCompleted]}>
+                          <View
+                            style={[styles.setRow, s.completed && styles.setRowCompleted]}
+                            onLayout={(event) => handleSetRowLayout(setLayoutKey, event)}
+                          >
                             <Text style={[styles.setNum, styles.setNumCol]}>{i + 1}</Text>
 
                             <View
@@ -866,7 +1024,7 @@ export default function ActiveWorkoutSheet() {
                                   styles.inputWrapError,
                               ]}
                             >
-                              <TextInput
+                              <BottomSheetTextInput
                                 style={styles.input}
                                 value={getDisplayWeight(s, ex.weightUnit)}
                                 onChangeText={(v) => updateSetField(ex.workoutExerciseId, s.id, 'weight', v)}
@@ -874,6 +1032,7 @@ export default function ActiveWorkoutSheet() {
                                 placeholder="0"
                                 placeholderTextColor={theme.colors.textMuted}
                                 returnKeyType="done"
+                                onFocus={(event) => handleSetInputFocus(setLayoutKey, event)}
                               />
                               <TouchableOpacity
                                 style={styles.inputUnitButton}
@@ -892,7 +1051,7 @@ export default function ActiveWorkoutSheet() {
                                   styles.inputWrapError,
                               ]}
                             >
-                              <TextInput
+                              <BottomSheetTextInput
                                 style={styles.input}
                                 value={s.reps}
                                 onChangeText={(v) => updateSetField(ex.workoutExerciseId, s.id, 'reps', v)}
@@ -900,6 +1059,7 @@ export default function ActiveWorkoutSheet() {
                                 placeholder="0"
                                 placeholderTextColor={theme.colors.textMuted}
                                 returnKeyType="done"
+                                onFocus={(event) => handleSetInputFocus(setLayoutKey, event)}
                               />
                               <View style={styles.inputUnitButton}>
                                 <Text style={styles.inputUnit}>reps</Text>
@@ -964,6 +1124,7 @@ export default function ActiveWorkoutSheet() {
                 paddingBottom: Math.max(theme.spacing.md, insets.bottom + theme.spacing.sm),
               },
             ]}
+            onLayout={handleFooterLayout}
           >
             {validationNotice ? (
               <View style={styles.validationNotice}>
@@ -1016,8 +1177,12 @@ const stylesheet = createStyleSheet((theme) => ({
     borderBottomColor: theme.colors.border,
   },
   iconBtn: {
-    width: 40,
-    height: 40,
+    width: 32,
+    height: 32,
+    borderRadius: theme.radius.full,
+    backgroundColor: theme.colors.surface,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -1032,8 +1197,12 @@ const stylesheet = createStyleSheet((theme) => ({
     gap: 6,
     backgroundColor: theme.colors.surface,
     borderRadius: theme.radius.full,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
+    borderWidth: 1,
+    borderColor: theme.colors.accent,
+    // paddingHorizontal: 10,
+    // paddingVertical: 5,
+    paddingVertical: theme.spacing.xs,
+    paddingHorizontal: theme.spacing.sm,
   },
   timerDot: {
     width: 7,
@@ -1055,19 +1224,19 @@ const stylesheet = createStyleSheet((theme) => ({
   cancelIconButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-    height: 31,
+    gap: 2,
     borderRadius: theme.radius.full,
     justifyContent: 'center',
     backgroundColor: theme.colors.surface,
     borderWidth: 1,
     borderColor: theme.colors.border,
-    paddingHorizontal: 9,
+    paddingVertical: theme.spacing.xs,
+    paddingHorizontal: theme.spacing.md,
   },
   cancelIconText: {
-    color: theme.colors.textMuted,
-    fontSize: theme.fontSize.xs,
-    fontWeight: '700',
+    color: theme.colors.text,
+    fontSize: theme.fontSize.sm,
+    fontWeight: '600',
   },
   // ── Scroll area ──────────────────────────────────────────
   scroll: {
@@ -1157,6 +1326,9 @@ const stylesheet = createStyleSheet((theme) => ({
   },
   setRowCompleted: {
     backgroundColor: theme.colors.surface,
+  },
+  swipeableSetContent: {
+    width: '100%',
   },
   restTimerRow: {
     flexDirection: 'row',

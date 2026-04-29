@@ -24,6 +24,7 @@ type CalendarView = 'daily' | 'weekly' | 'monthly'
 
 const DAY_MS = 24 * 60 * 60 * 1000
 const LB_PER_KG = 2.20462
+const PR_GOLD = '#D9A441'
 
 function startOfDay(date: Date) {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate())
@@ -312,13 +313,19 @@ export default function CalendarScreen() {
               style={styles.workoutCard}
               onPress={() => openWorkout(workout.id)}
             >
-              <View>
+              <View style={styles.workoutCardBody}>
                 <Text style={styles.workoutTitle}>
                   {workout.name || `${formatTime(workout.startedAt)} workout`}
                 </Text>
                 <Text style={styles.workoutMeta}>
                   {formatDuration(workout.startedAt, workout.endedAt)} - {workout.exerciseCount} exercises - {workout.setCount} sets
                 </Text>
+                {workout.prCount > 0 ? (
+                  <View style={styles.prBadge}>
+                    <MaterialCommunityIcons name="trophy-outline" size={13} color={theme.colors.accent} />
+                    <Text style={styles.prBadgeText}>{workout.prCount} PR</Text>
+                  </View>
+                ) : null}
               </View>
               <MaterialCommunityIcons
                 name="chevron-right"
@@ -443,7 +450,7 @@ function WorkoutDetailModal({
             <Text style={styles.viewButtonText}>Back</Text>
           </TouchableOpacity>
           <TouchableOpacity style={styles.deleteButton} onPress={() => onDelete(workout.id)}>
-            <MaterialCommunityIcons name="trash-can-outline" size={18} color="#FFFFFF" />
+            <MaterialCommunityIcons name="trash-can-outline" size={17} color={theme.colors.textMuted} />
             <Text style={styles.deleteButtonText}>Delete</Text>
           </TouchableOpacity>
         </View>
@@ -499,10 +506,60 @@ function WorkoutDetailModal({
             return (
               <View key={exercise.id} style={styles.exerciseCard}>
                 <View style={styles.exerciseTitleRow}>
-                  <Text style={styles.exerciseTitle}>
-                    {exercise.exerciseName}
-                    <Text style={styles.exerciseMethod}> - {exercise.methodName}</Text>
-                  </Text>
+                  <View style={styles.exerciseTitleBlock}>
+                    <Text style={styles.exerciseTitle}>
+                      {exercise.exerciseName}
+                      <Text style={styles.exerciseMethod}> - {exercise.methodName}</Text>
+                    </Text>
+                    {exercise.hasWeightPr || exercise.hasRepsPr ? (
+                      <View style={styles.badgeRow}>
+                        {exercise.hasWeightPr ? (
+                          <View
+                            style={[
+                              styles.prBadge,
+                              exercise.hasCurrentWeightPr && styles.currentPrBadge,
+                            ]}
+                          >
+                            <MaterialCommunityIcons
+                              name="trophy-outline"
+                              size={13}
+                              color={exercise.hasCurrentWeightPr ? PR_GOLD : theme.colors.accent}
+                            />
+                            <Text
+                              style={[
+                                styles.prBadgeText,
+                                exercise.hasCurrentWeightPr && styles.currentPrBadgeText,
+                              ]}
+                            >
+                              {exercise.hasCurrentWeightPr ? 'Current Weight PR' : 'Weight PR'}
+                            </Text>
+                          </View>
+                        ) : null}
+                        {exercise.hasRepsPr ? (
+                          <View
+                            style={[
+                              styles.prBadge,
+                              exercise.hasCurrentRepsPr && styles.currentPrBadge,
+                            ]}
+                          >
+                            <MaterialCommunityIcons
+                              name="trophy-outline"
+                              size={13}
+                              color={exercise.hasCurrentRepsPr ? PR_GOLD : theme.colors.accent}
+                            />
+                            <Text
+                              style={[
+                                styles.prBadgeText,
+                                exercise.hasCurrentRepsPr && styles.currentPrBadgeText,
+                              ]}
+                            >
+                              {exercise.hasCurrentRepsPr ? 'Current Reps PR' : 'Reps PR'}
+                            </Text>
+                          </View>
+                        ) : null}
+                      </View>
+                    ) : null}
+                  </View>
                   {hasUnitMismatch ? (
                     <TouchableOpacity
                       style={styles.unitToggleButton}
@@ -531,7 +588,31 @@ function WorkoutDetailModal({
                         {formatSetWeight(set.weightKg, displayUnit ?? set.weightUnit)}
                       </Text>
                       <Text style={styles.setValue}>{set.reps} reps</Text>
-                      <Text style={[styles.setValue, { color: theme.colors.textMuted }]}>
+                      {set.isWeightPr || set.isRepsPr ? (
+                        <View style={styles.setPrWrap}>
+                          {set.isWeightPr ? (
+                            <Text
+                              style={[
+                                styles.setPrText,
+                                set.isCurrentWeightPr && styles.currentSetPrText,
+                              ]}
+                            >
+                              {set.isCurrentWeightPr ? 'Current Weight PR' : 'Weight PR'}
+                            </Text>
+                          ) : null}
+                          {set.isRepsPr ? (
+                            <Text
+                              style={[
+                                styles.setPrText,
+                                set.isCurrentRepsPr && styles.currentSetPrText,
+                              ]}
+                            >
+                              {set.isCurrentRepsPr ? 'Current Reps PR' : 'Reps PR'}
+                            </Text>
+                          ) : null}
+                        </View>
+                      ) : null}
+                      <Text style={styles.setVolume}>
                         {Math.round(set.volume)} kg
                       </Text>
                     </View>
@@ -716,6 +797,11 @@ const stylesheet = createStyleSheet((theme) => ({
     borderWidth: 1,
     borderColor: theme.colors.border,
     padding: theme.spacing.md,
+    gap: theme.spacing.sm,
+  },
+  workoutCardBody: {
+    flex: 1,
+    minWidth: 0,
   },
   workoutTitle: {
     color: theme.colors.text,
@@ -727,6 +813,28 @@ const stylesheet = createStyleSheet((theme) => ({
     fontSize: theme.fontSize.sm,
     marginTop: 4,
   },
+  prBadge: {
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    backgroundColor: theme.colors.accentMuted,
+    borderRadius: theme.radius.full,
+    paddingHorizontal: theme.spacing.sm,
+    paddingVertical: 3,
+    marginTop: theme.spacing.xs,
+  },
+  prBadgeText: {
+    color: theme.colors.accent,
+    fontSize: theme.fontSize.xs,
+    fontWeight: '800',
+  },
+  currentPrBadge: {
+    backgroundColor: PR_GOLD + '26',
+  },
+  currentPrBadgeText: {
+    color: PR_GOLD,
+  },
   detailRoot: {
     flex: 1,
     backgroundColor: theme.colors.bg,
@@ -736,22 +844,22 @@ const stylesheet = createStyleSheet((theme) => ({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: theme.spacing.md,
-    paddingTop: theme.spacing.xl,
-    paddingBottom: theme.spacing.md,
-    borderBottomWidth: 1,
-    borderBottomColor: theme.colors.border,
+    paddingTop: theme.spacing.lg,
+    paddingBottom: theme.spacing.xs,
   },
   deleteButton: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: theme.spacing.xs,
-    backgroundColor: theme.colors.danger,
+    backgroundColor: theme.colors.surface,
     borderRadius: theme.radius.full,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
     paddingVertical: theme.spacing.xs,
     paddingHorizontal: theme.spacing.md,
   },
   deleteButtonText: {
-    color: '#FFFFFF',
+    color: theme.colors.textMuted,
     fontSize: theme.fontSize.sm,
     fontWeight: '700',
   },
@@ -801,11 +909,13 @@ const stylesheet = createStyleSheet((theme) => ({
     overflow: 'hidden',
   },
   exerciseTitle: {
-    flex: 1,
-    minWidth: 0,
     color: theme.colors.text,
     fontSize: theme.fontSize.md,
     fontWeight: '800',
+  },
+  exerciseTitleBlock: {
+    flex: 1,
+    minWidth: 0,
   },
   exerciseTitleRow: {
     flexDirection: 'row',
@@ -836,6 +946,11 @@ const stylesheet = createStyleSheet((theme) => ({
     color: theme.colors.textMuted,
     fontWeight: '500',
   },
+  badgeRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: theme.spacing.xs,
+  },
   emptySetText: {
     color: theme.colors.textMuted,
     fontSize: theme.fontSize.sm,
@@ -860,5 +975,24 @@ const stylesheet = createStyleSheet((theme) => ({
     color: theme.colors.text,
     fontSize: theme.fontSize.sm,
     fontWeight: '700',
+  },
+  setVolume: {
+    flex: 1,
+    color: theme.colors.textMuted,
+    fontSize: theme.fontSize.sm,
+    fontWeight: '700',
+  },
+  setPrWrap: {
+    flex: 1,
+    gap: 2,
+  },
+  setPrText: {
+    alignSelf: 'flex-start',
+    color: theme.colors.accent,
+    fontSize: theme.fontSize.xs,
+    fontWeight: '800',
+  },
+  currentSetPrText: {
+    color: PR_GOLD,
   },
 }))

@@ -2,7 +2,7 @@ import React from 'react'
 import { Text as RNText, TextProps } from 'react-native'
 import { createStyleSheet, useStyles } from 'react-native-unistyles'
 
-type SizeKey = 'xs' | 'sm' | 'md' | 'lg' | 'xl' | 'xxl'
+type SizeKey = 'xxs' | 'xs' | 'sm' | 'md' | 'lg' | 'xl' | 'xxl'
 
 interface ThemedTextProps extends TextProps {
   size?: SizeKey

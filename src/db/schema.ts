@@ -57,6 +57,8 @@ export const sets = sqliteTable('sets', {
   reps: integer('reps').notNull(),
   estOneRM: real('est_one_rm'),
   volume: real('volume'),
+  isWeightPR: integer('is_weight_pr').notNull().default(0),
+  isRepsPR: integer('is_reps_pr').notNull().default(0),
   completedAt: integer('completed_at').notNull(),
 })
 

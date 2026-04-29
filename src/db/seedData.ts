@@ -78,8 +78,25 @@ async function ensureTables() {
     id TEXT PRIMARY KEY, workout_exercise_id TEXT NOT NULL,
     set_type TEXT NOT NULL DEFAULT 'working', weight REAL NOT NULL,
     weight_unit TEXT NOT NULL DEFAULT 'kg', reps INTEGER NOT NULL,
-    est_one_rm REAL, volume REAL, completed_at INTEGER NOT NULL
+    est_one_rm REAL, volume REAL,
+    is_weight_pr INTEGER NOT NULL DEFAULT 0,
+    is_reps_pr INTEGER NOT NULL DEFAULT 0,
+    completed_at INTEGER NOT NULL
   )`)
+
+  const setColumns = await db.$client.execute('PRAGMA table_info(sets)')
+  const hasWeightPr = setColumns.rows.some(
+    (row: { name?: unknown }) => row.name === 'is_weight_pr',
+  )
+  const hasRepsPr = setColumns.rows.some(
+    (row: { name?: unknown }) => row.name === 'is_reps_pr',
+  )
+  if (!hasWeightPr) {
+    await db.$client.execute('ALTER TABLE sets ADD COLUMN is_weight_pr INTEGER NOT NULL DEFAULT 0')
+  }
+  if (!hasRepsPr) {
+    await db.$client.execute('ALTER TABLE sets ADD COLUMN is_reps_pr INTEGER NOT NULL DEFAULT 0')
+  }
 }
 
 function genId(index: number): string {

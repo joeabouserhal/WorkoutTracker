@@ -7,6 +7,7 @@ const baseSpacing = {
 } as const
 
 const baseFontSize = {
+  xxs: 9,
   xs: 11,
   sm: 13,
   md: 15,

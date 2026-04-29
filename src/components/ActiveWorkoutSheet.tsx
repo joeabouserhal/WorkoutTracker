@@ -23,6 +23,7 @@ import {
   deleteWorkout,
   finishWorkout,
   getWorkoutName,
+  isExerciseTypeMethodLocked,
   updateWorkoutName,
 } from '@/db/workoutHelpers'
 import {
@@ -122,11 +123,13 @@ export default function ActiveWorkoutSheet() {
   } | null>(null)
   const [validationNotice, setValidationNotice] = useState<string | null>(null)
   const [validationErrors, setValidationErrors] = useState<Record<string, boolean>>({})
+  const [methodLockedByExerciseType, setMethodLockedByExerciseType] = useState<Record<string, boolean>>({})
   const elapsedRef = useRef(0)
   const activeWorkoutIdRef = useRef<string | null>(null)
   const isWorkoutSheetOpenRef = useRef(false)
   const sheetDismissRequestedRef = useRef(false)
   const restDoneNotifiedRef = useRef(false)
+  const pickerVisibleRef = useRef(false)
 
   const {
     activeWorkoutId,
@@ -135,6 +138,7 @@ export default function ActiveWorkoutSheet() {
     isResting,
     restSecondsRemaining,
     isWorkoutSheetOpen,
+    sheetOpenRequestId,
     closeWorkoutSheet,
     endWorkout,
     openWorkoutSheet,
@@ -322,6 +326,29 @@ export default function ActiveWorkoutSheet() {
   }, [elapsed])
 
   useEffect(() => {
+    let cancelled = false
+    const ids = Array.from(new Set(exercises.map((ex) => ex.exerciseTypeId)))
+    if (ids.length === 0) {
+      setMethodLockedByExerciseType({})
+      return
+    }
+
+    Promise.all(
+      ids.map(async (id) => [id, await isExerciseTypeMethodLocked(id)] as const),
+    )
+      .then((entries) => {
+        if (!cancelled) {
+          setMethodLockedByExerciseType(Object.fromEntries(entries))
+        }
+      })
+      .catch((e) => console.error('Could not load exercise method flags', e))
+
+    return () => {
+      cancelled = true
+    }
+  }, [exercises])
+
+  useEffect(() => {
     activeWorkoutIdRef.current = activeWorkoutId
   }, [activeWorkoutId])
 
@@ -347,6 +374,10 @@ export default function ActiveWorkoutSheet() {
   useEffect(() => {
     isWorkoutSheetOpenRef.current = isWorkoutSheetOpen
   }, [isWorkoutSheetOpen])
+
+  useEffect(() => {
+    pickerVisibleRef.current = pickerVisible
+  }, [pickerVisible])
 
   // Sync new exercises into local set state (one empty set each)
   useEffect(() => {
@@ -417,7 +448,7 @@ export default function ActiveWorkoutSheet() {
     } else {
       sheetRef.current?.dismiss()
     }
-  }, [isWorkoutSheetOpen, activeWorkoutId])
+  }, [isWorkoutSheetOpen, activeWorkoutId, sheetOpenRequestId])
 
   useEffect(() => {
     if (!startedAt) {
@@ -474,17 +505,33 @@ export default function ActiveWorkoutSheet() {
 
   function handleSheetDismiss() {
     closeDialog()
+    if (pickerVisibleRef.current) {
+      return
+    }
     if (
       activeWorkoutIdRef.current &&
       isWorkoutSheetOpenRef.current &&
       !sheetDismissRequestedRef.current
     ) {
-      requestAnimationFrame(() => sheetRef.current?.present())
+      requestAnimationFrame(() => {
+        if (!pickerVisibleRef.current) {
+          sheetRef.current?.present()
+        }
+      })
       return
     }
 
     sheetDismissRequestedRef.current = false
     closeWorkoutSheet()
+  }
+
+  function handlePickerClose() {
+    setPickerVisible(false)
+    if (activeWorkoutIdRef.current && isWorkoutSheetOpenRef.current) {
+      setTimeout(() => {
+        sheetRef.current?.present()
+      }, 100)
+    }
   }
 
   function saveWorkoutName() {
@@ -773,6 +820,7 @@ export default function ActiveWorkoutSheet() {
 
             {exercises.map((ex) => {
               const sets = localSets[ex.workoutExerciseId] ?? []
+              const showMethod = !(ex.methodLocked || methodLockedByExerciseType[ex.exerciseTypeId])
               return (
                 <View key={ex.workoutExerciseId} style={styles.exerciseCard}>
                   {/* Exercise header row — swipe left to delete whole exercise */}
@@ -783,7 +831,9 @@ export default function ActiveWorkoutSheet() {
                     <View style={styles.exerciseHeader}>
                       <Text style={styles.exerciseName}>
                         {ex.exerciseTypeName}
-                        <Text style={styles.exerciseMethod}>{' — '}{ex.methodName}</Text>
+                        {showMethod ? (
+                          <Text style={styles.exerciseMethod}>{' - '}{ex.methodName}</Text>
+                        ) : null}
                       </Text>
                     </View>
                   </ReanimatedSwipeable>
@@ -863,7 +913,7 @@ export default function ActiveWorkoutSheet() {
                             >
                               <MaterialCommunityIcons
                                 name={s.completed ? 'check-circle' : 'check-circle-outline'}
-                                size={26}
+                                size={22}
                                 color={s.completed ? theme.colors.accent : theme.colors.textMuted}
                               />
                             </TouchableOpacity>
@@ -932,7 +982,7 @@ export default function ActiveWorkoutSheet() {
         </View>
       </BottomSheetModal>
 
-      <ExercisePickerModal visible={pickerVisible} onClose={() => setPickerVisible(false)} />
+      <ExercisePickerModal visible={pickerVisible} onClose={handlePickerClose} />
       <ThemedDialog
         visible={!!dialog}
         title={dialog?.title ?? ''}
@@ -1025,54 +1075,55 @@ const stylesheet = createStyleSheet((theme) => ({
     minHeight: 0,
   },
   scrollContent: {
-    padding: theme.spacing.md,
-    paddingBottom: theme.spacing.sm,
-    gap: theme.spacing.md,
+    paddingHorizontal: theme.spacing.sm,
+    paddingTop: theme.spacing.sm,
+    paddingBottom: theme.spacing.xs,
+    gap: theme.spacing.sm,
   },
   emptyHint: {
     color: theme.colors.textMuted,
     fontSize: theme.fontSize.sm,
     textAlign: 'center',
-    paddingVertical: theme.spacing.xl,
+    paddingVertical: theme.spacing.lg,
   },
   workoutNameCard: {
     backgroundColor: theme.colors.surface,
     borderRadius: theme.radius.md,
     borderWidth: 1,
     borderColor: theme.colors.border,
-    paddingHorizontal: theme.spacing.md,
-    paddingVertical: theme.spacing.sm,
-    gap: theme.spacing.xs,
+    paddingHorizontal: theme.spacing.sm,
+    paddingVertical: theme.spacing.xs,
+    gap: 2,
   },
   workoutNameLabel: {
     color: theme.colors.textMuted,
-    fontSize: theme.fontSize.xs,
+    fontSize: theme.fontSize.xxs,
     fontWeight: '700',
     textTransform: 'uppercase',
     letterSpacing: 0.8,
   },
   workoutNameInput: {
     color: theme.colors.text,
-    fontSize: theme.fontSize.xl,
+    fontSize: theme.fontSize.lg,
     fontWeight: '800',
-    minHeight: 42,
+    minHeight: 34,
     padding: 0,
   },
   // ── Exercise card ────────────────────────────────────────
   exerciseCard: {
-    borderRadius: theme.radius.md,
+    borderRadius: theme.radius.sm,
     borderWidth: 1,
     borderColor: theme.colors.border,
     overflow: 'hidden',
   },
   exerciseHeader: {
     backgroundColor: theme.colors.surface,
-    paddingHorizontal: theme.spacing.md,
-    paddingVertical: 12,
+    paddingHorizontal: theme.spacing.sm,
+    paddingVertical: theme.spacing.sm,
   },
   exerciseName: {
     color: theme.colors.text,
-    fontSize: theme.fontSize.md,
+    fontSize: theme.fontSize.sm,
     fontWeight: '700',
   },
   exerciseMethod: {
@@ -1084,8 +1135,8 @@ const stylesheet = createStyleSheet((theme) => ({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: theme.colors.bg,
-    paddingHorizontal: theme.spacing.md,
-    paddingVertical: 6,
+    paddingHorizontal: theme.spacing.sm,
+    paddingVertical: 4,
     borderTopWidth: 1,
     borderTopColor: theme.colors.border,
   },
@@ -1099,8 +1150,8 @@ const stylesheet = createStyleSheet((theme) => ({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: theme.colors.bg,
-    paddingHorizontal: theme.spacing.md,
-    paddingVertical: 12,
+    paddingHorizontal: theme.spacing.sm,
+    paddingVertical: 6,
     borderTopWidth: 1,
     borderTopColor: theme.colors.border,
   },
@@ -1114,8 +1165,8 @@ const stylesheet = createStyleSheet((theme) => ({
     backgroundColor: theme.colors.bg,
     borderTopWidth: 1,
     borderTopColor: theme.colors.border,
-    paddingHorizontal: theme.spacing.md,
-    paddingVertical: theme.spacing.sm,
+    paddingHorizontal: theme.spacing.sm,
+    paddingVertical: theme.spacing.xs,
   },
   restTimerText: {
     flex: 1,
@@ -1124,7 +1175,7 @@ const stylesheet = createStyleSheet((theme) => ({
     fontWeight: '600',
   },
   skipRestButton: {
-    minHeight: 30,
+    minHeight: 26,
     borderRadius: theme.radius.full,
     borderWidth: 1,
     borderColor: theme.colors.accent,
@@ -1139,18 +1190,18 @@ const stylesheet = createStyleSheet((theme) => ({
     fontWeight: '800',
   },
   setNumCol: {
-    width: 28,
+    width: 24,
   },
   weightCol: {
     flex: 1,
-    marginRight: theme.spacing.sm,
+    marginRight: theme.spacing.xs,
   },
   repsCol: {
     flex: 1,
-    marginRight: theme.spacing.sm,
+    marginRight: theme.spacing.xs,
   },
   checkCol: {
-    width: 36,
+    width: 30,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -1166,10 +1217,10 @@ const stylesheet = createStyleSheet((theme) => ({
     borderRadius: theme.radius.sm,
     borderWidth: 1,
     borderColor: 'transparent',
-    minHeight: 48,
-    paddingLeft: 12,
-    paddingRight: 4,
-    gap: 6,
+    minHeight: 38,
+    paddingLeft: 8,
+    paddingRight: 2,
+    gap: 4,
   },
   inputWrapError: {
     borderColor: theme.colors.danger,
@@ -1178,18 +1229,18 @@ const stylesheet = createStyleSheet((theme) => ({
   input: {
     flex: 1,
     color: theme.colors.text,
-    fontSize: theme.fontSize.lg,
+    fontSize: theme.fontSize.md,
     fontWeight: '600',
     minWidth: 0,
-    height: 48,
+    height: 38,
     padding: 0,
   },
   inputUnitButton: {
-    minHeight: 40,
-    minWidth: 44,
+    minHeight: 32,
+    minWidth: 36,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 6,
+    paddingHorizontal: 4,
   },
   inputUnit: {
     color: theme.colors.accent,
@@ -1203,7 +1254,7 @@ const stylesheet = createStyleSheet((theme) => ({
     justifyContent: 'center',
     gap: 4,
     backgroundColor: theme.colors.bg,
-    paddingVertical: 10,
+    paddingVertical: 7,
     borderTopWidth: 1,
     borderTopColor: theme.colors.border,
   },
@@ -1226,7 +1277,7 @@ const stylesheet = createStyleSheet((theme) => ({
     justifyContent: 'center',
     gap: theme.spacing.sm,
     borderRadius: theme.radius.md,
-    paddingVertical: theme.spacing.md,
+    paddingVertical: theme.spacing.sm,
     borderWidth: 1.5,
     borderColor: theme.colors.accent,
   },

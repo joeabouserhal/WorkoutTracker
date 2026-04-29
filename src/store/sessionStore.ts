@@ -19,6 +19,7 @@ interface ExerciseEntry {
   workoutExerciseId: string
   exerciseTypeId: string
   exerciseTypeName: string
+  methodLocked?: number
   methodId: string
   methodName: string
   weightUnit: string
@@ -34,6 +35,7 @@ interface SessionState {
   restEndsAt: number | null
   elapsedSeconds: number
   isWorkoutSheetOpen: boolean
+  sheetOpenRequestId: number
 
   startWorkout: (workoutId: string) => void
   endWorkout: () => void
@@ -59,6 +61,7 @@ export const useSessionStore = create<SessionState>()((set) => ({
   restEndsAt: null,
   elapsedSeconds: 0,
   isWorkoutSheetOpen: false,
+  sheetOpenRequestId: 0,
 
   startWorkout: (workoutId) => {
     const now = Date.now()
@@ -74,6 +77,7 @@ export const useSessionStore = create<SessionState>()((set) => ({
       restEndsAt: null,
       elapsedSeconds: 0,
       isWorkoutSheetOpen: true,
+      sheetOpenRequestId: 1,
     })
   },
 
@@ -91,10 +95,15 @@ export const useSessionStore = create<SessionState>()((set) => ({
       restEndsAt: null,
       elapsedSeconds: 0,
       isWorkoutSheetOpen: false,
+      sheetOpenRequestId: 0,
     })
   },
 
-  openWorkoutSheet: () => set({ isWorkoutSheetOpen: true }),
+  openWorkoutSheet: () =>
+    set((state) => ({
+      isWorkoutSheetOpen: true,
+      sheetOpenRequestId: state.sheetOpenRequestId + 1,
+    })),
   closeWorkoutSheet: () => set({ isWorkoutSheetOpen: false }),
 
   addExercise: (entry) =>

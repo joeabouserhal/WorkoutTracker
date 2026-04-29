@@ -20,12 +20,16 @@ import {
   deleteCustomExerciseType,
   deleteCustomMethodFromExercise,
   ExerciseTypeRow,
+  ExercisePrSummary,
   getExerciseTypesBySection,
+  getExercisePrSummariesBySection,
   getMethodName,
   getMethods,
   getMethodsForExerciseType,
+  getMethodPrSummariesForExerciseType,
   getSections,
   hasHiddenDefaultMethods,
+  MethodPrSummary,
   MethodRow,
   restoreDefaultMethodsForExerciseType,
   SectionRow,
@@ -33,6 +37,15 @@ import {
 
 type Step = 'sections' | 'exerciseTypes' | 'methods'
 type CreateMode = 'section' | 'exercise' | 'method'
+const PR_GOLD = '#D9A441'
+
+function formatCompactNumber(value: number) {
+  return Number.parseFloat(value.toFixed(2)).toString()
+}
+
+function hasPrValue(value: number | null | undefined): value is number {
+  return typeof value === 'number' && Number.isFinite(value)
+}
 
 export default function LibraryScreen() {
   const { styles, theme } = useStyles(stylesheet)
@@ -41,6 +54,8 @@ export default function LibraryScreen() {
   const [sectionList, setSectionList] = useState<SectionRow[]>([])
   const [exerciseTypeList, setExerciseTypeList] = useState<ExerciseTypeRow[]>([])
   const [methodList, setMethodList] = useState<MethodRow[]>([])
+  const [exercisePrSummaries, setExercisePrSummaries] = useState<Record<string, ExercisePrSummary>>({})
+  const [methodPrSummaries, setMethodPrSummaries] = useState<Record<string, MethodPrSummary>>({})
   const [selectedSection, setSelectedSection] = useState<SectionRow | null>(null)
   const [selectedExerciseType, setSelectedExerciseType] = useState<ExerciseTypeRow | null>(null)
   const [lockedMethodName, setLockedMethodName] = useState('')
@@ -94,11 +109,18 @@ export default function LibraryScreen() {
     setShowRestoreDefaults(false)
     setLoading(true)
     try {
-      setExerciseTypeList(await getExerciseTypesBySection(section.id))
+      const [exercises, prSummaries] = await Promise.all([
+        getExerciseTypesBySection(section.id),
+        getExercisePrSummariesBySection(section.id),
+      ])
+      setExerciseTypeList(exercises)
+      setExercisePrSummaries(prSummaries)
+      setMethodPrSummaries({})
       setStep('exerciseTypes')
     } catch (e) {
       console.error('Could not load exercises', e)
       setExerciseTypeList([])
+      setExercisePrSummaries({})
       setStep('exerciseTypes')
     } finally {
       setLoading(false)
@@ -112,7 +134,11 @@ export default function LibraryScreen() {
       setShowRestoreDefaults(
         Boolean(exerciseType.isCustom) && await hasHiddenDefaultMethods(exerciseType.id),
       )
-      const methods = await getMethodsForExerciseType(exerciseType.id)
+      const [methods, prSummaries] = await Promise.all([
+        getMethodsForExerciseType(exerciseType.id),
+        getMethodPrSummariesForExerciseType(exerciseType.id),
+      ])
+      setMethodPrSummaries(prSummaries)
       if (exerciseType.methodLocked && exerciseType.lockedMethodId) {
         setLockedMethodName(await getMethodName(exerciseType.lockedMethodId))
         setMethodList(methods.filter((method) => method.id === exerciseType.lockedMethodId))
@@ -147,12 +173,14 @@ export default function LibraryScreen() {
       setSelectedExerciseType(null)
       setLockedMethodName('')
       setShowRestoreDefaults(false)
+      setMethodPrSummaries({})
       return
     }
     if (step === 'exerciseTypes') {
       setStep('sections')
       setSelectedSection(null)
       setExerciseTypeList([])
+      setExercisePrSummaries({})
     }
   }
 
@@ -220,12 +248,22 @@ export default function LibraryScreen() {
       return
     }
     if (step === 'exerciseTypes' && selectedSection) {
-      setExerciseTypeList(await getExerciseTypesBySection(selectedSection.id))
+      const [exercises, prSummaries] = await Promise.all([
+        getExerciseTypesBySection(selectedSection.id),
+        getExercisePrSummariesBySection(selectedSection.id),
+      ])
+      setExerciseTypeList(exercises)
+      setExercisePrSummaries(prSummaries)
       return
     }
     if (step === 'methods') {
       if (selectedExerciseType) {
-        setMethodList(await getMethodsForExerciseType(selectedExerciseType.id))
+        const [methods, prSummaries] = await Promise.all([
+          getMethodsForExerciseType(selectedExerciseType.id),
+          getMethodPrSummariesForExerciseType(selectedExerciseType.id),
+        ])
+        setMethodList(methods)
+        setMethodPrSummaries(prSummaries)
         setShowRestoreDefaults(
           Boolean(selectedExerciseType.isCustom) &&
             await hasHiddenDefaultMethods(selectedExerciseType.id),
@@ -240,7 +278,11 @@ export default function LibraryScreen() {
     if (!selectedExerciseType) return
     setLoading(true)
     try {
-      const methods = await getMethodsForExerciseType(selectedExerciseType.id)
+      const [methods, prSummaries] = await Promise.all([
+        getMethodsForExerciseType(selectedExerciseType.id),
+        getMethodPrSummariesForExerciseType(selectedExerciseType.id),
+      ])
+      setMethodPrSummaries(prSummaries)
       setShowRestoreDefaults(
         Boolean(selectedExerciseType.isCustom) &&
           await hasHiddenDefaultMethods(selectedExerciseType.id),
@@ -362,8 +404,7 @@ export default function LibraryScreen() {
     const exerciseTypeId = selectedExerciseType.id
     restoreDefaultMethodsForExerciseType(exerciseTypeId)
       .then(async () => {
-        setMethodList(await getMethodsForExerciseType(exerciseTypeId))
-        setShowRestoreDefaults(false)
+        await refreshMethodsForSelectedExercise()
       })
       .catch((e) => {
         console.error('Could not restore default methods', e)
@@ -404,6 +445,7 @@ export default function LibraryScreen() {
       return exerciseTypeList.length === 0 ? (
         <EmptyState text="No exercises in this section yet." />
       ) : exerciseTypeList.map((exerciseType) => {
+        const prSummary = exercisePrSummaries[exerciseType.id]
         const row = (
           <TouchableOpacity
             style={styles.row}
@@ -424,6 +466,22 @@ export default function LibraryScreen() {
                   {exerciseType.methodLocked ? (
                     <View style={styles.badgeMuted}>
                       <Text style={styles.badgeMutedText}>single method</Text>
+                    </View>
+                  ) : null}
+                  {hasPrValue(prSummary?.weightKg) ? (
+                    <View style={styles.prBadge}>
+                      <MaterialCommunityIcons name="trophy-outline" size={13} color={PR_GOLD} />
+                      <Text style={styles.prBadgeText}>
+                        Current Weight PR {formatCompactNumber(prSummary.weightKg)} kg - {prSummary.weightMethodName ?? 'Method'}
+                      </Text>
+                    </View>
+                  ) : null}
+                  {hasPrValue(prSummary?.reps) ? (
+                    <View style={styles.prBadge}>
+                      <MaterialCommunityIcons name="trophy-outline" size={13} color={PR_GOLD} />
+                      <Text style={styles.prBadgeText}>
+                        Current Reps PR {prSummary.reps} - {prSummary.repsMethodName ?? 'Method'}
+                      </Text>
                     </View>
                   ) : null}
                 </View>
@@ -452,6 +510,7 @@ export default function LibraryScreen() {
     return methodList.length === 0 ? (
       <EmptyState text="No methods found." />
     ) : methodList.map((method) => {
+      const prSummary = methodPrSummaries[method.id]
       const row = (
         <View style={styles.row}>
           <View style={styles.rowLeft}>
@@ -469,6 +528,20 @@ export default function LibraryScreen() {
                 {selectedExerciseType?.methodLocked && method.name === lockedMethodName ? (
                   <View style={styles.badgeMuted}>
                     <Text style={styles.badgeMutedText}>only method</Text>
+                  </View>
+                ) : null}
+                {hasPrValue(prSummary?.weightKg) ? (
+                  <View style={styles.prBadge}>
+                    <MaterialCommunityIcons name="trophy-outline" size={13} color={PR_GOLD} />
+                    <Text style={styles.prBadgeText}>
+                      Current Weight PR {formatCompactNumber(prSummary.weightKg)} kg
+                    </Text>
+                  </View>
+                ) : null}
+                {hasPrValue(prSummary?.reps) ? (
+                  <View style={styles.prBadge}>
+                    <MaterialCommunityIcons name="trophy-outline" size={13} color={PR_GOLD} />
+                    <Text style={styles.prBadgeText}>Current Reps PR {prSummary.reps}</Text>
                   </View>
                 ) : null}
               </View>
@@ -980,6 +1053,20 @@ const stylesheet = createStyleSheet((theme) => ({
     color: theme.colors.textMuted,
     fontSize: theme.fontSize.xs,
     fontWeight: '700',
+  },
+  prBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    backgroundColor: PR_GOLD + '26',
+    borderRadius: theme.radius.full,
+    paddingHorizontal: theme.spacing.sm,
+    paddingVertical: 3,
+  },
+  prBadgeText: {
+    color: PR_GOLD,
+    fontSize: theme.fontSize.xs,
+    fontWeight: '800',
   },
   emptyText: {
     color: theme.colors.textMuted,

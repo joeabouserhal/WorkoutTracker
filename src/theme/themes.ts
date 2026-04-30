@@ -61,7 +61,7 @@ export const oledTheme = createTheme({
   surface: '#0A0A0A',
   surface2: '#141414',
   text: '#F5F5F7',
-  textMuted: '#8E8E93',
+  textMuted: '#A1A1A7',
   accent: '#FF6B6B',
   accentMuted: '#FF6B6B26',
   danger: '#FF453A',
@@ -70,11 +70,11 @@ export const oledTheme = createTheme({
 })
 
 export const draculaTheme = createTheme({
-  bg: '#282A36',
-  surface: '#343746',
-  surface2: '#44475A',
+  bg: '#242633',
+  surface: '#303342',
+  surface2: '#414558',
   text: '#F8F8F2',
-  textMuted: '#6272A4',
+  textMuted: '#9BA7D9',
   accent: '#BD93F9',
   accentMuted: '#BD93F926',
   danger: '#FF5555',
@@ -83,11 +83,11 @@ export const draculaTheme = createTheme({
 })
 
 export const oneDarkTheme = createTheme({
-  bg: '#282C34',
-  surface: '#31353F',
-  surface2: '#3E4451',
-  text: '#ABB2BF',
-  textMuted: '#5C6370',
+  bg: '#23272F',
+  surface: '#2D323C',
+  surface2: '#3A404D',
+  text: '#D7DAE0',
+  textMuted: '#9AA3B1',
   accent: '#61AFEF',
   accentMuted: '#61AFEF26',
   danger: '#E06C75',
@@ -96,11 +96,11 @@ export const oneDarkTheme = createTheme({
 })
 
 export const nordTheme = createTheme({
-  bg: '#2E3440',
-  surface: '#3B4252',
-  surface2: '#434C5E',
+  bg: '#282E39',
+  surface: '#353D4D',
+  surface2: '#414A5C',
   text: '#ECEFF4',
-  textMuted: '#4C566A',
+  textMuted: '#A7B3C8',
   accent: '#88C0D0',
   accentMuted: '#88C0D026',
   danger: '#BF616A',
@@ -109,11 +109,11 @@ export const nordTheme = createTheme({
 })
 
 export const catppuccinTheme = createTheme({
-  bg: '#1E1E2E',
-  surface: '#313244',
-  surface2: '#45475A',
-  text: '#CDD6F4',
-  textMuted: '#6C7086',
+  bg: '#1A1A29',
+  surface: '#2C2D40',
+  surface2: '#404257',
+  text: '#E4E8FA',
+  textMuted: '#A7ACC3',
   accent: '#CBA6F7',
   accentMuted: '#CBA6F726',
   danger: '#F38BA8',
@@ -122,11 +122,11 @@ export const catppuccinTheme = createTheme({
 })
 
 export const tokyoNightTheme = createTheme({
-  bg: '#1A1B2E',
-  surface: '#24253A',
-  surface2: '#292E42',
-  text: '#C0CAF5',
-  textMuted: '#565F89',
+  bg: '#171829',
+  surface: '#202237',
+  surface2: '#283044',
+  text: '#D7DDF9',
+  textMuted: '#9AA7D8',
   accent: '#7AA2F7',
   accentMuted: '#7AA2F726',
   danger: '#F7768E',
@@ -135,11 +135,11 @@ export const tokyoNightTheme = createTheme({
 })
 
 export const gruvboxTheme = createTheme({
-  bg: '#282828',
-  surface: '#3C3836',
-  surface2: '#504945',
-  text: '#EBDBB2',
-  textMuted: '#928374',
+  bg: '#242424',
+  surface: '#393432',
+  surface2: '#4A433F',
+  text: '#F3E5BC',
+  textMuted: '#B9A98A',
   accent: '#FABD2F',
   accentMuted: '#FABD2F26',
   danger: '#FB4934',
@@ -148,11 +148,11 @@ export const gruvboxTheme = createTheme({
 })
 
 export const solarizedTheme = createTheme({
-  bg: '#002B36',
-  surface: '#073642',
-  surface2: '#0D4A5A',
-  text: '#839496',
-  textMuted: '#586E75',
+  bg: '#002631',
+  surface: '#06333F',
+  surface2: '#0C4554',
+  text: '#AAB8B8',
+  textMuted: '#8CA0A5',
   accent: '#268BD2',
   accentMuted: '#268BD226',
   danger: '#DC322F',

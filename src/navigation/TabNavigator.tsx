@@ -1,10 +1,9 @@
 import React, { useEffect, useState } from 'react'
-import { Text, View } from 'react-native'
+import { Text, TouchableOpacity, View } from 'react-native'
 import { createBottomTabNavigator, BottomTabBar } from '@react-navigation/bottom-tabs'
 import type { BottomTabBarProps } from '@react-navigation/bottom-tabs'
 import { createNativeStackNavigator } from '@react-navigation/native-stack'
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons'
-import { BottomSheetModalProvider } from '@gorhom/bottom-sheet'
 import { Gesture, GestureDetector } from 'react-native-gesture-handler'
 import { runOnJS } from 'react-native-reanimated'
 import { createStyleSheet, useStyles } from 'react-native-unistyles'
@@ -18,6 +17,8 @@ import SettingsScreen from '../screens/SettingsScreen'
 import ThemesScreen from '../screens/ThemesScreen'
 import ActiveWorkoutSheet from '../components/ActiveWorkoutSheet'
 import { useSessionStore } from '@/store/sessionStore'
+import { formatRestTimer } from '@/services/restTimerSettings'
+import { showWorkoutNotification } from '@/services/WorkoutNotification'
 
 const Tab = createBottomTabNavigator()
 const HomeStack = createNativeStackNavigator()
@@ -92,9 +93,13 @@ function formatElapsed(seconds: number): string {
 }
 
 function WorkoutMiniBar() {
-  const { theme } = useStyles(stylesheet)
+  const { styles, theme } = useStyles(stylesheet)
   const startedAt = useSessionStore((s) => s.startedAt)
   const openWorkoutSheet = useSessionStore((s) => s.openWorkoutSheet)
+  const requestEndWorkout = useSessionStore((s) => s.requestEndWorkout)
+  const isResting = useSessionStore((s) => s.isResting)
+  const restSecondsRemaining = useSessionStore((s) => s.restSecondsRemaining)
+  const clearRest = useSessionStore((s) => s.clearRest)
   const [elapsed, setElapsed] = useState(0)
 
   useEffect(() => {
@@ -106,58 +111,111 @@ function WorkoutMiniBar() {
     return () => clearInterval(interval)
   }, [startedAt])
 
-  const gesture = Gesture.Race(
-    Gesture.Tap().onEnd(() => runOnJS(openWorkoutSheet)()),
-    Gesture.Pan().onEnd(({ translationY }) => {
-      if (translationY < -20) runOnJS(openWorkoutSheet)()
-    }),
-  )
+  function skipRest() {
+    clearRest()
+    showWorkoutNotification(elapsed).catch(console.error)
+  }
+
+  const swipeUpGesture = Gesture.Pan()
+    .activeOffsetY(-8)
+    .failOffsetX([-14, 14])
+    .onEnd(({ translationY, velocityY }) => {
+      if (translationY < -34 || velocityY < -520) {
+        runOnJS(openWorkoutSheet)()
+      }
+    })
 
   return (
-    <GestureDetector gesture={gesture}>
-      <View
-        style={{
-          flexDirection: 'row',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          backgroundColor: theme.colors.surface,
-          borderTopWidth: 1,
-          borderTopColor: theme.colors.accent + '40',
-          paddingHorizontal: 16,
-          paddingVertical: 10,
-        }}
-      >
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-          <View
-            style={{
-              width: 8,
-              height: 8,
-              borderRadius: 4,
-              backgroundColor: theme.colors.accent,
-            }}
-          />
-          <Text
-            style={{ color: theme.colors.text, fontSize: 14, fontWeight: '600' }}
+    <GestureDetector gesture={swipeUpGesture}>
+      <View style={[styles.miniBar, isResting && styles.miniBarResting]}>
+        <View style={styles.miniBarTopRow}>
+          <TouchableOpacity
+            style={[styles.miniBarMain, isResting && styles.miniBarHeader]}
+            activeOpacity={0.75}
+            onPress={openWorkoutSheet}
           >
-            Workout in Progress
-          </Text>
+            <View style={styles.miniBarTitleRow}>
+              <View style={styles.miniBarDot} />
+              <Text
+                style={styles.miniBarTitle}
+              >
+                Workout in Progress
+              </Text>
+            </View>
+            <View style={styles.miniBarTimeRow}>
+              <Text
+                style={styles.miniBarTime}
+              >
+                {formatElapsed(elapsed)}
+              </Text>
+              <MaterialCommunityIcons
+                name="chevron-up"
+                size={isResting ? 18 : 20}
+                color={theme.colors.textMuted}
+              />
+            </View>
+          </TouchableOpacity>
+
+          {!isResting ? (
+            <TouchableOpacity
+              style={styles.miniEndButton}
+              onPress={requestEndWorkout}
+              activeOpacity={0.75}
+            >
+              <Text style={styles.miniEndButtonText}>
+                End
+              </Text>
+            </TouchableOpacity>
+          ) : null}
         </View>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-          <Text
-            style={{
-              color: theme.colors.accent,
-              fontSize: 15,
-              fontWeight: '700',
-            }}
-          >
-            {formatElapsed(elapsed)}
-          </Text>
-          <MaterialCommunityIcons
-            name="chevron-up"
-            size={20}
-            color={theme.colors.textMuted}
-          />
-        </View>
+
+        {isResting ? (
+          <>
+            <TouchableOpacity
+              style={styles.miniTimerGrid}
+              activeOpacity={0.75}
+              onPress={openWorkoutSheet}
+            >
+              <View style={styles.miniTimerChip}>
+                <Text style={styles.miniTimerLabel}>
+                  Workout
+                </Text>
+                <Text style={styles.miniTimerValue}>
+                  {formatElapsed(elapsed)}
+                </Text>
+              </View>
+              <View style={[styles.miniTimerChip, styles.miniRestTimerChip]}>
+                <Text style={styles.miniTimerLabel}>
+                  Rest
+                </Text>
+                <Text style={styles.miniRestTime}>
+                  {formatRestTimer(restSecondsRemaining)}
+                </Text>
+              </View>
+            </TouchableOpacity>
+
+            <View style={styles.miniRestRow}>
+              <TouchableOpacity
+                style={[styles.miniActionButton, styles.miniEndRestButton]}
+                onPress={requestEndWorkout}
+                activeOpacity={0.75}
+              >
+                <Text style={styles.miniEndButtonText}>
+                  End Workout
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.miniActionButton, styles.miniSkipButton]}
+                onPress={skipRest}
+                activeOpacity={0.75}
+              >
+                <Text style={styles.miniSkipButtonText}>
+                  Skip Rest
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </>
+        ) : null}
       </View>
     </GestureDetector>
   )
@@ -177,7 +235,7 @@ export default function TabNavigator() {
   const { theme } = useStyles(stylesheet)
 
   return (
-    <BottomSheetModalProvider>
+    <>
       <Tab.Navigator
         tabBar={(props) => <CustomTabBar {...props} />}
         screenOptions={{
@@ -272,8 +330,143 @@ export default function TabNavigator() {
       </Tab.Navigator>
 
       <ActiveWorkoutSheet />
-    </BottomSheetModalProvider>
+    </>
   )
 }
 
-const stylesheet = createStyleSheet(() => ({}))
+const stylesheet = createStyleSheet((theme) => ({
+  miniBar: {
+    backgroundColor: theme.colors.surface,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    borderWidth: 1,
+    borderBottomWidth: 0,
+    borderColor: theme.colors.border,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    minHeight: 72,
+  },
+  miniBarResting: {
+    gap: 9,
+    paddingVertical: 12,
+  },
+  miniBarTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  miniBarMain: {
+    flex: 1,
+    minWidth: 0,
+    gap: 4,
+  },
+  miniBarHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  miniBarTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  miniBarDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: theme.colors.accent,
+  },
+  miniBarTitle: {
+    color: theme.colors.text,
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  miniBarTimeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  miniBarTime: {
+    color: theme.colors.accent,
+    fontSize: 18,
+    fontWeight: '800',
+  },
+  miniRestRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
+  miniTimerGrid: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  miniTimerChip: {
+    flex: 1,
+    minHeight: 44,
+    borderRadius: theme.radius.sm,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.surface2,
+    justifyContent: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    gap: 2,
+  },
+  miniRestTimerChip: {
+    backgroundColor: theme.colors.accentMuted,
+  },
+  miniTimerLabel: {
+    color: theme.colors.textMuted,
+    fontSize: 11,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+  },
+  miniTimerValue: {
+    color: theme.colors.accent,
+    fontSize: 16,
+    fontWeight: '900',
+  },
+  miniRestTime: {
+    color: theme.colors.accent,
+    fontSize: 16,
+    fontWeight: '900',
+  },
+  miniActionButton: {
+    flex: 1,
+    minHeight: 38,
+    borderRadius: theme.radius.full,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 14,
+  },
+  miniSkipButton: {
+    backgroundColor: theme.colors.accentMuted,
+  },
+  miniSkipButtonText: {
+    color: theme.colors.accent,
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  miniEndRestButton: {
+    backgroundColor: theme.colors.surface2,
+  },
+  miniEndButton: {
+    minHeight: 38,
+    borderRadius: theme.radius.full,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.surface2,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 14,
+  },
+  miniEndButtonText: {
+    color: theme.colors.textMuted,
+    fontSize: 13,
+    fontWeight: '800',
+  },
+}))

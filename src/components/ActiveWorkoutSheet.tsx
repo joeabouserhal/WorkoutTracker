@@ -2,21 +2,19 @@ import React, { useCallback, useEffect, useRef, useState } from 'react'
 import {
   AppState,
   Keyboard,
+  Modal,
   type LayoutChangeEvent,
   type NativeScrollEvent,
   type NativeSyntheticEvent,
+  ScrollView,
   Text,
   TextInput,
   TouchableOpacity,
   View,
 } from 'react-native'
-import {
-  BottomSheetModal,
-  BottomSheetScrollView,
-  BottomSheetTextInput,
-  type BottomSheetScrollViewMethods,
-} from '@gorhom/bottom-sheet'
+import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler'
 import ReanimatedSwipeable from 'react-native-gesture-handler/ReanimatedSwipeable'
+import { runOnJS, useSharedValue } from 'react-native-reanimated'
 import notifee, { EventType } from '@notifee/react-native'
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons'
 import { createStyleSheet, useStyles } from 'react-native-unistyles'
@@ -47,7 +45,7 @@ import {
   getDefaultRestSeconds,
 } from '@/services/restTimerSettings'
 import ExercisePickerModal from './ExercisePickerModal'
-import ThemedDialog, { type ThemedDialogAction } from './ui/ThemedDialog'
+import { type ThemedDialogAction } from './ui/ThemedDialog'
 
 type LocalSet = {
   id: string
@@ -80,6 +78,10 @@ function parseWeightInput(value: string): number | null {
 function parseRepsInput(value: string): number {
   const parsed = Number.parseInt(value, 10)
   return Number.isFinite(parsed) ? parsed : 0
+}
+
+function sanitizeRepsInput(value: string): string {
+  return value.split(/[.,]/)[0].replace(/[^\d]/g, '')
 }
 
 function toKgInput(value: string, unit: string): string {
@@ -122,8 +124,7 @@ function formatElapsed(seconds: number): string {
 export default function ActiveWorkoutSheet() {
   const { styles, theme } = useStyles(stylesheet)
   const insets = useSafeAreaInsets()
-  const sheetRef = useRef<BottomSheetModal>(null)
-  const scrollRef = useRef<BottomSheetScrollViewMethods>(null)
+  const scrollRef = useRef<ScrollView>(null)
   const [pickerVisible, setPickerVisible] = useState(false)
   const [localSets, setLocalSets] = useState<Record<string, LocalSet[]>>({})
   const [restSetKey, setRestSetKey] = useState<string | null>(null)
@@ -133,6 +134,7 @@ export default function ActiveWorkoutSheet() {
     title: string
     message?: string
     actions: ThemedDialogAction[]
+    compactActions?: boolean
   } | null>(null)
   const [validationNotice, setValidationNotice] = useState<string | null>(null)
   const [validationErrors, setValidationErrors] = useState<Record<string, boolean>>({})
@@ -140,18 +142,16 @@ export default function ActiveWorkoutSheet() {
   const [keyboardHeight, setKeyboardHeight] = useState(0)
   const [footerHeight, setFooterHeight] = useState(0)
   const elapsedRef = useRef(0)
-  const activeWorkoutIdRef = useRef<string | null>(null)
-  const isWorkoutSheetOpenRef = useRef(false)
-  const sheetDismissRequestedRef = useRef(false)
   const restDoneNotifiedRef = useRef(false)
-  const pickerVisibleRef = useRef(false)
   const keyboardHeightRef = useRef(0)
   const footerHeightRef = useRef(0)
+  const handledEndRequestRef = useRef(0)
   const scrollOffsetRef = useRef(0)
   const scrollHeightRef = useRef(0)
   const setLayoutRef = useRef<Record<string, { y: number; height: number }>>({})
   const focusedSetKeyRef = useRef<string | null>(null)
   const focusedInputTargetRef = useRef<number | null>(null)
+  const sheetScrollAtTop = useSharedValue(true)
 
   const {
     activeWorkoutId,
@@ -160,7 +160,7 @@ export default function ActiveWorkoutSheet() {
     isResting,
     restSecondsRemaining,
     isWorkoutSheetOpen,
-    sheetOpenRequestId,
+    endWorkoutRequestId,
     closeWorkoutSheet,
     endWorkout,
     openWorkoutSheet,
@@ -249,6 +249,17 @@ export default function ActiveWorkoutSheet() {
     return invalidFields
   }, [localSets, validateSetValues])
 
+  const findExercisesWithoutCompletedSets = useCallback(() => (
+    exercises.filter((exercise) => {
+      const sets = localSets[exercise.workoutExerciseId] ?? []
+      return !sets.some((set) =>
+        set.completed &&
+        (parseWeightInput(set.weightKg) ?? 0) > 0 &&
+        parseRepsInput(set.reps) > 0,
+      )
+    })
+  ), [exercises, localSets])
+
   const hasMeaningfulCompletedSet = useCallback(() => (
     Object.values(localSets).some((sets) =>
       sets.some((set) =>
@@ -264,6 +275,25 @@ export default function ActiveWorkoutSheet() {
     if (invalidFields.length > 0) {
       markInvalidSetFields(invalidFields)
       const message = 'Weight and reps must both be greater than 0 before this workout can be saved.'
+      setValidationNotice(message)
+      return
+    }
+
+    const exercisesWithoutCompletedSets = findExercisesWithoutCompletedSets()
+    if (exercisesWithoutCompletedSets.length > 0) {
+      const fieldsToMark = exercisesWithoutCompletedSets.flatMap((exercise) => {
+        const firstSet = localSets[exercise.workoutExerciseId]?.[0]
+        return firstSet
+          ? validateSetValues(exercise.workoutExerciseId, firstSet)
+          : []
+      })
+      if (fieldsToMark.length > 0) {
+        markInvalidSetFields(fieldsToMark)
+      }
+      const exerciseName = exercisesWithoutCompletedSets[0]?.exerciseTypeName ?? 'An exercise'
+      const message = exercisesWithoutCompletedSets.length === 1
+        ? `${exerciseName} needs at least one completed set before saving. Complete a set or remove the exercise.`
+        : 'Every exercise needs at least one completed set before saving. Complete a set or remove empty exercises.'
       setValidationNotice(message)
       return
     }
@@ -294,10 +324,13 @@ export default function ActiveWorkoutSheet() {
     closeDialog,
     discardWorkout,
     doEndWorkout,
+    findExercisesWithoutCompletedSets,
     findInvalidWorkoutFields,
     hasMeaningfulCompletedSet,
+    localSets,
     markInvalidSetFields,
     showErrorDialog,
+    validateSetValues,
   ])
 
   const requestCancelWorkout = useCallback(() => {
@@ -372,10 +405,6 @@ export default function ActiveWorkoutSheet() {
   }, [exercises])
 
   useEffect(() => {
-    activeWorkoutIdRef.current = activeWorkoutId
-  }, [activeWorkoutId])
-
-  useEffect(() => {
     if (!activeWorkoutId) {
       setWorkoutName('')
       return
@@ -393,14 +422,6 @@ export default function ActiveWorkoutSheet() {
       isActive = false
     }
   }, [activeWorkoutId])
-
-  useEffect(() => {
-    isWorkoutSheetOpenRef.current = isWorkoutSheetOpen
-  }, [isWorkoutSheetOpen])
-
-  useEffect(() => {
-    pickerVisibleRef.current = pickerVisible
-  }, [pickerVisible])
 
   // Sync new exercises into local set state (one empty set each)
   useEffect(() => {
@@ -465,13 +486,11 @@ export default function ActiveWorkoutSheet() {
   }, [activeWorkoutId, handleNotificationAction])
 
   useEffect(() => {
-    if (!activeWorkoutId) return
-    if (isWorkoutSheetOpen) {
-      sheetRef.current?.present()
-    } else {
-      sheetRef.current?.dismiss()
-    }
-  }, [isWorkoutSheetOpen, activeWorkoutId, sheetOpenRequestId])
+    if (!activeWorkoutId || endWorkoutRequestId === 0) return
+    if (handledEndRequestRef.current === endWorkoutRequestId) return
+    handledEndRequestRef.current = endWorkoutRequestId
+    requestEndWorkout()
+  }, [activeWorkoutId, endWorkoutRequestId, requestEndWorkout])
 
   useEffect(() => {
     if (!startedAt) {
@@ -520,45 +539,25 @@ export default function ActiveWorkoutSheet() {
     requestEndWorkout()
   }
 
-  function handleCloseSheet() {
-    sheetDismissRequestedRef.current = true
+  const handleCloseSheet = useCallback(() => {
+    Keyboard.dismiss()
     closeDialog()
     closeWorkoutSheet()
-  }
+  }, [closeDialog, closeWorkoutSheet])
 
-  function handleSheetDismiss() {
-    closeDialog()
-    if (pickerVisibleRef.current) {
-      return
-    }
-    if (
-      activeWorkoutIdRef.current &&
-      isWorkoutSheetOpenRef.current &&
-      !sheetDismissRequestedRef.current
-    ) {
-      requestAnimationFrame(() => {
-        if (!pickerVisibleRef.current) {
-          sheetRef.current?.present()
-        }
-      })
-      return
-    }
-
-    sheetDismissRequestedRef.current = false
-    closeWorkoutSheet()
+  function handlePickerOpen() {
+    setPickerVisible(true)
   }
 
   function handlePickerClose() {
     setPickerVisible(false)
-    if (activeWorkoutIdRef.current && isWorkoutSheetOpenRef.current) {
-      setTimeout(() => {
-        sheetRef.current?.present()
-      }, 100)
-    }
+    if (activeWorkoutId) openWorkoutSheet()
   }
 
   function handleScroll(event: NativeSyntheticEvent<NativeScrollEvent>) {
-    scrollOffsetRef.current = event.nativeEvent.contentOffset.y
+    const offsetY = event.nativeEvent.contentOffset.y
+    scrollOffsetRef.current = offsetY
+    sheetScrollAtTop.value = offsetY <= 2
   }
 
   function handleScrollLayout(event: LayoutChangeEvent) {
@@ -719,6 +718,7 @@ export default function ActiveWorkoutSheet() {
 
   function updateSetField(weId: string, setId: string, field: 'weight' | 'reps', value: string) {
     const weightUnit = exercises.find((ex) => ex.workoutExerciseId === weId)?.weightUnit ?? 'kg'
+    const nextValue = field === 'reps' ? sanitizeRepsInput(value) : value
     const errorKey = getFieldErrorKey(weId, setId, field)
     setLocalSets((prev) => ({
       ...prev,
@@ -728,18 +728,18 @@ export default function ActiveWorkoutSheet() {
           : field === 'weight'
             ? {
                 ...s,
-                weightInput: value,
+                weightInput: nextValue,
                 weightInputUnit: weightUnit,
-                weightKg: toKgInput(value, weightUnit),
+                weightKg: toKgInput(nextValue, weightUnit),
               }
-            : { ...s, reps: value },
+            : { ...s, reps: nextValue },
       ),
     }))
     setValidationErrors((prev) => {
       if (!prev[errorKey]) return prev
       const isValid = field === 'weight'
-        ? (parseWeightInput(toKgInput(value, weightUnit)) ?? 0) > 0
-        : parseRepsInput(value) > 0
+        ? (parseWeightInput(toKgInput(nextValue, weightUnit)) ?? 0) > 0
+        : parseRepsInput(nextValue) > 0
       if (!isValid) return prev
       const next = { ...prev }
       delete next[errorKey]
@@ -749,9 +749,13 @@ export default function ActiveWorkoutSheet() {
   }
 
   function showWeightUnitPicker(weId: string, currentUnit: string) {
+    Keyboard.dismiss()
+    focusedSetKeyRef.current = null
+    focusedInputTargetRef.current = null
     setDialog({
       title: 'Weight Unit',
       message: 'Change the unit for this exercise only.',
+      compactActions: true,
       actions: [
         { label: 'Cancel', onPress: closeDialog },
         {
@@ -889,24 +893,30 @@ export default function ActiveWorkoutSheet() {
     )
   }
 
+  const swipeDownToCloseGesture = Gesture.Pan()
+    .activeOffsetY(24)
+    .failOffsetX([-14, 14])
+    .onEnd((event) => {
+      if (!sheetScrollAtTop.value) return
+      if (event.translationY > 95 || event.velocityY > 760) {
+        runOnJS(handleCloseSheet)()
+      }
+    })
+
   if (!activeWorkoutId) return null
 
   return (
     <>
-      <BottomSheetModal
-        ref={sheetRef}
-        snapPoints={['100%']}
-        enablePanDownToClose={false}
-        enableDynamicSizing={false}
-        keyboardBehavior="interactive"
-        keyboardBlurBehavior="restore"
-        android_keyboardInputMode="adjustResize"
-        onDismiss={handleSheetDismiss}
-        backgroundStyle={styles.background}
-        handleIndicatorStyle={styles.handleIndicator}
-        topInset={insets.top}
+      <Modal
+        visible={isWorkoutSheetOpen}
+        animationType="slide"
+        onRequestClose={handleCloseSheet}
+        statusBarTranslucent
+        navigationBarTranslucent
       >
-        <View style={styles.root}>
+        <GestureHandlerRootView style={styles.gestureRoot}>
+        <GestureDetector gesture={swipeDownToCloseGesture}>
+        <View style={[styles.root, { paddingTop: insets.top }]}>
           {/* Fixed header */}
           <View style={styles.header}>
             <TouchableOpacity style={styles.iconBtn} onPress={handleCloseSheet}>
@@ -934,7 +944,7 @@ export default function ActiveWorkoutSheet() {
           </View>
 
           {/* Scrollable exercise list */}
-          <BottomSheetScrollView
+          <ScrollView
             ref={scrollRef}
             style={styles.scroll}
             contentContainerStyle={[
@@ -1024,7 +1034,7 @@ export default function ActiveWorkoutSheet() {
                                   styles.inputWrapError,
                               ]}
                             >
-                              <BottomSheetTextInput
+                              <TextInput
                                 style={styles.input}
                                 value={getDisplayWeight(s, ex.weightUnit)}
                                 onChangeText={(v) => updateSetField(ex.workoutExerciseId, s.id, 'weight', v)}
@@ -1051,7 +1061,7 @@ export default function ActiveWorkoutSheet() {
                                   styles.inputWrapError,
                               ]}
                             >
-                              <BottomSheetTextInput
+                              <TextInput
                                 style={styles.input}
                                 value={s.reps}
                                 onChangeText={(v) => updateSetField(ex.workoutExerciseId, s.id, 'reps', v)}
@@ -1109,12 +1119,12 @@ export default function ActiveWorkoutSheet() {
             {/* Add Exercise button — below exercises */}
             <TouchableOpacity
               style={styles.addExerciseBtn}
-              onPress={() => setPickerVisible(true)}
+              onPress={handlePickerOpen}
             >
               <MaterialCommunityIcons name="plus" size={20} color={theme.colors.accent} />
               <Text style={styles.addExerciseText}>Add Exercise</Text>
             </TouchableOpacity>
-          </BottomSheetScrollView>
+          </ScrollView>
 
           {/* Fixed footer */}
           <View
@@ -1140,31 +1150,69 @@ export default function ActiveWorkoutSheet() {
               <Text style={styles.endButtonText}>End Workout</Text>
             </TouchableOpacity>
           </View>
+
+          {dialog ? (
+            <View style={styles.dialogOverlay}>
+              <View style={styles.dialogCard}>
+                <Text style={styles.dialogTitle}>{dialog.title}</Text>
+                {dialog.message ? (
+                  <Text style={styles.dialogMessage}>{dialog.message}</Text>
+                ) : null}
+                <View style={[
+                  styles.dialogActions,
+                  dialog.compactActions && styles.dialogActionsCompact,
+                ]}>
+                  {dialog.actions.map((action) => (
+                    <TouchableOpacity
+                      key={action.label}
+                      style={[
+                        styles.dialogButton,
+                        dialog.compactActions &&
+                          action.label !== 'Cancel' &&
+                          styles.dialogCompactButton,
+                        dialog.compactActions &&
+                          action.label === 'Cancel' &&
+                          styles.dialogCompactCancelButton,
+                        action.variant === 'primary' && styles.dialogPrimaryButton,
+                        action.variant === 'danger' && styles.dialogDangerButton,
+                      ]}
+                      onPress={action.onPress}
+                    >
+                      <Text
+                        style={[
+                          styles.dialogButtonText,
+                          (action.variant === 'primary' || action.variant === 'danger') &&
+                            styles.dialogFilledButtonText,
+                        ]}
+                      >
+                        {action.label}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </View>
+            </View>
+          ) : null}
         </View>
-      </BottomSheetModal>
+        </GestureDetector>
+        </GestureHandlerRootView>
+      </Modal>
 
       <ExercisePickerModal visible={pickerVisible} onClose={handlePickerClose} />
-      <ThemedDialog
-        visible={!!dialog}
-        title={dialog?.title ?? ''}
-        message={dialog?.message}
-        actions={dialog?.actions ?? []}
-      />
     </>
   )
 }
 
 const stylesheet = createStyleSheet((theme) => ({
-  background: {
-    backgroundColor: theme.colors.bg,
-  },
-  handleIndicator: {
-    backgroundColor: theme.colors.border,
-    width: 36,
+  gestureRoot: {
+    flex: 1,
+    backgroundColor: 'transparent',
   },
   root: {
     flex: 1,
     minHeight: 0,
+    position: 'relative',
+    backgroundColor: theme.colors.bg,
   },
   // ── Header ──────────────────────────────────────────────
   header: {
@@ -1495,5 +1543,82 @@ const stylesheet = createStyleSheet((theme) => ({
     color: '#FFFFFF',
     fontSize: theme.fontSize.md,
     fontWeight: '700',
+  },
+  dialogOverlay: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    zIndex: 20,
+    backgroundColor: 'rgba(0, 0, 0, 0.62)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: theme.spacing.lg,
+  },
+  dialogCard: {
+    width: '100%',
+    maxWidth: 360,
+    backgroundColor: theme.colors.surface,
+    borderRadius: theme.radius.lg,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    padding: theme.spacing.lg,
+    gap: theme.spacing.md,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.25,
+    shadowRadius: 18,
+    elevation: 10,
+  },
+  dialogTitle: {
+    color: theme.colors.text,
+    fontSize: theme.fontSize.lg,
+    fontWeight: '700',
+  },
+  dialogMessage: {
+    color: theme.colors.textMuted,
+    fontSize: theme.fontSize.md,
+    lineHeight: 22,
+  },
+  dialogActions: {
+    gap: theme.spacing.sm,
+  },
+  dialogActionsCompact: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+  },
+  dialogButton: {
+    minHeight: 46,
+    borderRadius: theme.radius.md,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.surface2,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: theme.spacing.md,
+  },
+  dialogCompactButton: {
+    flex: 1,
+    minWidth: 0,
+  },
+  dialogCompactCancelButton: {
+    flexBasis: '100%',
+  },
+  dialogPrimaryButton: {
+    backgroundColor: theme.colors.accent,
+    borderColor: 'rgba(255, 255, 255, 0.28)',
+  },
+  dialogDangerButton: {
+    backgroundColor: theme.colors.danger,
+    borderColor: 'rgba(255, 255, 255, 0.22)',
+  },
+  dialogButtonText: {
+    color: theme.colors.text,
+    fontSize: theme.fontSize.md,
+    fontWeight: '700',
+  },
+  dialogFilledButtonText: {
+    color: '#FFFFFF',
   },
 }))

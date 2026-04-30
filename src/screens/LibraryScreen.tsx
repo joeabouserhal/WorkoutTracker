@@ -500,15 +500,7 @@ export default function LibraryScreen() {
                     <View style={styles.prBadge}>
                       <MaterialCommunityIcons name="trophy-outline" size={13} color={PR_GOLD} />
                       <Text style={styles.prBadgeText}>
-                        Current Weight PR {formatCompactNumber(prSummary.weightKg)} kg - {prSummary.weightMethodName ?? 'Method'}
-                      </Text>
-                    </View>
-                  ) : null}
-                  {hasPrValue(prSummary?.reps) ? (
-                    <View style={styles.prBadge}>
-                      <MaterialCommunityIcons name="trophy-outline" size={13} color={PR_GOLD} />
-                      <Text style={styles.prBadgeText}>
-                        Current Reps PR {prSummary.reps} - {prSummary.repsMethodName ?? 'Method'}
+                        Current PR {formatCompactNumber(prSummary.weightKg)} kg - {prSummary.weightMethodName ?? 'Method'}
                       </Text>
                     </View>
                   ) : null}
@@ -562,14 +554,8 @@ export default function LibraryScreen() {
                   <View style={styles.prBadge}>
                     <MaterialCommunityIcons name="trophy-outline" size={13} color={PR_GOLD} />
                     <Text style={styles.prBadgeText}>
-                      Current Weight PR {formatCompactNumber(prSummary.weightKg)} kg
+                      Current PR {formatCompactNumber(prSummary.weightKg)} kg
                     </Text>
-                  </View>
-                ) : null}
-                {hasPrValue(prSummary?.reps) ? (
-                  <View style={styles.prBadge}>
-                    <MaterialCommunityIcons name="trophy-outline" size={13} color={PR_GOLD} />
-                    <Text style={styles.prBadgeText}>Current Reps PR {prSummary.reps}</Text>
                   </View>
                 ) : null}
               </View>
@@ -897,8 +883,8 @@ const stylesheet = createStyleSheet((theme) => ({
     width: 68,
   },
   breadcrumbScroll: {
-    marginTop: theme.spacing.md,
-    marginBottom: theme.spacing.md,
+    marginTop: theme.spacing.xs,
+    marginBottom: theme.spacing.xs,
     minWidth: 0,
   },
   breadcrumbContent: {

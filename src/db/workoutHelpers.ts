@@ -34,27 +34,8 @@ async function ensureExerciseTables() {
     set_type TEXT NOT NULL DEFAULT 'working', weight REAL NOT NULL,
     weight_unit TEXT NOT NULL DEFAULT 'kg', reps INTEGER NOT NULL,
     est_one_rm REAL, volume REAL,
-    is_weight_pr INTEGER NOT NULL DEFAULT 0,
-    is_reps_pr INTEGER NOT NULL DEFAULT 0,
     completed_at INTEGER NOT NULL
   )`)
-
-  const setColumns = await db.$client.execute('PRAGMA table_info(sets)')
-  const hasWeightPr = setColumns.rows.some(
-    (row: { name?: unknown }) => row.name === 'is_weight_pr',
-  )
-  const hasRepsPr = setColumns.rows.some(
-    (row: { name?: unknown }) => row.name === 'is_reps_pr',
-  )
-  if (!hasWeightPr) {
-    await db.$client.execute('ALTER TABLE sets ADD COLUMN is_weight_pr INTEGER NOT NULL DEFAULT 0')
-  }
-  if (!hasRepsPr) {
-    await db.$client.execute('ALTER TABLE sets ADD COLUMN is_reps_pr INTEGER NOT NULL DEFAULT 0')
-  }
-  if (!hasWeightPr || !hasRepsPr) {
-    await recomputeAllExerciseTypePrFlags()
-  }
 }
 
 async function ensureLibraryTables() {
@@ -144,6 +125,7 @@ export async function updateWorkoutName(workoutId: string, name: string): Promis
 
 export async function finishWorkout(workoutId: string): Promise<void> {
   await ensureTable()
+  await ensureExerciseTables()
   await db.$client.execute(
     'UPDATE workouts SET ended_at = ? WHERE id = ?',
     [Date.now(), workoutId],
@@ -166,17 +148,6 @@ export async function deleteWorkout(workoutId: string): Promise<void> {
 
 export async function deleteWorkoutExercise(workoutExerciseId: string): Promise<void> {
   await ensureExerciseTables()
-  const exerciseResult = await db.$client.execute(
-    `SELECT e.exercise_type_id as exerciseTypeId
-     FROM workout_exercises we
-     JOIN exercises e ON e.id = we.exercise_id
-     WHERE we.id = ?`,
-    [workoutExerciseId],
-  )
-  const exerciseTypeId = (
-    exerciseResult.rows[0] as { exerciseTypeId?: string } | undefined
-  )?.exerciseTypeId
-
   await db.$client.execute(
     'DELETE FROM sets WHERE workout_exercise_id = ?',
     [workoutExerciseId],
@@ -185,10 +156,6 @@ export async function deleteWorkoutExercise(workoutExerciseId: string): Promise<
     'DELETE FROM workout_exercises WHERE id = ?',
     [workoutExerciseId],
   )
-
-  if (exerciseTypeId) {
-    await recomputeExerciseTypePrFlags(exerciseTypeId)
-  }
 }
 
 export type WorkoutSummary = {
@@ -199,7 +166,8 @@ export type WorkoutSummary = {
   exerciseCount: number
   setCount: number
   volume: number
-  prCount: number
+  weightPrCount: number
+  currentWeightPrCount: number
 }
 
 export type WorkoutDetail = WorkoutSummary & {
@@ -209,9 +177,7 @@ export type WorkoutDetail = WorkoutSummary & {
     methodName: string
     defaultWeightUnit: string
     hasWeightPr: boolean
-    hasRepsPr: boolean
     hasCurrentWeightPr: boolean
-    hasCurrentRepsPr: boolean
     sets: Array<{
       id: string
       setType: string
@@ -220,12 +186,144 @@ export type WorkoutDetail = WorkoutSummary & {
       reps: number
       volume: number
       isWeightPr: boolean
-      isRepsPr: boolean
       isCurrentWeightPr: boolean
-      isCurrentRepsPr: boolean
       completedAt: number
     }>
   }>
+}
+
+type WeightPrHistorySetRow = {
+  setId: string
+  exerciseTypeId: string
+  methodId: string
+  weightKg: number
+  completedAt: number
+}
+
+type VisibleWeightPrSetRow = WeightPrHistorySetRow & {
+  workoutId?: string
+}
+
+type WeightPrFlags = {
+  isWeightPr: boolean
+  isCurrentWeightPr: boolean
+}
+
+function weightPrKey(exerciseTypeId: string, methodId: string): string {
+  return `${exerciseTypeId}::${methodId}`
+}
+
+function isGreaterWeight(a: number, b: number): boolean {
+  return a > b + 0.000001
+}
+
+async function getWeightPrHistoryForExerciseTypes(
+  exerciseTypeIds: string[],
+): Promise<WeightPrHistorySetRow[]> {
+  const uniqueIds = [...new Set(exerciseTypeIds)].filter(Boolean)
+  if (uniqueIds.length === 0) return []
+
+  const placeholders = uniqueIds.map(() => '?').join(', ')
+  const result = await db.$client.execute(
+    `SELECT
+       s.id as setId,
+       e.exercise_type_id as exerciseTypeId,
+       e.method_id as methodId,
+       s.weight as weightKg,
+       s.completed_at as completedAt
+     FROM sets s
+     JOIN workout_exercises we ON we.id = s.workout_exercise_id
+     JOIN exercises e ON e.id = we.exercise_id
+     JOIN workouts w ON w.id = we.workout_id
+     WHERE e.exercise_type_id IN (${placeholders})
+       AND w.ended_at IS NOT NULL
+       AND s.weight > 0
+     ORDER BY s.completed_at ASC, s.id ASC`,
+    uniqueIds,
+  )
+  return result.rows as WeightPrHistorySetRow[]
+}
+
+function buildWeightPrFlags(
+  rows: WeightPrHistorySetRow[],
+): Record<string, WeightPrFlags> {
+  const grouped = rows.reduce<Record<string, WeightPrHistorySetRow[]>>((acc, row) => {
+    const key = weightPrKey(row.exerciseTypeId, row.methodId)
+    acc[key] = [...(acc[key] ?? []), row]
+    return acc
+  }, {})
+  const flags: Record<string, WeightPrFlags> = {}
+
+  for (const groupRows of Object.values(grouped)) {
+    const sorted = [...groupRows].sort((a, b) =>
+      a.completedAt === b.completedAt
+        ? a.setId.localeCompare(b.setId)
+        : a.completedAt - b.completedAt,
+    )
+    const maxWeight = sorted.reduce((max, row) => Math.max(max, row.weightKg), 0)
+    let bestWeight = 0
+
+    for (const row of sorted) {
+      const isWeightPr = isGreaterWeight(row.weightKg, bestWeight)
+      if (isWeightPr) {
+        flags[row.setId] = {
+          isWeightPr: true,
+          isCurrentWeightPr: Math.abs(row.weightKg - maxWeight) < 0.000001,
+        }
+        bestWeight = row.weightKg
+      }
+    }
+  }
+
+  return flags
+}
+
+async function enrichWorkoutSummariesWithWeightPrs(
+  summaries: WorkoutSummary[],
+): Promise<WorkoutSummary[]> {
+  if (summaries.length === 0) return summaries
+
+  const workoutIds = summaries.map((workout) => workout.id)
+  const placeholders = workoutIds.map(() => '?').join(', ')
+  const visibleRows = (await db.$client.execute(
+    `SELECT
+       w.id as workoutId,
+       s.id as setId,
+       e.exercise_type_id as exerciseTypeId,
+       e.method_id as methodId,
+       s.weight as weightKg,
+       s.completed_at as completedAt
+     FROM workouts w
+     JOIN workout_exercises we ON we.workout_id = w.id
+     JOIN exercises e ON e.id = we.exercise_id
+     JOIN sets s ON s.workout_exercise_id = we.id
+     WHERE w.id IN (${placeholders})
+       AND s.weight > 0`,
+    workoutIds,
+  )).rows as VisibleWeightPrSetRow[]
+
+  const flags = buildWeightPrFlags(
+    await getWeightPrHistoryForExerciseTypes(
+      visibleRows.map((row) => row.exerciseTypeId),
+    ),
+  )
+  const counts = visibleRows.reduce<Record<string, { weightPrCount: number; currentWeightPrCount: number }>>(
+    (acc, row) => {
+      const current = acc[row.workoutId ?? ''] ?? { weightPrCount: 0, currentWeightPrCount: 0 }
+      const rowFlags = flags[row.setId]
+      if (rowFlags?.isWeightPr) current.weightPrCount += 1
+      if (rowFlags?.isCurrentWeightPr) current.currentWeightPrCount += 1
+      if (row.workoutId) acc[row.workoutId] = current
+      return acc
+    },
+    {},
+  )
+
+  return summaries.map((workout) => ({
+    ...workout,
+    weightPrCount: counts[workout.id]?.weightPrCount ?? 0,
+    currentWeightPrCount: counts[workout.id]?.currentWeightPrCount ?? 0,
+  }))
 }
 
 export async function getCompletedWorkoutsInRange(
@@ -242,8 +340,7 @@ export async function getCompletedWorkoutsInRange(
        w.ended_at as endedAt,
        COUNT(DISTINCT we.id) as exerciseCount,
        COUNT(s.id) as setCount,
-       COALESCE(SUM(s.volume), 0) as volume,
-       SUM(CASE WHEN s.is_weight_pr = 1 OR s.is_reps_pr = 1 THEN 1 ELSE 0 END) as prCount
+       COALESCE(SUM(s.volume), 0) as volume
      FROM workouts w
      LEFT JOIN workout_exercises we ON we.workout_id = w.id
      LEFT JOIN sets s ON s.workout_exercise_id = we.id
@@ -254,7 +351,7 @@ export async function getCompletedWorkoutsInRange(
      ORDER BY w.started_at DESC`,
     [startAt, endAt],
   )
-  return result.rows as WorkoutSummary[]
+  return enrichWorkoutSummariesWithWeightPrs(result.rows as WorkoutSummary[])
 }
 
 export async function getRecentCompletedWorkouts(limit = 3): Promise<WorkoutSummary[]> {
@@ -268,8 +365,7 @@ export async function getRecentCompletedWorkouts(limit = 3): Promise<WorkoutSumm
        w.ended_at as endedAt,
        COUNT(DISTINCT we.id) as exerciseCount,
        COUNT(s.id) as setCount,
-       COALESCE(SUM(s.volume), 0) as volume,
-       SUM(CASE WHEN s.is_weight_pr = 1 OR s.is_reps_pr = 1 THEN 1 ELSE 0 END) as prCount
+       COALESCE(SUM(s.volume), 0) as volume
      FROM workouts w
      LEFT JOIN workout_exercises we ON we.workout_id = w.id
      LEFT JOIN sets s ON s.workout_exercise_id = we.id
@@ -279,7 +375,7 @@ export async function getRecentCompletedWorkouts(limit = 3): Promise<WorkoutSumm
      LIMIT ?`,
     [limit],
   )
-  return result.rows as WorkoutSummary[]
+  return enrichWorkoutSummariesWithWeightPrs(result.rows as WorkoutSummary[])
 }
 
 export async function getWorkoutDetail(workoutId: string): Promise<WorkoutDetail | null> {
@@ -293,8 +389,7 @@ export async function getWorkoutDetail(workoutId: string): Promise<WorkoutDetail
        w.ended_at as endedAt,
        COUNT(DISTINCT we.id) as exerciseCount,
        COUNT(s.id) as setCount,
-       COALESCE(SUM(s.volume), 0) as volume,
-       SUM(CASE WHEN s.is_weight_pr = 1 OR s.is_reps_pr = 1 THEN 1 ELSE 0 END) as prCount
+       COALESCE(SUM(s.volume), 0) as volume
      FROM workouts w
      LEFT JOIN workout_exercises we ON we.workout_id = w.id
      LEFT JOIN sets s ON s.workout_exercise_id = we.id
@@ -311,6 +406,7 @@ export async function getWorkoutDetail(workoutId: string): Promise<WorkoutDetail
        et.id as exerciseTypeId,
        et.name as exerciseName,
        m.name as methodName,
+       e.method_id as methodId,
        e.default_unit as defaultWeightUnit,
        s.id as setId,
        s.set_type as setType,
@@ -318,22 +414,6 @@ export async function getWorkoutDetail(workoutId: string): Promise<WorkoutDetail
        s.weight_unit as weightUnit,
        s.reps as reps,
        s.volume as volume,
-       s.is_weight_pr as isWeightPr,
-       s.is_reps_pr as isRepsPr,
-       (
-         SELECT MAX(s2.weight)
-         FROM sets s2
-         JOIN workout_exercises we2 ON we2.id = s2.workout_exercise_id
-         JOIN exercises e2 ON e2.id = we2.exercise_id
-         WHERE e2.exercise_type_id = et.id
-       ) as currentMaxWeightKg,
-       (
-         SELECT MAX(s2.reps)
-         FROM sets s2
-         JOIN workout_exercises we2 ON we2.id = s2.workout_exercise_id
-         JOIN exercises e2 ON e2.id = we2.exercise_id
-         WHERE e2.exercise_type_id = et.id
-       ) as currentMaxReps,
        s.completed_at as completedAt
      FROM workout_exercises we
      JOIN exercises e ON e.id = we.exercise_id
@@ -348,6 +428,7 @@ export async function getWorkoutDetail(workoutId: string): Promise<WorkoutDetail
     exerciseTypeId: string
     exerciseName: string
     methodName: string
+    methodId: string
     defaultWeightUnit: string | null
     setId: string | null
     setType: string | null
@@ -355,12 +436,12 @@ export async function getWorkoutDetail(workoutId: string): Promise<WorkoutDetail
     weightUnit: string | null
     reps: number | null
     volume: number | null
-    isWeightPr: number | null
-    isRepsPr: number | null
-    currentMaxWeightKg: number | null
-    currentMaxReps: number | null
     completedAt: number | null
   }>
+
+  const weightPrFlags = buildWeightPrFlags(
+    await getWeightPrHistoryForExerciseTypes(rows.map((row) => row.exerciseTypeId)),
+  )
 
   const exercises = rows.reduce<WorkoutDetail['exercises']>((acc, row) => {
     let exercise = acc.find((item) => item.id === row.workoutExerciseId)
@@ -371,30 +452,19 @@ export async function getWorkoutDetail(workoutId: string): Promise<WorkoutDetail
         methodName: row.methodName,
         defaultWeightUnit: row.defaultWeightUnit === 'lb' ? 'lb' : 'kg',
         hasWeightPr: false,
-        hasRepsPr: false,
         hasCurrentWeightPr: false,
-        hasCurrentRepsPr: false,
         sets: [],
       }
       acc.push(exercise)
     }
     if (row.setId) {
-      const isWeightPr = Boolean(row.isWeightPr)
-      const isRepsPr = Boolean(row.isRepsPr)
-      const isCurrentWeightPr =
-        isWeightPr &&
-        row.weightKg !== null &&
-        row.currentMaxWeightKg !== null &&
-        row.weightKg >= row.currentMaxWeightKg
-      const isCurrentRepsPr =
-        isRepsPr &&
-        row.reps !== null &&
-        row.currentMaxReps !== null &&
-        row.reps >= row.currentMaxReps
-      exercise.hasWeightPr = exercise.hasWeightPr || isWeightPr
-      exercise.hasRepsPr = exercise.hasRepsPr || isRepsPr
-      exercise.hasCurrentWeightPr = exercise.hasCurrentWeightPr || isCurrentWeightPr
-      exercise.hasCurrentRepsPr = exercise.hasCurrentRepsPr || isCurrentRepsPr
+      const flags = weightPrFlags[row.setId] ?? {
+        isWeightPr: false,
+        isCurrentWeightPr: false,
+      }
+      exercise.hasWeightPr = exercise.hasWeightPr || flags.isWeightPr
+      exercise.hasCurrentWeightPr =
+        exercise.hasCurrentWeightPr || flags.isCurrentWeightPr
       exercise.sets.push({
         id: row.setId,
         setType: row.setType ?? 'working',
@@ -402,17 +472,26 @@ export async function getWorkoutDetail(workoutId: string): Promise<WorkoutDetail
         weightUnit: row.weightUnit === 'lb' ? 'lb' : 'kg',
         reps: row.reps ?? 0,
         volume: row.volume ?? 0,
-        isWeightPr,
-        isRepsPr,
-        isCurrentWeightPr,
-        isCurrentRepsPr,
+        isWeightPr: flags.isWeightPr,
+        isCurrentWeightPr: flags.isCurrentWeightPr,
         completedAt: row.completedAt ?? 0,
       })
     }
     return acc
   }, [])
 
-  return { ...workout, exercises }
+  const prCounts = exercises.reduce(
+    (acc, exercise) => {
+      for (const set of exercise.sets) {
+        if (set.isWeightPr) acc.weightPrCount += 1
+        if (set.isCurrentWeightPr) acc.currentWeightPrCount += 1
+      }
+      return acc
+    },
+    { weightPrCount: 0, currentWeightPrCount: 0 },
+  )
+
+  return { ...workout, ...prCounts, exercises }
 }
 
 export type SectionRow = { id: string; name: string }
@@ -428,12 +507,9 @@ export type MethodRow = { id: string; name: string; isCustom: number }
 export type ExercisePrSummary = {
   weightKg: number | null
   weightMethodName: string | null
-  reps: number | null
-  repsMethodName: string | null
 }
 export type MethodPrSummary = {
   weightKg: number | null
-  reps: number | null
 }
 
 type PrSetRow = {
@@ -441,14 +517,6 @@ type PrSetRow = {
   methodId: string
   methodName: string
   weightKg: number
-  reps: number
-  completedAt: number
-}
-
-type PrHistoryRow = {
-  id: string
-  weightKg: number
-  reps: number
 }
 
 function genLibraryId(prefix: string): string {
@@ -460,16 +528,10 @@ function reduceExercisePrRows(rows: PrSetRow[]): Record<string, ExercisePrSummar
     const current = acc[row.exerciseTypeId] ?? {
       weightKg: null,
       weightMethodName: null,
-      reps: null,
-      repsMethodName: null,
     }
     if (current.weightKg === null || row.weightKg > current.weightKg) {
       current.weightKg = row.weightKg
       current.weightMethodName = row.methodName
-    }
-    if (current.reps === null || row.reps > current.reps) {
-      current.reps = row.reps
-      current.repsMethodName = row.methodName
     }
     acc[row.exerciseTypeId] = current
     return acc
@@ -480,57 +542,13 @@ function reduceMethodPrRows(rows: PrSetRow[]): Record<string, MethodPrSummary> {
   return rows.reduce<Record<string, MethodPrSummary>>((acc, row) => {
     const current = acc[row.methodId] ?? {
       weightKg: null,
-      reps: null,
     }
     if (current.weightKg === null || row.weightKg > current.weightKg) {
       current.weightKg = row.weightKg
     }
-    if (current.reps === null || row.reps > current.reps) {
-      current.reps = row.reps
-    }
     acc[row.methodId] = current
     return acc
   }, {})
-}
-
-async function recomputeExerciseTypePrFlags(exerciseTypeId: string): Promise<void> {
-  const rows = (await db.$client.execute(
-    `SELECT
-       s.id,
-       s.weight as weightKg,
-       s.reps as reps
-     FROM sets s
-     JOIN workout_exercises we ON we.id = s.workout_exercise_id
-     JOIN exercises e ON e.id = we.exercise_id
-     WHERE e.exercise_type_id = ?
-     ORDER BY s.completed_at ASC, s.id ASC`,
-    [exerciseTypeId],
-  )).rows as PrHistoryRow[]
-
-  let bestWeightKg = 0
-  let bestReps = 0
-  for (const row of rows) {
-    const isWeightPr = row.weightKg > 0 && row.weightKg > bestWeightKg
-    const isRepsPr = row.reps > 0 && row.reps > bestReps
-    await db.$client.execute(
-      'UPDATE sets SET is_weight_pr = ?, is_reps_pr = ? WHERE id = ?',
-      [isWeightPr ? 1 : 0, isRepsPr ? 1 : 0, row.id],
-    )
-    bestWeightKg = Math.max(bestWeightKg, row.weightKg)
-    bestReps = Math.max(bestReps, row.reps)
-  }
-}
-
-async function recomputeAllExerciseTypePrFlags(): Promise<void> {
-  const result = await db.$client.execute(
-    `SELECT DISTINCT e.exercise_type_id as exerciseTypeId
-     FROM sets s
-     JOIN workout_exercises we ON we.id = s.workout_exercise_id
-     JOIN exercises e ON e.id = we.exercise_id`,
-  )
-  for (const row of result.rows as Array<{ exerciseTypeId: string }>) {
-    await recomputeExerciseTypePrFlags(row.exerciseTypeId)
-  }
 }
 
 export async function getSections(): Promise<SectionRow[]> {
@@ -560,9 +578,7 @@ export async function getExercisePrSummariesBySection(
        et.id as exerciseTypeId,
        m.id as methodId,
        m.name as methodName,
-       s.weight as weightKg,
-       s.reps as reps,
-       s.completed_at as completedAt
+       s.weight as weightKg
      FROM sets s
      JOIN workout_exercises we ON we.id = s.workout_exercise_id
      JOIN exercises e ON e.id = we.exercise_id
@@ -588,9 +604,7 @@ export async function getMethodPrSummariesForExerciseType(
        e.exercise_type_id as exerciseTypeId,
        m.id as methodId,
        m.name as methodName,
-       s.weight as weightKg,
-       s.reps as reps,
-       s.completed_at as completedAt
+       s.weight as weightKg
      FROM sets s
      JOIN workout_exercises we ON we.id = s.workout_exercise_id
      JOIN exercises e ON e.id = we.exercise_id
@@ -935,19 +949,13 @@ export async function addCompletedSetToWorkout(params: {
   const id = `set_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
   const weightKg = Number.isFinite(params.weightKg) ? params.weightKg : 0
   const weightUnit = params.weightUnit === 'lb' ? 'lb' : 'kg'
-  const reps = Number.isFinite(params.reps) ? params.reps : 0
+  const reps = Number.isFinite(params.reps) ? Math.max(0, Math.trunc(params.reps)) : 0
   const volume = weightKg * reps
   const exerciseResult = await db.$client.execute(
-    `SELECT e.exercise_type_id as exerciseTypeId
-     FROM workout_exercises we
-     JOIN exercises e ON e.id = we.exercise_id
-     WHERE we.id = ?`,
+    'SELECT id FROM workout_exercises WHERE id = ?',
     [params.workoutExerciseId],
   )
-  const exerciseTypeId = (
-    exerciseResult.rows[0] as { exerciseTypeId?: string } | undefined
-  )?.exerciseTypeId
-  if (!exerciseTypeId) {
+  if (exerciseResult.rows.length === 0) {
     throw new Error(`Unknown workout exercise: ${params.workoutExerciseId}`)
   }
 
@@ -960,10 +968,8 @@ export async function addCompletedSetToWorkout(params: {
       weight_unit,
       reps,
       volume,
-      is_weight_pr,
-      is_reps_pr,
       completed_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       id,
       params.workoutExerciseId,
@@ -972,30 +978,13 @@ export async function addCompletedSetToWorkout(params: {
       weightUnit,
       reps,
       volume,
-      0,
-      0,
       Date.now(),
     ],
   )
-  await recomputeExerciseTypePrFlags(exerciseTypeId)
   return id
 }
 
 export async function deleteCompletedSet(setId: string): Promise<void> {
   await ensureExerciseTables()
-  const exerciseResult = await db.$client.execute(
-    `SELECT e.exercise_type_id as exerciseTypeId
-     FROM sets s
-     JOIN workout_exercises we ON we.id = s.workout_exercise_id
-     JOIN exercises e ON e.id = we.exercise_id
-     WHERE s.id = ?`,
-    [setId],
-  )
-  const exerciseTypeId = (
-    exerciseResult.rows[0] as { exerciseTypeId?: string } | undefined
-  )?.exerciseTypeId
   await db.$client.execute('DELETE FROM sets WHERE id = ?', [setId])
-  if (exerciseTypeId) {
-    await recomputeExerciseTypePrFlags(exerciseTypeId)
-  }
 }

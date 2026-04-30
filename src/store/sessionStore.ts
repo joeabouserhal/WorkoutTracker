@@ -44,6 +44,7 @@ interface SessionState {
   requestEndWorkout: () => void
   addExercise: (entry: Omit<ExerciseEntry, 'sets'>) => void
   removeExercise: (workoutExerciseId: string) => void
+  reorderExercises: (workoutExerciseIds: string[]) => void
   updateExerciseWeightUnit: (workoutExerciseId: string, weightUnit: string) => void
   addSet: (workoutExerciseId: string, set: SetEntry) => void
   startRest: (seconds: number) => void
@@ -120,6 +121,16 @@ export const useSessionStore = create<SessionState>()((set) => ({
     set((state) => ({
       exercises: state.exercises.filter((ex) => ex.workoutExerciseId !== workoutExerciseId),
     })),
+
+  reorderExercises: (workoutExerciseIds) =>
+    set((state) => {
+      const byId = new Map(state.exercises.map((exercise) => [exercise.workoutExerciseId, exercise]))
+      return {
+        exercises: workoutExerciseIds
+          .map((id) => byId.get(id))
+          .filter((exercise): exercise is ExerciseEntry => Boolean(exercise)),
+      }
+    }),
 
   updateExerciseWeightUnit: (workoutExerciseId, weightUnit) =>
     set((state) => ({

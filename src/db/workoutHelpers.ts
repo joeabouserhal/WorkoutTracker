@@ -158,6 +158,18 @@ export async function deleteWorkoutExercise(workoutExerciseId: string): Promise<
   )
 }
 
+export async function updateWorkoutExerciseOrder(
+  workoutExerciseIds: string[],
+): Promise<void> {
+  await ensureExerciseTables()
+  for (const [index, workoutExerciseId] of workoutExerciseIds.entries()) {
+    await db.$client.execute(
+      'UPDATE workout_exercises SET order_index = ? WHERE id = ?',
+      [index, workoutExerciseId],
+    )
+  }
+}
+
 export type WorkoutSummary = {
   id: string
   name: string | null

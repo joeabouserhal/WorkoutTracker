@@ -1,11 +1,14 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   AppState,
+  Animated,
   Keyboard,
   Modal,
+  PanResponder,
   type LayoutChangeEvent,
   type NativeScrollEvent,
   type NativeSyntheticEvent,
+  type PanResponderGestureState,
   ScrollView,
   Text,
   TextInput,
@@ -34,6 +37,7 @@ import {
   getWorkoutName,
   isExerciseTypeMethodLocked,
   type WorkoutWeightPrAchievement,
+  updateWorkoutExerciseOrder,
   updateWorkoutName,
 } from '@/db/workoutHelpers'
 import {
@@ -158,6 +162,7 @@ export default function ActiveWorkoutSheet() {
   const [keyboardHeight, setKeyboardHeight] = useState(0)
   const [footerHeight, setFooterHeight] = useState(0)
   const [prCelebration, setPrCelebration] = useState<WorkoutWeightPrAchievement[]>([])
+  const [draggingExerciseId, setDraggingExerciseId] = useState<string | null>(null)
   const elapsedRef = useRef(0)
   const restDoneNotifiedRef = useRef(false)
   const keyboardHeightRef = useRef(0)
@@ -166,6 +171,18 @@ export default function ActiveWorkoutSheet() {
   const scrollOffsetRef = useRef(0)
   const scrollHeightRef = useRef(0)
   const setLayoutRef = useRef<Record<string, { y: number; height: number }>>({})
+  const exerciseLayoutRef = useRef<Record<string, { y: number; height: number }>>({})
+  const exerciseDragRef = useRef<{
+    id: string
+    startIndex: number
+    startY: number
+    height: number
+    targetIndex: number
+    initialOrder: string[]
+  } | null>(null)
+  const exercisePanResponderRef = useRef<Record<string, ReturnType<typeof PanResponder.create>>>({})
+  const exerciseShiftValuesRef = useRef<Record<string, Animated.Value>>({})
+  const exerciseDragTranslateY = useRef(new Animated.Value(0)).current
   const focusedSetKeyRef = useRef<string | null>(null)
   const focusedInputTargetRef = useRef<number | null>(null)
   const sheetScrollAtTop = useSharedValue(true)
@@ -182,11 +199,13 @@ export default function ActiveWorkoutSheet() {
     endWorkout,
     openWorkoutSheet,
     removeExercise,
+    reorderExercises,
     updateExerciseWeightUnit,
     startRest,
     tickRest,
     clearRest,
   } = useSessionStore()
+  const exercisesRef = useRef(exercises)
 
   const footerStats = useMemo(() => {
     const sets = Object.values(localSets).flat()
@@ -203,6 +222,10 @@ export default function ActiveWorkoutSheet() {
       volumeLabel: formatVolumeKg(volumeKg),
     }
   }, [exercises.length, localSets])
+
+  useEffect(() => {
+    exercisesRef.current = exercises
+  }, [exercises])
 
   const doEndWorkout = useCallback(async () => {
     let achievements: WorkoutWeightPrAchievement[] = []
@@ -437,8 +460,13 @@ export default function ActiveWorkoutSheet() {
     focusedInputTargetRef.current = null
     setLayoutRef.current = {}
     scrollOffsetRef.current = 0
+    exerciseLayoutRef.current = {}
+    exerciseDragRef.current = null
+    exerciseShiftValuesRef.current = {}
     sheetScrollAtTop.value = true
-  }, [activeWorkoutId, sheetScrollAtTop])
+    setDraggingExerciseId(null)
+    exerciseDragTranslateY.setValue(0)
+  }, [activeWorkoutId, exerciseDragTranslateY, sheetScrollAtTop])
 
   useEffect(() => {
     let cancelled = false
@@ -633,6 +661,34 @@ export default function ActiveWorkoutSheet() {
     setLayoutRef.current[key] = {
       y: event.nativeEvent.layout.y,
       height: event.nativeEvent.layout.height,
+    }
+  }
+
+  function handleExerciseLayout(weId: string, event: LayoutChangeEvent) {
+    exerciseLayoutRef.current[weId] = {
+      y: event.nativeEvent.layout.y,
+      height: event.nativeEvent.layout.height,
+    }
+  }
+
+  function getExerciseShiftValue(weId: string) {
+    if (!exerciseShiftValuesRef.current[weId]) {
+      exerciseShiftValuesRef.current[weId] = new Animated.Value(0)
+    }
+    return exerciseShiftValuesRef.current[weId]
+  }
+
+  function animateExerciseShift(weId: string, toValue: number) {
+    Animated.timing(getExerciseShiftValue(weId), {
+      toValue,
+      duration: 115,
+      useNativeDriver: true,
+    }).start()
+  }
+
+  function resetExerciseShifts(order: string[]) {
+    for (const id of order) {
+      getExerciseShiftValue(id).setValue(0)
     }
   }
 
@@ -917,6 +973,10 @@ export default function ActiveWorkoutSheet() {
   }
 
   async function handleDeleteExercise(weId: string) {
+    const remainingOrder = exercises
+      .filter((exercise) => exercise.workoutExerciseId !== weId)
+      .map((exercise) => exercise.workoutExerciseId)
+
     try {
       await deleteWorkoutExercise(weId)
     } catch (e) {
@@ -942,6 +1002,124 @@ export default function ActiveWorkoutSheet() {
       return next
     })
     removeExercise(weId)
+    updateWorkoutExerciseOrder(remainingOrder).catch((e) => {
+      console.error('Could not persist exercise order after delete', e)
+    })
+  }
+
+  function beginExerciseDrag(weId: string) {
+    const layout = exerciseLayoutRef.current[weId]
+    const currentExercises = exercisesRef.current
+    const startIndex = currentExercises.findIndex((exercise) => exercise.workoutExerciseId === weId)
+    if (!layout || startIndex < 0 || currentExercises.length < 2) return
+    Keyboard.dismiss()
+    closeDialog()
+    exerciseDragRef.current = {
+      id: weId,
+      startIndex,
+      startY: layout.y,
+      height: layout.height,
+      targetIndex: startIndex,
+      initialOrder: currentExercises.map((exercise) => exercise.workoutExerciseId),
+    }
+    resetExerciseShifts(currentExercises.map((exercise) => exercise.workoutExerciseId))
+    setDraggingExerciseId(weId)
+    exerciseDragTranslateY.setValue(0)
+  }
+
+  function updateExerciseDrag(gestureState: PanResponderGestureState) {
+    const dragState = exerciseDragRef.current
+    if (!dragState) return
+
+    const draggedCenter = dragState.startY + gestureState.dy + (dragState.height / 2)
+    const nextIndex = dragState.initialOrder.reduce((index, id) => {
+      if (id === dragState.id) return index
+      const layout = exerciseLayoutRef.current[id]
+      if (!layout) return index
+      return draggedCenter > layout.y + (layout.height / 2) ? index + 1 : index
+    }, 0)
+
+    if (nextIndex !== dragState.targetIndex) {
+      dragState.targetIndex = nextIndex
+      for (const [index, id] of dragState.initialOrder.entries()) {
+        if (id === dragState.id) continue
+        let shift = 0
+        if (
+          nextIndex > dragState.startIndex &&
+          index > dragState.startIndex &&
+          index <= nextIndex
+        ) {
+          shift = -dragState.height
+        } else if (
+          nextIndex < dragState.startIndex &&
+          index >= nextIndex &&
+          index < dragState.startIndex
+        ) {
+          shift = dragState.height
+        }
+        animateExerciseShift(id, shift)
+      }
+    }
+
+    exerciseDragTranslateY.setValue(gestureState.dy)
+  }
+
+  function finishExerciseDrag() {
+    const dragState = exerciseDragRef.current
+    exerciseDragRef.current = null
+    setDraggingExerciseId(null)
+    exerciseDragTranslateY.setValue(0)
+    if (!dragState) return
+
+    resetExerciseShifts(dragState.initialOrder)
+    const finalOrder = [...dragState.initialOrder]
+    const [movedId] = finalOrder.splice(dragState.startIndex, 1)
+    finalOrder.splice(dragState.targetIndex, 0, movedId)
+    const didChangeOrder = finalOrder.some((id, index) => id !== dragState.initialOrder[index])
+    if (!didChangeOrder) return
+
+    const byId = new Map(exercisesRef.current.map((exercise) => [exercise.workoutExerciseId, exercise]))
+    exercisesRef.current = finalOrder.flatMap((id) => {
+      const exercise = byId.get(id)
+      return exercise ? [exercise] : []
+    })
+    reorderExercises(finalOrder)
+    updateWorkoutExerciseOrder(finalOrder).catch((e) => {
+      console.error('Could not persist exercise order', e)
+      const byInitialId = new Map(exercisesRef.current.map((exercise) => [exercise.workoutExerciseId, exercise]))
+      exercisesRef.current = dragState.initialOrder.flatMap((id) => {
+        const exercise = byInitialId.get(id)
+        return exercise ? [exercise] : []
+      })
+      reorderExercises(dragState.initialOrder)
+      showErrorDialog('Could not rearrange exercises.')
+    })
+  }
+
+  function getExerciseDragPanHandlers(weId: string) {
+    if (!exercisePanResponderRef.current[weId]) {
+      exercisePanResponderRef.current[weId] = PanResponder.create({
+        onStartShouldSetPanResponder: () => true,
+        onMoveShouldSetPanResponder: () => true,
+        onPanResponderGrant: () => beginExerciseDrag(weId),
+        onPanResponderMove: (_event, gestureState) => updateExerciseDrag(gestureState),
+        onPanResponderRelease: () => finishExerciseDrag(),
+        onPanResponderTerminate: () => finishExerciseDrag(),
+      })
+    }
+    return exercisePanResponderRef.current[weId].panHandlers
+  }
+
+  function getExerciseDragStyle(weId: string) {
+    if (!draggingExerciseId) return null
+    if (draggingExerciseId !== weId) {
+      return {
+        transform: [{ translateY: getExerciseShiftValue(weId) }],
+      }
+    }
+    return {
+      transform: [{ translateY: exerciseDragTranslateY }],
+    }
   }
 
   function renderDeleteAction(onPress: () => void) {
@@ -1022,6 +1200,7 @@ export default function ActiveWorkoutSheet() {
             keyboardDismissMode="interactive"
             onLayout={handleScrollLayout}
             onScroll={handleScroll}
+            scrollEnabled={!draggingExerciseId}
           >
             <View style={styles.workoutNameCard}>
               <Text style={styles.workoutNameLabel}>Workout Name</Text>
@@ -1044,19 +1223,40 @@ export default function ActiveWorkoutSheet() {
               const sets = localSets[ex.workoutExerciseId] ?? []
               const showMethod = !(ex.methodLocked || methodLockedByExerciseType[ex.exerciseTypeId])
               return (
-                <View key={ex.workoutExerciseId} style={styles.exerciseCard}>
+                <Animated.View
+                  key={ex.workoutExerciseId}
+                  style={[
+                    styles.exerciseCard,
+                    draggingExerciseId === ex.workoutExerciseId && styles.exerciseCardDragging,
+                    getExerciseDragStyle(ex.workoutExerciseId),
+                  ]}
+                  onLayout={(event) => handleExerciseLayout(ex.workoutExerciseId, event)}
+                >
                   {/* Exercise header row — swipe left to delete whole exercise */}
                   <ReanimatedSwipeable
                     renderRightActions={() => renderDeleteAction(() => handleDeleteExercise(ex.workoutExerciseId))}
                     overshootRight={false}
                   >
                     <View style={styles.exerciseHeader}>
-                      <Text style={styles.exerciseName}>
+                      <Text style={styles.exerciseName} numberOfLines={1}>
                         {ex.exerciseTypeName}
                         {showMethod ? (
                           <Text style={styles.exerciseMethod}>{' - '}{ex.methodName}</Text>
                         ) : null}
                       </Text>
+                      <View
+                        style={[
+                          styles.reorderButton,
+                          exercises.length < 2 && styles.reorderButtonDisabled,
+                        ]}
+                        {...getExerciseDragPanHandlers(ex.workoutExerciseId)}
+                      >
+                        <MaterialCommunityIcons
+                          name="drag"
+                          size={19}
+                          color={exercises.length < 2 ? theme.colors.textMuted : theme.colors.text}
+                        />
+                      </View>
                     </View>
                   </ReanimatedSwipeable>
 
@@ -1172,7 +1372,7 @@ export default function ActiveWorkoutSheet() {
                     <MaterialCommunityIcons name="plus" size={14} color={theme.colors.textMuted} />
                     <Text style={styles.addSetText}>Add Set</Text>
                   </TouchableOpacity>
-                </View>
+                </Animated.View>
               )
             })}
 
@@ -1523,12 +1723,27 @@ const stylesheet = createStyleSheet((theme) => ({
     borderColor: theme.colors.border,
     overflow: 'hidden',
   },
+  exerciseCardDragging: {
+    zIndex: 10,
+    elevation: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.22,
+    shadowRadius: 14,
+    opacity: 0.96,
+  },
   exerciseHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: theme.spacing.sm,
     backgroundColor: theme.colors.surface,
     paddingHorizontal: theme.spacing.sm,
     paddingVertical: theme.spacing.sm,
   },
   exerciseName: {
+    flex: 1,
+    minWidth: 0,
     color: theme.colors.text,
     fontSize: theme.fontSize.sm,
     fontWeight: '700',
@@ -1536,6 +1751,19 @@ const stylesheet = createStyleSheet((theme) => ({
   exerciseMethod: {
     color: theme.colors.textMuted,
     fontWeight: '400',
+  },
+  reorderButton: {
+    width: 30,
+    height: 30,
+    borderRadius: theme.radius.full,
+    backgroundColor: theme.colors.surface2,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  reorderButtonDisabled: {
+    opacity: 0.35,
   },
   // ── Set rows ─────────────────────────────────────────────
   setLabelRow: {

@@ -3,6 +3,7 @@ import { ScrollView, Text, TouchableOpacity, View } from 'react-native'
 import type { NativeStackScreenProps } from '@react-navigation/native-stack'
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons'
 import { createStyleSheet, useStyles } from 'react-native-unistyles'
+import ScreenHeader, { useHeaderFade } from '@/components/ui/ScreenHeader'
 import { getProfile, upsertProfile } from '@/db/profileHelpers'
 import {
   formatRestTimer,
@@ -18,6 +19,7 @@ type Props = NativeStackScreenProps<ProfileStackParamList, 'Settings'>
 
 export default function SettingsScreen({ navigation }: Props) {
   const { styles, theme } = useStyles(stylesheet)
+  const { showHeaderFade, handleHeaderScroll } = useHeaderFade()
   const [weightUnit, setWeightUnit] = useState<WeightUnit>('kg')
   const [heightUnit, setHeightUnit] = useState<HeightUnit>('cm')
   const [restTimerSeconds, setRestTimerSeconds] = useState(getDefaultRestSeconds)
@@ -66,19 +68,19 @@ export default function SettingsScreen({ navigation }: Props) {
   }
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      <View style={styles.headerRow}>
-        <TouchableOpacity
-          style={styles.backButton}
-          onPress={() => navigation.goBack()}
-        >
-          <MaterialCommunityIcons name="chevron-left" size={17} color={theme.colors.text} />
-          <Text style={styles.backButtonText}>Back</Text>
-        </TouchableOpacity>
-      </View>
+    <View style={styles.container}>
+      <ScreenHeader
+        title="Settings"
+        onBack={() => navigation.goBack()}
+        showFade={showHeaderFade}
+      />
 
-      <Text style={styles.sectionTitle}>Settings</Text>
-
+      <ScrollView
+        style={styles.scroll}
+        contentContainerStyle={styles.content}
+        onScroll={handleHeaderScroll}
+        scrollEventThrottle={16}
+      >
       <TouchableOpacity
         style={styles.cardButton}
         onPress={() => navigation.navigate('Themes')}
@@ -217,7 +219,8 @@ export default function SettingsScreen({ navigation }: Props) {
           </TouchableOpacity>
         </View>
       </View>
-    </ScrollView>
+      </ScrollView>
+    </View>
   )
 }
 
@@ -226,36 +229,13 @@ const stylesheet = createStyleSheet((theme) => ({
     flex: 1,
     backgroundColor: theme.colors.bg,
   },
+  scroll: {
+    flex: 1,
+  },
   content: {
-    padding: theme.spacing.md,
-    paddingBottom: theme.spacing.xl,
-  },
-  headerRow: {
-    marginTop: theme.spacing.lg,
-    marginBottom: theme.spacing.lg,
-  },
-  backButton: {
-    alignSelf: 'flex-start',
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 2,
-    backgroundColor: theme.colors.surface,
-    borderRadius: theme.radius.full,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    paddingVertical: theme.spacing.xs,
     paddingHorizontal: theme.spacing.md,
-  },
-  backButtonText: {
-    color: theme.colors.text,
-    fontSize: theme.fontSize.sm,
-    fontWeight: '600',
-  },
-  sectionTitle: {
-    color: theme.colors.text,
-    fontSize: theme.fontSize.xxl,
-    fontWeight: '800',
-    marginBottom: theme.spacing.md,
+    paddingTop: theme.spacing.md,
+    paddingBottom: theme.spacing.xl,
   },
   sectionSubtitle: {
     color: theme.colors.textMuted,

@@ -510,14 +510,14 @@ const stylesheet = createStyleSheet((theme) => ({
     top: TAB_ICON_PILL_TOP,
     width: TAB_ICON_PILL_WIDTH,
     height: 30,
-    borderRadius: 15,
+    borderRadius: theme.radius.full,
     backgroundColor: theme.colors.accentMuted,
     zIndex: 0,
   },
   tabIconPill: {
     width: TAB_ICON_PILL_WIDTH,
     height: 30,
-    borderRadius: 15,
+    borderRadius: theme.radius.full,
     alignItems: 'center',
     justifyContent: 'center',
     overflow: 'hidden',
@@ -572,7 +572,7 @@ const stylesheet = createStyleSheet((theme) => ({
   miniBarDot: {
     width: 8,
     height: 8,
-    borderRadius: 4,
+    borderRadius: theme.radius.full,
     backgroundColor: theme.colors.accent,
   },
   miniBarTitle: {

@@ -8,6 +8,7 @@ import {
 import { useFocusEffect } from '@react-navigation/native'
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons'
 import { createStyleSheet, useStyles } from 'react-native-unistyles'
+import ScreenHeader, { ScreenHeaderButton, useHeaderFade } from '@/components/ui/ScreenHeader'
 import { WorkoutDetailModal, WorkoutSummaryCard } from '@/components/WorkoutHistory'
 import {
   getCompletedWorkoutsInRange,
@@ -77,6 +78,7 @@ function getRange(date: Date, view: CalendarView) {
 
 export default function CalendarScreen() {
   const { styles, theme } = useStyles(stylesheet)
+  const { showHeaderFade, handleHeaderScroll } = useHeaderFade()
   const [view, setView] = useState<CalendarView>('daily')
   const [selectedDate, setSelectedDate] = useState(() => new Date())
   const [workouts, setWorkouts] = useState<WorkoutSummary[]>([])
@@ -258,23 +260,25 @@ export default function CalendarScreen() {
     const end = start + DAY_MS
     return workouts.filter((workout) => workout.startedAt >= start && workout.startedAt < end)
   }, [selectedDate, view, workouts])
+  const viewLabel = view.charAt(0).toUpperCase() + view.slice(1)
 
   return (
-    <>
+    <View style={styles.container}>
+      <ScreenHeader
+        title={formatDateTitle(selectedDate, view)}
+        eyebrow="Calendar"
+        showFade={showHeaderFade}
+        rightContent={(
+          <ScreenHeaderButton label={viewLabel} onPress={showViewPicker} />
+        )}
+      />
+
       <ScrollView
         style={styles.scroll}
         contentContainerStyle={styles.content}
+        onScroll={handleHeaderScroll}
+        scrollEventThrottle={16}
       >
-        <View style={styles.headerRow}>
-          <View>
-            <Text style={styles.sectionLabel}>Calendar</Text>
-            <Text style={styles.title}>{formatDateTitle(selectedDate, view)}</Text>
-          </View>
-          <TouchableOpacity style={styles.viewButton} onPress={showViewPicker}>
-            <Text style={styles.viewButtonText}>{view}</Text>
-          </TouchableOpacity>
-        </View>
-
         <View style={styles.dateNavRow}>
           <TouchableOpacity style={styles.navButton} onPress={() => moveDate(-1)}>
             <MaterialCommunityIcons name="chevron-left" size={20} color={theme.colors.text} />
@@ -356,7 +360,7 @@ export default function CalendarScreen() {
         message={dialog?.message}
         actions={dialog?.actions ?? []}
       />
-    </>
+    </View>
   )
 }
 
@@ -419,52 +423,18 @@ function CalendarStrip({
 }
 
 const stylesheet = createStyleSheet((theme) => ({
-  scroll: {
+  container: {
     flex: 1,
     backgroundColor: theme.colors.bg,
   },
+  scroll: {
+    flex: 1,
+  },
   content: {
-    padding: theme.spacing.md,
+    paddingHorizontal: theme.spacing.md,
+    paddingTop: theme.spacing.md,
     paddingBottom: theme.spacing.xl,
     gap: theme.spacing.md,
-  },
-  headerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginTop: theme.spacing.lg,
-    gap: theme.spacing.md,
-  },
-  sectionLabel: {
-    color: theme.colors.textMuted,
-    fontSize: theme.fontSize.xs,
-    fontWeight: '700',
-    textTransform: 'uppercase',
-    letterSpacing: 1,
-    marginBottom: theme.spacing.xs,
-  },
-  title: {
-    color: theme.colors.text,
-    fontSize: theme.fontSize.xl,
-    fontWeight: '800',
-  },
-  viewButton: {
-    alignSelf: 'flex-start',
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 2,
-    backgroundColor: theme.colors.surface,
-    borderRadius: theme.radius.full,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    paddingVertical: theme.spacing.xs,
-    paddingHorizontal: theme.spacing.md,
-  },
-  viewButtonText: {
-    color: theme.colors.text,
-    fontSize: theme.fontSize.sm,
-    fontWeight: '700',
-    textTransform: 'capitalize',
   },
   dateNavRow: {
     flexDirection: 'row',
@@ -560,7 +530,7 @@ const stylesheet = createStyleSheet((theme) => ({
   workoutDot: {
     width: 5,
     height: 5,
-    borderRadius: 3,
+    borderRadius: theme.radius.full,
     backgroundColor: theme.colors.accent,
   },
   listHeader: {

@@ -8,6 +8,7 @@ import {
 import type { NativeStackScreenProps } from '@react-navigation/native-stack'
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons'
 import { createStyleSheet, useStyles } from 'react-native-unistyles'
+import ScreenHeader, { useHeaderFade } from '@/components/ui/ScreenHeader'
 import { getProfile } from '@/db/profileHelpers'
 import type { ProfileStackParamList } from '../navigation/TabNavigator'
 
@@ -15,6 +16,7 @@ type Props = NativeStackScreenProps<ProfileStackParamList, 'Profile'>
 
 export default function ProfileScreen({ navigation }: Props) {
   const { styles, theme } = useStyles(stylesheet)
+  const { showHeaderFade, handleHeaderScroll } = useHeaderFade()
   const [profile, setProfile] = useState<{
     name: string | null
     height: number | null
@@ -87,12 +89,17 @@ export default function ProfileScreen({ navigation }: Props) {
   }
 
   return (
-    <ScrollView
-      style={styles.scroll}
-      contentContainerStyle={styles.content}
-      keyboardShouldPersistTaps="handled"
-    >
-      <Text style={styles.sectionTitle}>Profile</Text>
+    <View style={styles.root}>
+      <ScreenHeader title="Profile" showFade={showHeaderFade} />
+
+      <ScrollView
+        style={styles.scroll}
+        contentContainerStyle={styles.content}
+        keyboardShouldPersistTaps="handled"
+        onScroll={handleHeaderScroll}
+        scrollEventThrottle={16}
+      >
+      <Text style={styles.sectionTitle}>Athlete</Text>
 
       <View style={styles.profileCard}>
         <View style={styles.profileHeader}>
@@ -208,17 +215,22 @@ export default function ProfileScreen({ navigation }: Props) {
         </View>
         <Text style={styles.settingsChevron}>›</Text>
       </TouchableOpacity>
-    </ScrollView>
+      </ScrollView>
+    </View>
   )
 }
 
 const stylesheet = createStyleSheet((theme) => ({
-  scroll: {
+  root: {
     flex: 1,
     backgroundColor: theme.colors.bg,
   },
+  scroll: {
+    flex: 1,
+  },
   content: {
-    padding: theme.spacing.md,
+    paddingHorizontal: theme.spacing.md,
+    paddingTop: theme.spacing.md,
     paddingBottom: theme.spacing.xl,
   },
   container: {
@@ -261,7 +273,7 @@ const stylesheet = createStyleSheet((theme) => ({
   avatar: {
     width: 58,
     height: 58,
-    borderRadius: 29,
+    borderRadius: theme.radius.full,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: theme.colors.accentMuted,
@@ -307,7 +319,7 @@ const stylesheet = createStyleSheet((theme) => ({
   statIconBadge: {
     width: 30,
     height: 30,
-    borderRadius: 15,
+    borderRadius: theme.radius.full,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: theme.colors.accentMuted,

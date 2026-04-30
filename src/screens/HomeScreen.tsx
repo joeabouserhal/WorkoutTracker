@@ -10,6 +10,7 @@ import { useFocusEffect, useNavigation } from '@react-navigation/native'
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons'
 import { createStyleSheet, useStyles } from 'react-native-unistyles'
+import ScreenHeader, { useHeaderFade } from '@/components/ui/ScreenHeader'
 import { WorkoutDetailModal, WorkoutSummaryCard } from '@/components/WorkoutHistory'
 import { getProfile } from '@/db/profileHelpers'
 import {
@@ -47,7 +48,7 @@ export default function HomeScreen() {
   const [workoutPreviews, setWorkoutPreviews] = useState<Record<string, WorkoutDetail | null>>({})
   const [previewLoading, setPreviewLoading] = useState<Record<string, boolean>>({})
   const [loading, setLoading] = useState(true)
-  const [showHeaderFade, setShowHeaderFade] = useState(false)
+  const { showHeaderFade, handleHeaderScroll } = useHeaderFade()
   const startWorkout = useSessionStore((s) => s.startWorkout)
   const activeWorkoutId = useSessionStore((s) => s.activeWorkoutId)
   const previousActiveWorkoutIdRef = useRef<string | null>(activeWorkoutId)
@@ -206,43 +207,21 @@ export default function HomeScreen() {
 
   return (
     <View style={styles.container}>
-      <View style={styles.stickyHero}>
-        <View style={styles.heroSection}>
-          <View style={styles.heroTextBlock}>
-            <Text style={styles.welcomeText}>Welcome back</Text>
-            <Text style={styles.nameText}>{loading ? 'Loading...' : name || 'Athlete'}</Text>
-          </View>
+      <ScreenHeader
+        title={loading ? 'Loading...' : name || 'Athlete'}
+        eyebrow="Welcome back"
+        showFade={showHeaderFade}
+        titleRight={(
           <View style={styles.heroIcon}>
             <MaterialCommunityIcons name="dumbbell" size={24} color={theme.colors.accent} />
           </View>
-        </View>
-        {showHeaderFade ? (
-          <View pointerEvents="none" style={styles.heroFade}>
-            <View style={[styles.heroFadeBand, styles.heroFadeBand14]} />
-            <View style={[styles.heroFadeBand, styles.heroFadeBand13]} />
-            <View style={[styles.heroFadeBand, styles.heroFadeBand12]} />
-            <View style={[styles.heroFadeBand, styles.heroFadeBand11]} />
-            <View style={[styles.heroFadeBand, styles.heroFadeBand10]} />
-            <View style={[styles.heroFadeBand, styles.heroFadeBand9]} />
-            <View style={[styles.heroFadeBand, styles.heroFadeBand8]} />
-            <View style={[styles.heroFadeBand, styles.heroFadeBand7]} />
-            <View style={[styles.heroFadeBand, styles.heroFadeBand6]} />
-            <View style={[styles.heroFadeBand, styles.heroFadeBand5]} />
-            <View style={[styles.heroFadeBand, styles.heroFadeBand4]} />
-            <View style={[styles.heroFadeBand, styles.heroFadeBand3]} />
-            <View style={[styles.heroFadeBand, styles.heroFadeBand2]} />
-            <View style={[styles.heroFadeBand, styles.heroFadeBand1]} />
-          </View>
-        ) : null}
-      </View>
+        )}
+      />
 
       <ScrollView
         style={styles.scrollArea}
         contentContainerStyle={styles.content}
-        onScroll={(event) => {
-          const shouldShowFade = event.nativeEvent.contentOffset.y > 4
-          setShowHeaderFade((prev) => (prev === shouldShowFade ? prev : shouldShowFade))
-        }}
+        onScroll={handleHeaderScroll}
         scrollEventThrottle={16}
       >
         <View
@@ -356,68 +335,6 @@ const stylesheet = createStyleSheet((theme) => ({
     flex: 1,
     backgroundColor: theme.colors.bg,
   },
-  stickyHero: {
-    backgroundColor: theme.colors.bg,
-    paddingHorizontal: theme.spacing.md,
-    paddingTop: theme.spacing.xl + theme.spacing.md,
-    paddingBottom: theme.spacing.sm,
-    zIndex: 2,
-    elevation: 2,
-    overflow: 'visible',
-  },
-  heroFade: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: -34,
-    height: 34,
-  },
-  heroFadeBand: {
-    flex: 1,
-    backgroundColor: theme.colors.bg,
-  },
-  heroFadeBand14: {
-    opacity: 0.9,
-  },
-  heroFadeBand13: {
-    opacity: 0.84,
-  },
-  heroFadeBand12: {
-    opacity: 0.78,
-  },
-  heroFadeBand11: {
-    opacity: 0.72,
-  },
-  heroFadeBand10: {
-    opacity: 0.64,
-  },
-  heroFadeBand9: {
-    opacity: 0.56,
-  },
-  heroFadeBand8: {
-    opacity: 0.48,
-  },
-  heroFadeBand7: {
-    opacity: 0.4,
-  },
-  heroFadeBand6: {
-    opacity: 0.32,
-  },
-  heroFadeBand5: {
-    opacity: 0.25,
-  },
-  heroFadeBand4: {
-    opacity: 0.17,
-  },
-  heroFadeBand3: {
-    opacity: 0.11,
-  },
-  heroFadeBand2: {
-    opacity: 0.06,
-  },
-  heroFadeBand1: {
-    opacity: 0.02,
-  },
   scrollArea: {
     flex: 1,
   },
@@ -426,29 +343,6 @@ const stylesheet = createStyleSheet((theme) => ({
     paddingTop: theme.spacing.md,
     paddingBottom: theme.spacing.xl,
     gap: theme.spacing.md,
-  },
-  heroSection: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: theme.spacing.md,
-  },
-  heroTextBlock: {
-    flex: 1,
-    minWidth: 0,
-  },
-  welcomeText: {
-    fontSize: theme.fontSize.sm,
-    color: theme.colors.textMuted,
-    fontWeight: '700',
-    textTransform: 'uppercase',
-    letterSpacing: 0.8,
-    marginBottom: theme.spacing.xs,
-  },
-  nameText: {
-    fontSize: theme.fontSize.xxl,
-    color: theme.colors.text,
-    fontWeight: '800',
   },
   heroIcon: {
     width: 48,

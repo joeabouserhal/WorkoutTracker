@@ -1645,7 +1645,7 @@ const stylesheet = createStyleSheet((theme) => ({
   timerDot: {
     width: 7,
     height: 7,
-    borderRadius: 4,
+    borderRadius: theme.radius.full,
     backgroundColor: theme.colors.accent,
   },
   timerText: {
@@ -2171,7 +2171,7 @@ const stylesheet = createStyleSheet((theme) => ({
   prCelebrationIcon: {
     width: 66,
     height: 66,
-    borderRadius: 33,
+    borderRadius: theme.radius.full,
     alignItems: 'center',
     justifyContent: 'center',
     alignSelf: 'center',

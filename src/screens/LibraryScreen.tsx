@@ -9,19 +9,13 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
-  useWindowDimensions,
   View,
 } from 'react-native'
 import { useFocusEffect } from '@react-navigation/native'
 import ReanimatedSwipeable from 'react-native-gesture-handler/ReanimatedSwipeable'
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons'
-import {
-  Canvas,
-  LinearGradient,
-  Rect,
-  vec,
-} from '@shopify/react-native-skia'
 import { createStyleSheet, useStyles } from 'react-native-unistyles'
+import ScreenHeader, { ScreenHeaderButton, useHeaderFade } from '@/components/ui/ScreenHeader'
 import ThemedDialog, { type ThemedDialogAction } from '@/components/ui/ThemedDialog'
 import {
   createCustomExerciseType,
@@ -67,27 +61,9 @@ function hasPrValue(value: number | null | undefined): value is number {
   return typeof value === 'number' && Number.isFinite(value)
 }
 
-function HeaderFade() {
-  const { styles, theme } = useStyles(stylesheet)
-  const { width } = useWindowDimensions()
-
-  return (
-    <View pointerEvents="none" style={styles.headerFade}>
-      <Canvas style={styles.headerFadeCanvas}>
-        <Rect x={0} y={0} width={width} height={34}>
-          <LinearGradient
-            start={vec(0, 0)}
-            end={vec(0, 34)}
-            colors={[theme.colors.bg, theme.colors.bg + '00']}
-          />
-        </Rect>
-      </Canvas>
-    </View>
-  )
-}
-
 export default function LibraryScreen() {
   const { styles, theme } = useStyles(stylesheet)
+  const { showHeaderFade, handleHeaderScroll } = useHeaderFade()
   const [step, setStep] = useState<Step>('sections')
   const [loading, setLoading] = useState(true)
   const [sectionList, setSectionList] = useState<SectionRow[]>([])
@@ -104,7 +80,6 @@ export default function LibraryScreen() {
   const [singleMethodOnly, setSingleMethodOnly] = useState(false)
   const [selectedMethodId, setSelectedMethodId] = useState<string | null>(null)
   const [showRestoreDefaults, setShowRestoreDefaults] = useState(false)
-  const [showHeaderFade, setShowHeaderFade] = useState(false)
   const [convertedPrUnits, setConvertedPrUnits] = useState<Record<string, boolean>>({})
   const [dialog, setDialog] = useState<{
     title: string
@@ -660,26 +635,14 @@ export default function LibraryScreen() {
 
   return (
     <View style={styles.root}>
-      <View style={styles.header}>
-        <View style={styles.topRow}>
-          {step !== 'sections' ? (
-            <TouchableOpacity style={styles.backButton} onPress={handleBack}>
-              <MaterialCommunityIcons name="chevron-left" size={17} color={theme.colors.text} />
-              <Text style={styles.backButtonText}>Back</Text>
-            </TouchableOpacity>
-          ) : (
-            <View style={styles.backButtonSpacer} />
-          )}
-
-          <View style={styles.topRowSpacer} />
-
-          <TouchableOpacity style={styles.addButton} onPress={openCreateModal}>
-            <MaterialCommunityIcons name="plus" size={17} color={theme.colors.text} />
-            <Text style={styles.addButtonText}>Add</Text>
-          </TouchableOpacity>
-        </View>
-
-        {breadcrumbItems.length > 0 ? (
+      <ScreenHeader
+        title={pageTitle}
+        onBack={step !== 'sections' ? handleBack : undefined}
+        showFade={showHeaderFade}
+        rightContent={(
+          <ScreenHeaderButton label="Add" iconName="plus" onPress={openCreateModal} />
+        )}
+        beforeTitle={breadcrumbItems.length > 0 ? (
           <ScrollView
             horizontal
             showsHorizontalScrollIndicator={false}
@@ -714,33 +677,29 @@ export default function LibraryScreen() {
         ) : (
           <View style={styles.breadcrumbSpacer} />
         )}
-
-        <View style={styles.titleBlock}>
-          <Text style={styles.pageTitle}>{pageTitle}</Text>
+        titleRight={(
           <View style={styles.countPill}>
             <Text style={styles.countPillText}>{itemCount}</Text>
           </View>
-        </View>
-        <View style={styles.sectionTitleRow}>
-          <Text style={styles.sectionTitle}>{sectionLabel}</Text>
-          {step === 'methods' && showRestoreDefaults ? (
-            <TouchableOpacity style={styles.restoreButton} onPress={restoreDefaultMethods}>
-              <MaterialCommunityIcons name="restore" size={14} color={theme.colors.accent} />
-              <Text style={styles.restoreButtonText}>Restore Defaults</Text>
-            </TouchableOpacity>
-          ) : null}
-        </View>
-        {showHeaderFade ? <HeaderFade /> : null}
-      </View>
+        )}
+        afterTitle={(
+          <View style={styles.sectionTitleRow}>
+            <Text style={styles.sectionTitle}>{sectionLabel}</Text>
+            {step === 'methods' && showRestoreDefaults ? (
+              <TouchableOpacity style={styles.restoreButton} onPress={restoreDefaultMethods}>
+                <MaterialCommunityIcons name="restore" size={14} color={theme.colors.accent} />
+                <Text style={styles.restoreButtonText}>Restore Defaults</Text>
+              </TouchableOpacity>
+            ) : null}
+          </View>
+        )}
+      />
 
       <ScrollView
         style={styles.scroll}
         contentContainerStyle={styles.list}
         keyboardShouldPersistTaps="handled"
-        onScroll={(event) => {
-          const shouldShowFade = event.nativeEvent.contentOffset.y > 4
-          setShowHeaderFade((prev) => (prev === shouldShowFade ? prev : shouldShowFade))
-        }}
+        onScroll={handleHeaderScroll}
         scrollEventThrottle={16}
       >
         <View style={styles.listPanel}>
@@ -924,53 +883,6 @@ const stylesheet = createStyleSheet((theme) => ({
     flex: 1,
     backgroundColor: theme.colors.bg,
   },
-  header: {
-    paddingHorizontal: theme.spacing.md,
-    paddingTop: theme.spacing.xl + theme.spacing.sm,
-    paddingBottom: theme.spacing.xs,
-    backgroundColor: theme.colors.bg,
-    zIndex: 2,
-    elevation: 2,
-    overflow: 'visible',
-  },
-  headerFade: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: -34,
-    height: 34,
-  },
-  headerFadeCanvas: {
-    flex: 1,
-  },
-  topRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: theme.spacing.sm,
-  },
-  topRowSpacer: {
-    flex: 1,
-  },
-  backButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 2,
-    borderRadius: theme.radius.full,
-    backgroundColor: theme.colors.surface,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    justifyContent: 'center',
-    paddingVertical: theme.spacing.xs,
-    paddingHorizontal: theme.spacing.md,
-  },
-  backButtonText: {
-    color: theme.colors.text,
-    fontSize: theme.fontSize.sm,
-    fontWeight: '600',
-  },
-  backButtonSpacer: {
-    width: 68,
-  },
   breadcrumbScroll: {
     marginTop: 6,
     marginBottom: 2,
@@ -1003,50 +915,16 @@ const stylesheet = createStyleSheet((theme) => ({
     fontWeight: '800',
     maxWidth: 84,
   },
-  breadcrumbPlaceholder: {
-    color: 'transparent',
-    fontSize: theme.fontSize.sm,
-    fontWeight: '700',
-  },
   breadcrumbSpacer: {
     height: 20,
     marginTop: 6,
     marginBottom: 2,
-  },
-  addButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 2,
-    borderRadius: theme.radius.full,
-    backgroundColor: theme.colors.surface,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    justifyContent: 'center',
-    paddingVertical: theme.spacing.xs,
-    paddingHorizontal: theme.spacing.md,
-  },
-  addButtonText: {
-    color: theme.colors.text,
-    fontSize: theme.fontSize.sm,
-    fontWeight: '600',
   },
   deleteAction: {
     width: 72,
     backgroundColor: theme.colors.danger,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  titleBlock: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: theme.spacing.sm,
-  },
-  pageTitle: {
-    flex: 1,
-    minWidth: 0,
-    color: theme.colors.text,
-    fontSize: theme.fontSize.xxl,
-    fontWeight: '700',
   },
   countPill: {
     minWidth: 34,

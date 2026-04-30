@@ -614,7 +614,7 @@ const stylesheet = createStyleSheet((theme) => ({
   quickPrDot: {
     width: 6,
     height: 6,
-    borderRadius: 3,
+    borderRadius: theme.radius.full,
     backgroundColor: theme.colors.accent,
   },
   quickCurrentPrDot: {

@@ -9,6 +9,7 @@ import {
 import type { NativeStackScreenProps } from '@react-navigation/native-stack'
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons'
 import { createStyleSheet, useStyles } from 'react-native-unistyles'
+import ScreenHeader, { useHeaderFade } from '@/components/ui/ScreenHeader'
 import { getProfile, upsertProfile } from '@/db/profileHelpers'
 import { logBodyWeight } from '@/db/bodyWeightHelpers'
 import type { ProfileStackParamList } from '../navigation/TabNavigator'
@@ -18,6 +19,7 @@ type Props = NativeStackScreenProps<ProfileStackParamList, 'EditProfile'>
 
 export default function EditProfileScreen({ navigation }: Props) {
   const { styles, theme } = useStyles(stylesheet)
+  const { showHeaderFade, handleHeaderScroll } = useHeaderFade()
   const [name, setName] = useState('')
   const [weight, setWeight] = useState('')
   const [height, setHeight] = useState('')
@@ -154,22 +156,20 @@ export default function EditProfileScreen({ navigation }: Props) {
 
   return (
     <>
-      <ScrollView
-        style={styles.scroll}
-        contentContainerStyle={styles.content}
-        keyboardShouldPersistTaps="handled"
-      >
-        <View style={styles.headerRow}>
-          <TouchableOpacity
-            style={styles.backButton}
-            onPress={() => navigation.goBack()}
-          >
-            <MaterialCommunityIcons name="chevron-left" size={17} color={theme.colors.text} />
-            <Text style={styles.backButtonText}>Back</Text>
-          </TouchableOpacity>
-        </View>
+      <View style={styles.root}>
+        <ScreenHeader
+          title="Edit Profile"
+          onBack={() => navigation.goBack()}
+          showFade={showHeaderFade}
+        />
 
-        <Text style={styles.sectionTitle}>Edit Profile</Text>
+        <ScrollView
+          style={styles.scroll}
+          contentContainerStyle={styles.content}
+          keyboardShouldPersistTaps="handled"
+          onScroll={handleHeaderScroll}
+          scrollEventThrottle={16}
+        >
 
         <View style={styles.card}>
           <View style={styles.fieldHeader}>
@@ -248,7 +248,8 @@ export default function EditProfileScreen({ navigation }: Props) {
             <Text style={styles.cancelButtonText}>Cancel</Text>
           </TouchableOpacity>
         </View>
-      </ScrollView>
+        </ScrollView>
+      </View>
       <ThemedDialog
         visible={!!dialog}
         title={dialog?.title ?? ''}
@@ -260,12 +261,16 @@ export default function EditProfileScreen({ navigation }: Props) {
 }
 
 const stylesheet = createStyleSheet((theme) => ({
-  scroll: {
+  root: {
     flex: 1,
     backgroundColor: theme.colors.bg,
   },
+  scroll: {
+    flex: 1,
+  },
   content: {
-    padding: theme.spacing.md,
+    paddingHorizontal: theme.spacing.md,
+    paddingTop: theme.spacing.md,
     paddingBottom: theme.spacing.xl,
   },
   container: {
@@ -277,33 +282,6 @@ const stylesheet = createStyleSheet((theme) => ({
   loadingText: {
     color: theme.colors.textMuted,
     fontSize: theme.fontSize.md,
-  },
-  headerRow: {
-    marginTop: theme.spacing.lg,
-    marginBottom: theme.spacing.lg,
-  },
-  backButton: {
-    alignSelf: 'flex-start',
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 2,
-    backgroundColor: theme.colors.surface,
-    borderRadius: theme.radius.full,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    paddingVertical: theme.spacing.xs,
-    paddingHorizontal: theme.spacing.md,
-  },
-  backButtonText: {
-    color: theme.colors.text,
-    fontSize: theme.fontSize.sm,
-    fontWeight: '600',
-  },
-  sectionTitle: {
-    color: theme.colors.text,
-    fontSize: theme.fontSize.xxl,
-    fontWeight: '800',
-    marginBottom: theme.spacing.lg,
   },
   card: {
     backgroundColor: theme.colors.surface,

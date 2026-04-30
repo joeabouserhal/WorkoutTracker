@@ -22,6 +22,7 @@ import {
   vec,
 } from '@shopify/react-native-skia'
 import { createStyleSheet, useStyles } from 'react-native-unistyles'
+import ScreenHeader, { useHeaderFade } from '@/components/ui/ScreenHeader'
 import { getBodyWeightLogs, logBodyWeight, type WeightLog } from '@/db/bodyWeightHelpers'
 import { getProfile } from '@/db/profileHelpers'
 
@@ -192,6 +193,7 @@ function WeightChart({ logs, displayUnit }: WeightChartProps) {
 
 export default function ProgressScreen() {
   const { styles, theme } = useStyles(stylesheet)
+  const { showHeaderFade, handleHeaderScroll } = useHeaderFade()
   const [logs, setLogs] = useState<WeightLog[]>([])
   const [weightUnit, setWeightUnit] = useState<'kg' | 'lb'>('kg')
   const [loading, setLoading] = useState(true)
@@ -270,8 +272,14 @@ export default function ProgressScreen() {
 
   return (
     <View style={styles.container}>
-      <ScrollView style={styles.scroll} contentContainerStyle={styles.content}>
-        <RNText style={styles.pageTitle}>Progress</RNText>
+      <ScreenHeader title="Progress" showFade={showHeaderFade} />
+
+      <ScrollView
+        style={styles.scroll}
+        contentContainerStyle={styles.content}
+        onScroll={handleHeaderScroll}
+        scrollEventThrottle={16}
+      >
 
         <RNText style={styles.sectionLabel}>BODY WEIGHT</RNText>
 
@@ -358,7 +366,8 @@ const stylesheet = createStyleSheet((theme) => ({
     flex: 1,
   },
   content: {
-    padding: theme.spacing.md,
+    paddingHorizontal: theme.spacing.md,
+    paddingTop: theme.spacing.md,
     paddingBottom: theme.spacing.xl,
   },
   loadingContainer: {
@@ -366,13 +375,6 @@ const stylesheet = createStyleSheet((theme) => ({
     backgroundColor: theme.colors.bg,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  pageTitle: {
-    color: theme.colors.text,
-    fontSize: theme.fontSize.xxl,
-    fontWeight: '700',
-    marginTop: theme.spacing.lg,
-    marginBottom: theme.spacing.lg,
   },
   sectionLabel: {
     color: theme.colors.textMuted,

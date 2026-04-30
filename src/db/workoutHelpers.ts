@@ -192,6 +192,17 @@ export type WorkoutDetail = WorkoutSummary & {
   }>
 }
 
+export type WorkoutWeightPrAchievement = {
+  setId: string
+  exerciseName: string
+  methodName: string
+  previousWeightKg: number | null
+  newWeightKg: number
+  weightUnit: string
+  reps: number
+  isCurrentWeightPr: boolean
+}
+
 type WeightPrHistorySetRow = {
   setId: string
   exerciseTypeId: string
@@ -494,6 +505,101 @@ export async function getWorkoutDetail(workoutId: string): Promise<WorkoutDetail
   return { ...workout, ...prCounts, exercises }
 }
 
+export async function getWorkoutWeightPrAchievements(
+  workoutId: string,
+): Promise<WorkoutWeightPrAchievement[]> {
+  await ensureTable()
+  await ensureExerciseTables()
+
+  const workoutRows = (await db.$client.execute(
+    `SELECT
+       s.id as setId,
+       et.name as exerciseName,
+       m.name as methodName,
+       e.exercise_type_id as exerciseTypeId,
+       e.method_id as methodId,
+       s.weight as weightKg,
+       s.weight_unit as weightUnit,
+       s.reps as reps,
+       s.completed_at as completedAt
+     FROM workout_exercises we
+     JOIN exercises e ON e.id = we.exercise_id
+     JOIN exercise_types et ON et.id = e.exercise_type_id
+     JOIN methods m ON m.id = e.method_id
+     JOIN sets s ON s.workout_exercise_id = we.id
+     JOIN workouts w ON w.id = we.workout_id
+     WHERE we.workout_id = ?
+       AND w.ended_at IS NOT NULL
+       AND s.weight > 0
+     ORDER BY s.completed_at ASC, s.id ASC`,
+    [workoutId],
+  )).rows as Array<{
+    setId: string
+    exerciseName: string
+    methodName: string
+    exerciseTypeId: string
+    methodId: string
+    weightKg: number
+    weightUnit: string | null
+    reps: number
+    completedAt: number
+  }>
+
+  if (workoutRows.length === 0) return []
+
+  const workoutRowsBySetId = workoutRows.reduce<Record<string, typeof workoutRows[number]>>(
+    (acc, row) => {
+      acc[row.setId] = row
+      return acc
+    },
+    {},
+  )
+  const workoutSetIds = new Set(workoutRows.map((row) => row.setId))
+  const historyRows = await getWeightPrHistoryForExerciseTypes(
+    workoutRows.map((row) => row.exerciseTypeId),
+  )
+  const groupedRows = historyRows.reduce<Record<string, WeightPrHistorySetRow[]>>((acc, row) => {
+    const key = weightPrKey(row.exerciseTypeId, row.methodId)
+    acc[key] = [...(acc[key] ?? []), row]
+    return acc
+  }, {})
+  const achievements: WorkoutWeightPrAchievement[] = []
+
+  for (const groupRows of Object.values(groupedRows)) {
+    const sorted = [...groupRows].sort((a, b) =>
+      a.completedAt === b.completedAt
+        ? a.setId.localeCompare(b.setId)
+        : a.completedAt - b.completedAt,
+    )
+    const maxWeight = sorted.reduce((max, row) => Math.max(max, row.weightKg), 0)
+    let bestWeight = 0
+
+    for (const row of sorted) {
+      const isWeightPr = isGreaterWeight(row.weightKg, bestWeight)
+      if (isWeightPr && workoutSetIds.has(row.setId)) {
+        const workoutRow = workoutRowsBySetId[row.setId]
+        if (workoutRow) {
+          achievements.push({
+            setId: row.setId,
+            exerciseName: workoutRow.exerciseName,
+            methodName: workoutRow.methodName,
+            previousWeightKg: bestWeight > 0 ? bestWeight : null,
+            newWeightKg: row.weightKg,
+            weightUnit: workoutRow.weightUnit === 'lb' ? 'lb' : 'kg',
+            reps: workoutRow.reps,
+            isCurrentWeightPr: Math.abs(row.weightKg - maxWeight) < 0.000001,
+          })
+        }
+      }
+      if (isWeightPr) {
+        bestWeight = row.weightKg
+      }
+    }
+  }
+
+  return achievements.sort((a, b) => a.exerciseName.localeCompare(b.exerciseName))
+}
+
 export type SectionRow = { id: string; name: string }
 export type ExerciseTypeRow = {
   id: string
@@ -506,10 +612,12 @@ export type ExerciseTypeRow = {
 export type MethodRow = { id: string; name: string; isCustom: number }
 export type ExercisePrSummary = {
   weightKg: number | null
+  weightUnit: string | null
   weightMethodName: string | null
 }
 export type MethodPrSummary = {
   weightKg: number | null
+  weightUnit: string | null
 }
 
 type PrSetRow = {
@@ -517,6 +625,7 @@ type PrSetRow = {
   methodId: string
   methodName: string
   weightKg: number
+  weightUnit: string | null
 }
 
 function genLibraryId(prefix: string): string {
@@ -527,10 +636,12 @@ function reduceExercisePrRows(rows: PrSetRow[]): Record<string, ExercisePrSummar
   return rows.reduce<Record<string, ExercisePrSummary>>((acc, row) => {
     const current = acc[row.exerciseTypeId] ?? {
       weightKg: null,
+      weightUnit: null,
       weightMethodName: null,
     }
     if (current.weightKg === null || row.weightKg > current.weightKg) {
       current.weightKg = row.weightKg
+      current.weightUnit = row.weightUnit === 'lb' ? 'lb' : 'kg'
       current.weightMethodName = row.methodName
     }
     acc[row.exerciseTypeId] = current
@@ -542,9 +653,11 @@ function reduceMethodPrRows(rows: PrSetRow[]): Record<string, MethodPrSummary> {
   return rows.reduce<Record<string, MethodPrSummary>>((acc, row) => {
     const current = acc[row.methodId] ?? {
       weightKg: null,
+      weightUnit: null,
     }
     if (current.weightKg === null || row.weightKg > current.weightKg) {
       current.weightKg = row.weightKg
+      current.weightUnit = row.weightUnit === 'lb' ? 'lb' : 'kg'
     }
     acc[row.methodId] = current
     return acc
@@ -578,7 +691,8 @@ export async function getExercisePrSummariesBySection(
        et.id as exerciseTypeId,
        m.id as methodId,
        m.name as methodName,
-       s.weight as weightKg
+       s.weight as weightKg,
+       s.weight_unit as weightUnit
      FROM sets s
      JOIN workout_exercises we ON we.id = s.workout_exercise_id
      JOIN exercises e ON e.id = we.exercise_id
@@ -604,7 +718,8 @@ export async function getMethodPrSummariesForExerciseType(
        e.exercise_type_id as exerciseTypeId,
        m.id as methodId,
        m.name as methodName,
-       s.weight as weightKg
+       s.weight as weightKg,
+       s.weight_unit as weightUnit
      FROM sets s
      JOIN workout_exercises we ON we.id = s.workout_exercise_id
      JOIN exercises e ON e.id = we.exercise_id

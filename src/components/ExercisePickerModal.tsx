@@ -730,13 +730,21 @@ const stylesheet = createStyleSheet((theme) => ({
     width: 68,
   },
   breadcrumbWrap: {
-    width: '100%',
     minWidth: 0,
+    maxWidth: '100%',
+    alignSelf: 'flex-start',
+    flexGrow: 0,
+    flexShrink: 1,
+    borderRadius: theme.radius.full,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.surface,
   },
   breadcrumbContent: {
     alignItems: 'center',
-    gap: 2,
-    paddingRight: theme.spacing.md,
+    gap: 4,
+    paddingHorizontal: theme.spacing.sm,
+    paddingVertical: 3,
   },
   breadcrumbText: {
     color: theme.colors.text,
@@ -745,9 +753,9 @@ const stylesheet = createStyleSheet((theme) => ({
     maxWidth: 104,
   },
   breadcrumbCurrent: {
-    color: theme.colors.textMuted,
+    color: theme.colors.accent,
     fontSize: theme.fontSize.xs,
-    fontWeight: '600',
+    fontWeight: '800',
     maxWidth: 92,
   },
   addButton: {

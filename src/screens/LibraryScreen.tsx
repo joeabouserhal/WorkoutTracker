@@ -2,17 +2,25 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   ActivityIndicator,
   BackHandler,
+  type GestureResponderEvent,
   Modal,
   ScrollView,
   Switch,
   Text,
   TextInput,
   TouchableOpacity,
+  useWindowDimensions,
   View,
 } from 'react-native'
 import { useFocusEffect } from '@react-navigation/native'
 import ReanimatedSwipeable from 'react-native-gesture-handler/ReanimatedSwipeable'
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons'
+import {
+  Canvas,
+  LinearGradient,
+  Rect,
+  vec,
+} from '@shopify/react-native-skia'
 import { createStyleSheet, useStyles } from 'react-native-unistyles'
 import ThemedDialog, { type ThemedDialogAction } from '@/components/ui/ThemedDialog'
 import {
@@ -40,13 +48,42 @@ import {
 type Step = 'sections' | 'exerciseTypes' | 'methods'
 type CreateMode = 'section' | 'exercise' | 'method'
 const PR_GOLD = '#D9A441'
+const LB_PER_KG = 2.20462
 
 function formatCompactNumber(value: number) {
   return Number.parseFloat(value.toFixed(2)).toString()
 }
 
+function formatPrWeight(weightKg: number, unit: string) {
+  const value = unit === 'lb' ? weightKg * LB_PER_KG : weightKg
+  return `${formatCompactNumber(value)} ${unit}`
+}
+
+function getOtherWeightUnit(unit: string) {
+  return unit === 'lb' ? 'kg' : 'lb'
+}
+
 function hasPrValue(value: number | null | undefined): value is number {
   return typeof value === 'number' && Number.isFinite(value)
+}
+
+function HeaderFade() {
+  const { styles, theme } = useStyles(stylesheet)
+  const { width } = useWindowDimensions()
+
+  return (
+    <View pointerEvents="none" style={styles.headerFade}>
+      <Canvas style={styles.headerFadeCanvas}>
+        <Rect x={0} y={0} width={width} height={34}>
+          <LinearGradient
+            start={vec(0, 0)}
+            end={vec(0, 34)}
+            colors={[theme.colors.bg, theme.colors.bg + '00']}
+          />
+        </Rect>
+      </Canvas>
+    </View>
+  )
 }
 
 export default function LibraryScreen() {
@@ -67,6 +104,8 @@ export default function LibraryScreen() {
   const [singleMethodOnly, setSingleMethodOnly] = useState(false)
   const [selectedMethodId, setSelectedMethodId] = useState<string | null>(null)
   const [showRestoreDefaults, setShowRestoreDefaults] = useState(false)
+  const [showHeaderFade, setShowHeaderFade] = useState(false)
+  const [convertedPrUnits, setConvertedPrUnits] = useState<Record<string, boolean>>({})
   const [dialog, setDialog] = useState<{
     title: string
     message?: string
@@ -440,6 +479,38 @@ export default function LibraryScreen() {
       })
   }
 
+  function togglePrUnit(key: string, event?: GestureResponderEvent) {
+    event?.stopPropagation()
+    setConvertedPrUnits((prev) => ({ ...prev, [key]: !prev[key] }))
+  }
+
+  function renderPrBadge(
+    key: string,
+    weightKg: number,
+    recordedUnit: string | null | undefined,
+    suffix?: string,
+  ) {
+    const originalUnit = recordedUnit === 'lb' ? 'lb' : 'kg'
+    const displayUnit = convertedPrUnits[key] ? getOtherWeightUnit(originalUnit) : originalUnit
+    const nextUnit = getOtherWeightUnit(displayUnit)
+
+    return (
+      <View style={styles.prBadge}>
+        <MaterialCommunityIcons name="trophy-outline" size={13} color={PR_GOLD} />
+        <Text style={styles.prBadgeText}>
+          Current PR {formatPrWeight(weightKg, displayUnit)}{suffix ? ` - ${suffix}` : ''}
+        </Text>
+        <TouchableOpacity
+          style={styles.prUnitToggle}
+          onPress={(event) => togglePrUnit(key, event)}
+          activeOpacity={0.78}
+        >
+          <Text style={styles.prUnitToggleText}>{nextUnit}</Text>
+        </TouchableOpacity>
+      </View>
+    )
+  }
+
   const renderContent = () => {
     if (loading) {
       return (
@@ -496,14 +567,14 @@ export default function LibraryScreen() {
                       <Text style={styles.badgeMutedText}>single method</Text>
                     </View>
                   ) : null}
-                  {hasPrValue(prSummary?.weightKg) ? (
-                    <View style={styles.prBadge}>
-                      <MaterialCommunityIcons name="trophy-outline" size={13} color={PR_GOLD} />
-                      <Text style={styles.prBadgeText}>
-                        Current PR {formatCompactNumber(prSummary.weightKg)} kg - {prSummary.weightMethodName ?? 'Method'}
-                      </Text>
-                    </View>
-                  ) : null}
+                  {hasPrValue(prSummary?.weightKg)
+                    ? renderPrBadge(
+                      `exercise:${exerciseType.id}`,
+                      prSummary.weightKg,
+                      prSummary.weightUnit,
+                      prSummary.weightMethodName ?? 'Method',
+                    )
+                    : null}
                 </View>
               </View>
             </View>
@@ -550,14 +621,13 @@ export default function LibraryScreen() {
                     <Text style={styles.badgeMutedText}>only method</Text>
                   </View>
                 ) : null}
-                {hasPrValue(prSummary?.weightKg) ? (
-                  <View style={styles.prBadge}>
-                    <MaterialCommunityIcons name="trophy-outline" size={13} color={PR_GOLD} />
-                    <Text style={styles.prBadgeText}>
-                      Current PR {formatCompactNumber(prSummary.weightKg)} kg
-                    </Text>
-                  </View>
-                ) : null}
+                {hasPrValue(prSummary?.weightKg)
+                  ? renderPrBadge(
+                    `method:${method.id}`,
+                    prSummary.weightKg,
+                    prSummary.weightUnit,
+                  )
+                  : null}
               </View>
             </View>
           </View>
@@ -609,15 +679,15 @@ export default function LibraryScreen() {
           </TouchableOpacity>
         </View>
 
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.breadcrumbContent}
-          style={styles.breadcrumbScroll}
-          scrollEnabled={breadcrumbItems.length > 0}
-        >
-          {breadcrumbItems.length > 0 ? (
-            breadcrumbItems.map((item, index) => {
+        {breadcrumbItems.length > 0 ? (
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.breadcrumbContent}
+            style={styles.breadcrumbScroll}
+            scrollEnabled
+          >
+            {breadcrumbItems.map((item, index) => {
               const isLast = index === breadcrumbItems.length - 1
               return (
                 <React.Fragment key={`${item}-${index}`}>
@@ -639,11 +709,11 @@ export default function LibraryScreen() {
                   ) : null}
                 </React.Fragment>
               )
-            })
-          ) : (
-            <Text style={styles.breadcrumbPlaceholder}> </Text>
-          )}
-        </ScrollView>
+            })}
+          </ScrollView>
+        ) : (
+          <View style={styles.breadcrumbSpacer} />
+        )}
 
         <View style={styles.titleBlock}>
           <Text style={styles.pageTitle}>{pageTitle}</Text>
@@ -660,12 +730,18 @@ export default function LibraryScreen() {
             </TouchableOpacity>
           ) : null}
         </View>
+        {showHeaderFade ? <HeaderFade /> : null}
       </View>
 
       <ScrollView
         style={styles.scroll}
         contentContainerStyle={styles.list}
         keyboardShouldPersistTaps="handled"
+        onScroll={(event) => {
+          const shouldShowFade = event.nativeEvent.contentOffset.y > 4
+          setShowHeaderFade((prev) => (prev === shouldShowFade ? prev : shouldShowFade))
+        }}
+        scrollEventThrottle={16}
       >
         <View style={styles.listPanel}>
           {renderContent()}
@@ -851,8 +927,21 @@ const stylesheet = createStyleSheet((theme) => ({
   header: {
     paddingHorizontal: theme.spacing.md,
     paddingTop: theme.spacing.xl + theme.spacing.sm,
-    paddingBottom: theme.spacing.md,
+    paddingBottom: theme.spacing.xs,
     backgroundColor: theme.colors.bg,
+    zIndex: 2,
+    elevation: 2,
+    overflow: 'visible',
+  },
+  headerFade: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: -34,
+    height: 34,
+  },
+  headerFadeCanvas: {
+    flex: 1,
   },
   topRow: {
     flexDirection: 'row',
@@ -883,32 +972,46 @@ const stylesheet = createStyleSheet((theme) => ({
     width: 68,
   },
   breadcrumbScroll: {
-    marginTop: theme.spacing.xs,
-    marginBottom: theme.spacing.xs,
+    marginTop: 6,
+    marginBottom: 2,
     minWidth: 0,
+    alignSelf: 'center',
+    maxWidth: '100%',
+    flexGrow: 0,
+    flexShrink: 1,
+    borderRadius: theme.radius.full,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.surface,
   },
   breadcrumbContent: {
     alignItems: 'center',
-    flexGrow: 1,
     justifyContent: 'center',
-    gap: 2,
+    gap: 3,
+    paddingHorizontal: 8,
+    paddingVertical: 0,
   },
   breadcrumbText: {
     color: theme.colors.text,
-    fontSize: theme.fontSize.sm,
+    fontSize: theme.fontSize.xs,
     fontWeight: '700',
-    maxWidth: 104,
+    maxWidth: 96,
   },
   breadcrumbCurrent: {
-    color: theme.colors.textMuted,
-    fontSize: theme.fontSize.xs,
-    fontWeight: '600',
-    maxWidth: 92,
+    color: theme.colors.accent,
+    fontSize: 10,
+    fontWeight: '800',
+    maxWidth: 84,
   },
   breadcrumbPlaceholder: {
     color: 'transparent',
     fontSize: theme.fontSize.sm,
     fontWeight: '700',
+  },
+  breadcrumbSpacer: {
+    height: 20,
+    marginTop: 6,
+    marginBottom: 2,
   },
   addButton: {
     flexDirection: 'row',
@@ -1093,9 +1196,25 @@ const stylesheet = createStyleSheet((theme) => ({
     paddingVertical: 3,
   },
   prBadgeText: {
+    flexShrink: 1,
     color: PR_GOLD,
     fontSize: theme.fontSize.xs,
     fontWeight: '800',
+  },
+  prUnitToggle: {
+    minHeight: 20,
+    borderRadius: theme.radius.full,
+    borderWidth: 1,
+    borderColor: PR_GOLD + '66',
+    backgroundColor: theme.colors.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 6,
+  },
+  prUnitToggleText: {
+    color: PR_GOLD,
+    fontSize: 10,
+    fontWeight: '900',
   },
   emptyText: {
     color: theme.colors.textMuted,

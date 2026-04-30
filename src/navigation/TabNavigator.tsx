@@ -1,13 +1,20 @@
 import React, { useEffect, useState } from 'react'
-import { Text, TouchableOpacity, View } from 'react-native'
-import { createBottomTabNavigator, BottomTabBar } from '@react-navigation/bottom-tabs'
+import { type LayoutChangeEvent, Text, TouchableOpacity, View } from 'react-native'
+import { createBottomTabNavigator } from '@react-navigation/bottom-tabs'
 import type { BottomTabBarProps } from '@react-navigation/bottom-tabs'
 import { createNativeStackNavigator } from '@react-navigation/native-stack'
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons'
 import { Gesture, GestureDetector } from 'react-native-gesture-handler'
-import { runOnJS } from 'react-native-reanimated'
+import Animated, {
+  runOnJS,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from 'react-native-reanimated'
 import { createStyleSheet, useStyles } from 'react-native-unistyles'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import HomeScreen from '../screens/HomeScreen'
+import TemplatesScreen from '../screens/TemplatesScreen'
 import CalendarScreen from '../screens/CalendarScreen'
 import ProgressScreen from '../screens/ProgressScreen'
 import LibraryScreen from '../screens/LibraryScreen'
@@ -15,21 +22,32 @@ import ProfileScreen from '../screens/ProfileScreen'
 import EditProfileScreen from '../screens/EditProfileScreen'
 import SettingsScreen from '../screens/SettingsScreen'
 import ThemesScreen from '../screens/ThemesScreen'
+import ScheduleScreen from '../screens/ScheduleScreen'
+import AboutScreen from '../screens/AboutScreen'
 import ActiveWorkoutSheet from '../components/ActiveWorkoutSheet'
 import { useSessionStore } from '@/store/sessionStore'
 import { formatRestTimer } from '@/services/restTimerSettings'
 import { showWorkoutNotification } from '@/services/WorkoutNotification'
 
 const Tab = createBottomTabNavigator()
-const HomeStack = createNativeStackNavigator()
+export type HomeStackParamList = {
+  Home: undefined
+  Templates: undefined
+}
+const HomeStack = createNativeStackNavigator<HomeStackParamList>()
 const CalendarStack = createNativeStackNavigator()
 const ProgressStack = createNativeStackNavigator()
 const LibraryStack = createNativeStackNavigator()
+const TAB_BAR_HORIZONTAL_PADDING = 8
+const TAB_ICON_PILL_WIDTH = 52
+const TAB_ICON_PILL_TOP = 9
 export type ProfileStackParamList = {
   Profile: undefined
   EditProfile: undefined
   Settings: undefined
   Themes: undefined
+  Schedule: undefined
+  About: undefined
 }
 const ProfileStack = createNativeStackNavigator<ProfileStackParamList>()
 
@@ -37,6 +55,7 @@ function HomeStackScreen() {
   return (
     <HomeStack.Navigator screenOptions={{ headerShown: false }}>
       <HomeStack.Screen name="Home" component={HomeScreen} />
+      <HomeStack.Screen name="Templates" component={TemplatesScreen} />
     </HomeStack.Navigator>
   )
 }
@@ -78,6 +97,8 @@ function ProfileStackScreen() {
       <ProfileStack.Screen name="EditProfile" component={EditProfileScreen} />
       <ProfileStack.Screen name="Settings" component={SettingsScreen} />
       <ProfileStack.Screen name="Themes" component={ThemesScreen} />
+      <ProfileStack.Screen name="Schedule" component={ScheduleScreen} />
+      <ProfileStack.Screen name="About" component={AboutScreen} />
     </ProfileStack.Navigator>
   )
 }
@@ -90,6 +111,23 @@ function formatElapsed(seconds: number): string {
     return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
   }
   return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+}
+
+function getTabIcon(routeName: string, focused: boolean) {
+  switch (routeName) {
+    case 'HomeTab':
+      return focused ? 'home' : 'home-outline'
+    case 'CalendarTab':
+      return focused ? 'calendar' : 'calendar-outline'
+    case 'ProgressTab':
+      return focused ? 'chart-line' : 'chart-line-variant'
+    case 'LibraryTab':
+      return 'dumbbell'
+    case 'ProfileTab':
+      return focused ? 'account' : 'account-outline'
+    default:
+      return 'circle-outline'
+  }
 }
 
 function WorkoutMiniBar() {
@@ -221,39 +259,179 @@ function WorkoutMiniBar() {
   )
 }
 
-function CustomTabBar(props: BottomTabBarProps) {
-  const activeWorkoutId = useSessionStore((s) => s.activeWorkoutId)
+function TabBarItem({
+  focused,
+  label,
+  iconName,
+  accessibilityLabel,
+  testID,
+  onPress,
+  onLongPress,
+}: {
+  focused: boolean
+  label: string
+  iconName: string
+  accessibilityLabel?: string
+  testID?: string
+  onPress: () => void
+  onLongPress: () => void
+}) {
+  const { styles, theme } = useStyles(stylesheet)
+  const iconScale = useSharedValue(focused ? 1.08 : 1)
+
+  useEffect(() => {
+    iconScale.value = withTiming(focused ? 1.08 : 1, { duration: 110 })
+  }, [focused, iconScale])
+
+  const iconAnimatedStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: iconScale.value }],
+  }))
+
   return (
-    <View>
+    <TouchableOpacity
+      accessibilityRole="tab"
+      accessibilityState={focused ? { selected: true } : {}}
+      accessibilityLabel={accessibilityLabel}
+      testID={testID}
+      style={styles.tabItem}
+      activeOpacity={0.78}
+      onPress={onPress}
+      onLongPress={onLongPress}
+    >
+      <View style={styles.tabIconPill}>
+        <Animated.View style={iconAnimatedStyle}>
+          <MaterialCommunityIcons
+            name={iconName}
+            size={22}
+            color={focused ? theme.colors.accent : theme.colors.textMuted}
+          />
+        </Animated.View>
+      </View>
+      <Text
+        numberOfLines={1}
+        adjustsFontSizeToFit
+        style={[
+          styles.tabLabel,
+          focused && styles.tabLabelActive,
+        ]}
+      >
+        {label}
+      </Text>
+    </TouchableOpacity>
+  )
+}
+
+function CustomTabBar(props: BottomTabBarProps) {
+  const { state, descriptors, navigation } = props
+  const { styles } = useStyles(stylesheet)
+  const insets = useSafeAreaInsets()
+  const activeWorkoutId = useSessionStore((s) => s.activeWorkoutId)
+  const bottomPadding = Math.max(insets.bottom, 8)
+  const [tabBarWidth, setTabBarWidth] = useState(0)
+  const activeIndex = useSharedValue(state.index)
+
+  useEffect(() => {
+    activeIndex.value = withTiming(state.index, { duration: 180 })
+  }, [activeIndex, state.index])
+
+  function handleTabBarLayout(event: LayoutChangeEvent) {
+    setTabBarWidth(event.nativeEvent.layout.width)
+  }
+
+  const highlightAnimatedStyle = useAnimatedStyle(() => {
+    const routeCount = Math.max(state.routes.length, 1)
+    const innerWidth = Math.max(tabBarWidth - TAB_BAR_HORIZONTAL_PADDING * 2, 0)
+    const tabWidth = innerWidth / routeCount
+    return {
+      opacity: tabBarWidth > 0 ? 1 : 0,
+      transform: [{
+        translateX:
+          TAB_BAR_HORIZONTAL_PADDING +
+          (tabWidth * activeIndex.value) +
+          ((tabWidth - TAB_ICON_PILL_WIDTH) / 2),
+      }],
+    }
+  })
+
+  return (
+    <View style={styles.tabArea}>
       {activeWorkoutId ? <WorkoutMiniBar /> : null}
-      <BottomTabBar {...props} />
+      <View
+        style={[
+          styles.tabBar,
+          activeWorkoutId && styles.tabBarDocked,
+          {
+            paddingBottom: bottomPadding,
+            minHeight: 62 + bottomPadding,
+          },
+        ]}
+        onLayout={handleTabBarLayout}
+      >
+        <Animated.View style={[styles.tabIconHighlight, highlightAnimatedStyle]} />
+        {state.routes.map((route, index) => {
+          const focused = state.index === index
+          const { options } = descriptors[route.key]
+          const label = typeof options.title === 'string'
+            ? options.title
+            : route.name.replace('Tab', '')
+
+          function handlePress() {
+            activeIndex.value = withTiming(index, { duration: 180 })
+            const event = navigation.emit({
+              type: 'tabPress',
+              target: route.key,
+              canPreventDefault: true,
+            })
+
+            if (event.defaultPrevented) {
+              activeIndex.value = withTiming(state.index, { duration: 120 })
+              return
+            }
+
+            if (!focused) {
+              navigation.navigate(route.name, route.params)
+            }
+          }
+
+          function handleLongPress() {
+            navigation.emit({
+              type: 'tabLongPress',
+              target: route.key,
+            })
+          }
+
+          return (
+            <TabBarItem
+              key={route.key}
+              focused={focused}
+              label={label}
+              iconName={getTabIcon(route.name, focused)}
+              accessibilityLabel={options.tabBarAccessibilityLabel}
+              testID={options.tabBarButtonTestID}
+              onPress={handlePress}
+              onLongPress={handleLongPress}
+            />
+          )
+        })}
+      </View>
     </View>
   )
 }
 
 export default function TabNavigator() {
-  const { theme } = useStyles(stylesheet)
-
   return (
     <>
       <Tab.Navigator
         tabBar={(props) => <CustomTabBar {...props} />}
         screenOptions={{
           headerShown: false,
-          tabBarActiveTintColor: theme.colors.accent,
-          tabBarInactiveTintColor: theme.colors.textMuted,
-          tabBarStyle: {
-            backgroundColor: theme.colors.surface,
-            borderTopColor: theme.colors.border,
-            borderTopWidth: 1,
-            height: 76,
-            paddingBottom: 10,
-            paddingTop: 2,
-          },
-          tabBarLabelStyle: {
-            fontSize: 12,
-            fontWeight: '600',
-            marginTop: 2,
+          lazy: false,
+          animation: 'shift',
+          transitionSpec: {
+            animation: 'timing',
+            config: {
+              duration: 180,
+            },
           },
         }}
       >
@@ -262,13 +440,6 @@ export default function TabNavigator() {
           component={HomeStackScreen}
           options={{
             title: 'Home',
-            tabBarIcon: ({ focused, color, size }) => (
-              <MaterialCommunityIcons
-                name={focused ? 'home' : 'home-outline'}
-                size={size}
-                color={color}
-              />
-            ),
           }}
         />
         <Tab.Screen
@@ -276,13 +447,6 @@ export default function TabNavigator() {
           component={CalendarStackScreen}
           options={{
             title: 'Calendar',
-            tabBarIcon: ({ focused, color, size }) => (
-              <MaterialCommunityIcons
-                name={focused ? 'calendar' : 'calendar-outline'}
-                size={size}
-                color={color}
-              />
-            ),
           }}
         />
         <Tab.Screen
@@ -290,13 +454,6 @@ export default function TabNavigator() {
           component={ProgressStackScreen}
           options={{
             title: 'Progress',
-            tabBarIcon: ({ focused, color, size }) => (
-              <MaterialCommunityIcons
-                name={focused ? 'chart-line' : 'chart-line-variant'}
-                size={size}
-                color={color}
-              />
-            ),
           }}
         />
         <Tab.Screen
@@ -304,13 +461,6 @@ export default function TabNavigator() {
           component={LibraryStackScreen}
           options={{
             title: 'Library',
-            tabBarIcon: ({ color, size }) => (
-              <MaterialCommunityIcons
-                name="dumbbell"
-                size={size}
-                color={color}
-              />
-            ),
           }}
         />
         <Tab.Screen
@@ -318,13 +468,6 @@ export default function TabNavigator() {
           component={ProfileStackScreen}
           options={{
             title: 'Profile',
-            tabBarIcon: ({ focused, color, size }) => (
-              <MaterialCommunityIcons
-                name={focused ? 'account' : 'account-outline'}
-                size={size}
-                color={color}
-              />
-            ),
           }}
         />
       </Tab.Navigator>
@@ -335,16 +478,71 @@ export default function TabNavigator() {
 }
 
 const stylesheet = createStyleSheet((theme) => ({
+  tabArea: {
+    backgroundColor: theme.colors.bg,
+  },
+  tabBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: theme.colors.surface,
+    borderTopWidth: 1,
+    borderTopColor: theme.colors.border,
+    paddingHorizontal: TAB_BAR_HORIZONTAL_PADDING,
+    paddingTop: 8,
+    position: 'relative',
+  },
+  tabBarDocked: {
+    borderTopWidth: 1,
+  },
+  tabItem: {
+    flex: 1,
+    minWidth: 0,
+    minHeight: 50,
+    borderRadius: theme.radius.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 3,
+    paddingHorizontal: 2,
+    zIndex: 1,
+  },
+  tabIconHighlight: {
+    position: 'absolute',
+    top: TAB_ICON_PILL_TOP,
+    width: TAB_ICON_PILL_WIDTH,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: theme.colors.accentMuted,
+    zIndex: 0,
+  },
+  tabIconPill: {
+    width: TAB_ICON_PILL_WIDTH,
+    height: 30,
+    borderRadius: 15,
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  tabLabel: {
+    color: theme.colors.textMuted,
+    fontSize: 11,
+    fontWeight: '700',
+    textAlign: 'center',
+  },
+  tabLabelActive: {
+    color: theme.colors.accent,
+    fontWeight: '800',
+  },
   miniBar: {
     backgroundColor: theme.colors.surface,
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
     borderWidth: 1,
     borderBottomWidth: 0,
     borderColor: theme.colors.border,
     paddingHorizontal: 16,
     paddingVertical: 14,
     minHeight: 72,
+    overflow: 'hidden',
   },
   miniBarResting: {
     gap: 9,

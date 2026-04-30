@@ -6,7 +6,8 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native'
-import { useFocusEffect } from '@react-navigation/native'
+import { useFocusEffect, useNavigation } from '@react-navigation/native'
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons'
 import { createStyleSheet, useStyles } from 'react-native-unistyles'
 import { WorkoutDetailModal, WorkoutSummaryCard } from '@/components/WorkoutHistory'
@@ -19,6 +20,7 @@ import {
   type WorkoutSummary,
 } from '@/db/workoutHelpers'
 import { useSessionStore } from '@/store/sessionStore'
+import type { HomeStackParamList } from '../navigation/TabNavigator'
 
 function formatDate(timestamp: number) {
   return new Date(timestamp).toLocaleDateString([], {
@@ -35,6 +37,7 @@ function getDayKey(timestamp: number) {
 
 export default function HomeScreen() {
   const { styles, theme } = useStyles(stylesheet)
+  const navigation = useNavigation<NativeStackNavigationProp<HomeStackParamList>>()
   const [name, setName] = useState<string>('')
   const [recentWorkouts, setRecentWorkouts] = useState<WorkoutSummary[]>([])
   const [selectedWorkoutId, setSelectedWorkoutId] = useState<string | null>(null)
@@ -105,7 +108,7 @@ export default function HomeScreen() {
   }
 
   function handleTemplatesPress() {
-    Alert.alert('Templates', 'Workout templates will be available here soon.')
+    navigation.navigate('Templates')
   }
 
   function toggleWorkoutPreview(workoutId: string) {
@@ -242,45 +245,53 @@ export default function HomeScreen() {
         }}
         scrollEventThrottle={16}
       >
-        <TouchableOpacity
+        <View
           style={[
-            styles.startWorkoutButton,
-            isWorkoutActive && styles.startWorkoutButtonDisabled,
+            styles.startWorkoutGlow,
+            isWorkoutActive && styles.startWorkoutGlowDisabled,
           ]}
-          onPress={handleStartWorkout}
-          disabled={isWorkoutActive}
         >
-          <View
+          <TouchableOpacity
             style={[
-              styles.primaryIcon,
-              isWorkoutActive && styles.primaryIconDisabled,
+              styles.startWorkoutButton,
+              isWorkoutActive && styles.startWorkoutButtonDisabled,
             ]}
+            onPress={handleStartWorkout}
+            disabled={isWorkoutActive}
+            activeOpacity={0.82}
           >
-            <MaterialCommunityIcons
-              name={isWorkoutActive ? 'timer-sand' : 'plus'}
-              size={21}
-              color={isWorkoutActive ? theme.colors.textMuted : '#FFFFFF'}
-            />
-          </View>
-          <View style={styles.primaryTextBlock}>
-            <Text
+            <View
               style={[
-                styles.startWorkoutText,
-                isWorkoutActive && styles.startWorkoutTextDisabled,
+                styles.primaryIcon,
+                isWorkoutActive && styles.primaryIconDisabled,
               ]}
             >
-              {isWorkoutActive ? 'Workout Currently Ongoing' : 'Start Workout'}
-            </Text>
-            <Text
-              style={[
-                styles.actionSubtitle,
-                !isWorkoutActive && styles.primaryActionSubtitle,
-              ]}
-            >
-              {isWorkoutActive ? 'Finish or cancel it before starting another.' : 'Track sets and rest live.'}
-            </Text>
-          </View>
-        </TouchableOpacity>
+              <MaterialCommunityIcons
+                name={isWorkoutActive ? 'timer-sand' : 'plus'}
+                size={21}
+                color={isWorkoutActive ? theme.colors.textMuted : '#FFFFFF'}
+              />
+            </View>
+            <View style={styles.primaryTextBlock}>
+              <Text
+                style={[
+                  styles.startWorkoutText,
+                  isWorkoutActive && styles.startWorkoutTextDisabled,
+                ]}
+              >
+                {isWorkoutActive ? 'Workout Currently Ongoing' : 'Start Workout'}
+              </Text>
+              <Text
+                style={[
+                  styles.actionSubtitle,
+                  !isWorkoutActive && styles.primaryActionSubtitle,
+                ]}
+              >
+                {isWorkoutActive ? 'Finish or cancel it before starting another.' : 'Track sets and rest live.'}
+              </Text>
+            </View>
+          </TouchableOpacity>
+        </View>
 
         <TouchableOpacity style={styles.templatesButton} onPress={handleTemplatesPress}>
           <View style={styles.secondaryIcon}>
@@ -310,17 +321,19 @@ export default function HomeScreen() {
           recentWorkoutGroups.map((group) => (
             <View key={group.dayKey} style={styles.workoutGroup}>
               <Text style={styles.workoutDateLabel}>{group.dateLabel}</Text>
-              {group.workouts.map((workout) => (
-                <WorkoutSummaryCard
-                  key={workout.id}
-                  workout={workout}
-                  expanded={Boolean(expandedWorkoutIds[workout.id])}
-                  preview={workoutPreviews[workout.id]}
-                  previewLoading={Boolean(previewLoading[workout.id])}
-                  onOpen={() => openWorkout(workout.id)}
-                  onToggle={() => toggleWorkoutPreview(workout.id)}
-                />
-              ))}
+              <View style={styles.workoutList}>
+                {group.workouts.map((workout) => (
+                  <WorkoutSummaryCard
+                    key={workout.id}
+                    workout={workout}
+                    expanded={Boolean(expandedWorkoutIds[workout.id])}
+                    preview={workoutPreviews[workout.id]}
+                    previewLoading={Boolean(previewLoading[workout.id])}
+                    onOpen={() => openWorkout(workout.id)}
+                    onToggle={() => toggleWorkoutPreview(workout.id)}
+                  />
+                ))}
+              </View>
             </View>
           ))
         )}
@@ -445,7 +458,20 @@ const stylesheet = createStyleSheet((theme) => ({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  startWorkoutGlow: {
+    borderRadius: theme.radius.md,
+    shadowColor: theme.colors.accent,
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.62,
+    shadowRadius: 24,
+    elevation: 10,
+  },
+  startWorkoutGlowDisabled: {
+    shadowOpacity: 0,
+    elevation: 0,
+  },
   startWorkoutButton: {
+    minHeight: 58,
     flexDirection: 'row',
     alignItems: 'center',
     gap: theme.spacing.sm,
@@ -462,8 +488,8 @@ const stylesheet = createStyleSheet((theme) => ({
   primaryIcon: {
     width: 38,
     height: 38,
-    borderRadius: theme.radius.md,
-    backgroundColor: 'rgba(255, 255, 255, 0.22)',
+    borderRadius: theme.radius.full,
+    backgroundColor: 'rgba(255, 255, 255, 0.18)',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -536,18 +562,18 @@ const stylesheet = createStyleSheet((theme) => ({
     textTransform: 'uppercase',
   },
   workoutGroup: {
-    gap: theme.spacing.sm,
+    gap: theme.spacing.xs,
+  },
+  workoutList: {
+    gap: theme.spacing.md,
   },
   workoutDateLabel: {
     alignSelf: 'flex-start',
-    color: theme.colors.accent,
+    color: theme.colors.textMuted,
     fontSize: theme.fontSize.xs,
-    fontWeight: '800',
+    fontWeight: '700',
     textTransform: 'uppercase',
-    backgroundColor: theme.colors.accentMuted,
-    borderRadius: theme.radius.full,
-    paddingHorizontal: theme.spacing.sm,
-    paddingVertical: 3,
+    letterSpacing: 0.8,
   },
   emptyCard: {
     backgroundColor: theme.colors.surface,

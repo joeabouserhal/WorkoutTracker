@@ -41,11 +41,58 @@ function formatSetWeight(weightKg: number, unit: string) {
   return `${formatCompactNumber(weightKg)} kg`
 }
 
-function formatExerciseSets(exercise: WorkoutDetail['exercises'][number]) {
-  if (exercise.sets.length === 0) return 'No sets'
-  return exercise.sets
-    .map((set) => `${formatSetWeight(set.weightKg, set.weightUnit)} x ${set.reps}`)
-    .join(', ')
+function getExerciseSetSummaries(exercise: WorkoutDetail['exercises'][number]) {
+  if (exercise.sets.length === 0) {
+    return [{
+      key: 'empty',
+      label: 'No sets',
+      hasWeightPr: false,
+      hasCurrentWeightPr: false,
+    }]
+  }
+
+  const groupedSets = exercise.sets.reduce<
+    Array<{
+      key: string
+      weight: string
+      reps: number
+      count: number
+      hasWeightPr: boolean
+      hasCurrentWeightPr: boolean
+    }>
+  >((groups, set) => {
+    const weight = formatSetWeight(set.weightKg, set.weightUnit)
+    const key = `${weight}-${set.reps}`
+    const existingGroup = groups.find((group) => group.key === key)
+
+    if (existingGroup) {
+      existingGroup.count += 1
+      existingGroup.hasWeightPr = existingGroup.hasWeightPr || Boolean(set.isWeightPr)
+      existingGroup.hasCurrentWeightPr =
+        existingGroup.hasCurrentWeightPr || Boolean(set.isCurrentWeightPr)
+    } else {
+      groups.push({
+        key,
+        weight,
+        reps: set.reps,
+        count: 1,
+        hasWeightPr: Boolean(set.isWeightPr),
+        hasCurrentWeightPr: Boolean(set.isCurrentWeightPr),
+      })
+    }
+
+    return groups
+  }, [])
+
+  return groupedSets.map((group) => {
+    const setLabel = group.count === 1 ? '1 set' : `${group.count} sets`
+    return {
+      key: group.key,
+      label: `${setLabel} of ${group.weight} x ${group.reps}`,
+      hasWeightPr: group.hasWeightPr,
+      hasCurrentWeightPr: group.hasCurrentWeightPr,
+    }
+  })
 }
 
 export function WorkoutSummaryCard({
@@ -146,25 +193,33 @@ function WorkoutQuickPreview({
       ) : (
         workout.exercises.map((exercise) => (
           <View key={exercise.id} style={styles.quickExerciseRow}>
-            <View style={styles.quickExerciseTextBlock}>
-              <Text style={styles.quickExerciseName} numberOfLines={1}>
-                {exercise.exerciseName}
-                {exercise.methodName ? (
-                  <Text style={styles.quickExerciseMethod}> - {exercise.methodName}</Text>
-                ) : null}
-              </Text>
-              <Text style={styles.quickExerciseSets} numberOfLines={1}>
-                {formatExerciseSets(exercise)}
-              </Text>
+            <Text style={styles.quickExerciseName} numberOfLines={1}>
+              {exercise.exerciseName}
+              {exercise.methodName ? (
+                <Text style={styles.quickExerciseMethod}> - {exercise.methodName}</Text>
+              ) : null}
+            </Text>
+            <View style={styles.quickExerciseRightBlock}>
+              <View style={styles.quickSetList}>
+                {getExerciseSetSummaries(exercise).map((summary) => (
+                  <View key={summary.key} style={styles.quickSetRow}>
+                    <Text style={styles.quickExerciseSets} numberOfLines={1}>
+                      {summary.label}
+                    </Text>
+                    <View style={styles.quickPrDotSlot}>
+                    {summary.hasWeightPr ? (
+                      <View
+                        style={[
+                          styles.quickPrDot,
+                          summary.hasCurrentWeightPr && styles.quickCurrentPrDot,
+                        ]}
+                      />
+                    ) : null}
+                    </View>
+                  </View>
+                ))}
+              </View>
             </View>
-            {exercise.hasWeightPr ? (
-              <View
-                style={[
-                  styles.quickPrDot,
-                  exercise.hasCurrentWeightPr && styles.quickCurrentPrDot,
-                ]}
-              />
-            ) : null}
           </View>
         ))
       )}
@@ -510,17 +565,10 @@ const stylesheet = createStyleSheet((theme) => ({
     fontWeight: '600',
   },
   quickExerciseRow: {
-    minHeight: 18,
+    paddingVertical: 4,
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     justifyContent: 'space-between',
-    gap: theme.spacing.xs,
-  },
-  quickExerciseTextBlock: {
-    flex: 1,
-    minWidth: 0,
-    flexDirection: 'row',
-    alignItems: 'center',
     gap: theme.spacing.xs,
   },
   quickExerciseName: {
@@ -539,6 +587,29 @@ const stylesheet = createStyleSheet((theme) => ({
     color: theme.colors.textMuted,
     fontSize: theme.fontSize.xxs,
     fontWeight: '600',
+    textAlign: 'right',
+  },
+  quickSetList: {
+    flexShrink: 1,
+    gap: 1,
+  },
+  quickSetRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    gap: 6,
+  },
+  quickPrDotSlot: {
+    width: 8,
+    alignItems: 'flex-end',
+  },
+  quickExerciseRightBlock: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'flex-end',
+    flexShrink: 1,
+    maxWidth: '58%',
+    gap: theme.spacing.xs,
   },
   quickPrDot: {
     width: 6,

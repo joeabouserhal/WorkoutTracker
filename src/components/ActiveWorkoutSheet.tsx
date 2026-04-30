@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   AppState,
   Keyboard,
@@ -30,8 +30,10 @@ import {
   deleteWorkout,
   deleteWorkoutExercise,
   finishWorkout,
+  getWorkoutWeightPrAchievements,
   getWorkoutName,
   isExerciseTypeMethodLocked,
+  type WorkoutWeightPrAchievement,
   updateWorkoutName,
 } from '@/db/workoutHelpers'
 import {
@@ -121,6 +123,20 @@ function formatElapsed(seconds: number): string {
   return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
 }
 
+function formatVolumeKg(value: number): string {
+  if (value >= 1000) {
+    return `${Number.parseFloat((value / 1000).toFixed(1))}k kg`
+  }
+  return `${Math.round(value)} kg`
+}
+
+function formatPrWeight(weightKg: number, unit: string): string {
+  if (unit === 'lb') {
+    return `${formatConvertedWeight(weightKg * LB_PER_KG)} lb`
+  }
+  return `${formatConvertedWeight(weightKg)} kg`
+}
+
 export default function ActiveWorkoutSheet() {
   const { styles, theme } = useStyles(stylesheet)
   const insets = useSafeAreaInsets()
@@ -141,6 +157,7 @@ export default function ActiveWorkoutSheet() {
   const [methodLockedByExerciseType, setMethodLockedByExerciseType] = useState<Record<string, boolean>>({})
   const [keyboardHeight, setKeyboardHeight] = useState(0)
   const [footerHeight, setFooterHeight] = useState(0)
+  const [prCelebration, setPrCelebration] = useState<WorkoutWeightPrAchievement[]>([])
   const elapsedRef = useRef(0)
   const restDoneNotifiedRef = useRef(false)
   const keyboardHeightRef = useRef(0)
@@ -171,13 +188,42 @@ export default function ActiveWorkoutSheet() {
     clearRest,
   } = useSessionStore()
 
+  const footerStats = useMemo(() => {
+    const sets = Object.values(localSets).flat()
+    const completedSets = sets.filter((set) => set.completed).length
+    const volumeKg = sets.reduce((total, set) => {
+      if (!set.completed) return total
+      const weightKg = parseWeightInput(set.weightKg) ?? 0
+      const reps = parseRepsInput(set.reps)
+      return total + weightKg * reps
+    }, 0)
+    return {
+      exercises: exercises.length,
+      completedSets,
+      volumeLabel: formatVolumeKg(volumeKg),
+    }
+  }, [exercises.length, localSets])
+
   const doEndWorkout = useCallback(async () => {
+    let achievements: WorkoutWeightPrAchievement[] = []
     if (activeWorkoutId) {
       await updateWorkoutName(activeWorkoutId, workoutName)
       await finishWorkout(activeWorkoutId)
+      achievements = (await getWorkoutWeightPrAchievements(activeWorkoutId))
+        .filter((achievement) => achievement.previousWeightKg !== null)
+    }
+    if (achievements.length > 0) {
+      await cancelWorkoutNotification()
+      setPrCelebration(achievements)
+      return
     }
     endWorkout()
   }, [activeWorkoutId, endWorkout, workoutName])
+
+  const dismissPrCelebration = useCallback(() => {
+    setPrCelebration([])
+    endWorkout()
+  }, [endWorkout])
 
   const discardWorkout = useCallback(async () => {
     if (activeWorkoutId) await deleteWorkout(activeWorkoutId)
@@ -380,6 +426,19 @@ export default function ActiveWorkoutSheet() {
   useEffect(() => {
     elapsedRef.current = elapsed
   }, [elapsed])
+
+  useEffect(() => {
+    setValidationNotice(null)
+    setValidationErrors({})
+    setDialog(null)
+    setRestSetKey(null)
+    setPickerVisible(false)
+    focusedSetKeyRef.current = null
+    focusedInputTargetRef.current = null
+    setLayoutRef.current = {}
+    scrollOffsetRef.current = 0
+    sheetScrollAtTop.value = true
+  }, [activeWorkoutId, sheetScrollAtTop])
 
   useEffect(() => {
     let cancelled = false
@@ -903,17 +962,18 @@ export default function ActiveWorkoutSheet() {
       }
     })
 
-  if (!activeWorkoutId) return null
+  if (!activeWorkoutId && prCelebration.length === 0) return null
 
   return (
     <>
-      <Modal
-        visible={isWorkoutSheetOpen}
-        animationType="slide"
-        onRequestClose={handleCloseSheet}
-        statusBarTranslucent
-        navigationBarTranslucent
-      >
+      {activeWorkoutId ? (
+        <Modal
+          visible={isWorkoutSheetOpen}
+          animationType="slide"
+          onRequestClose={handleCloseSheet}
+          statusBarTranslucent
+          navigationBarTranslucent
+        >
         <GestureHandlerRootView style={styles.gestureRoot}>
         <GestureDetector gesture={swipeDownToCloseGesture}>
         <View style={[styles.root, { paddingTop: insets.top }]}>
@@ -1120,8 +1180,11 @@ export default function ActiveWorkoutSheet() {
             <TouchableOpacity
               style={styles.addExerciseBtn}
               onPress={handlePickerOpen}
+              activeOpacity={0.78}
             >
-              <MaterialCommunityIcons name="plus" size={20} color={theme.colors.accent} />
+              <View style={styles.addExerciseIcon}>
+                <MaterialCommunityIcons name="plus" size={18} color={theme.colors.accent} />
+              </View>
               <Text style={styles.addExerciseText}>Add Exercise</Text>
             </TouchableOpacity>
           </ScrollView>
@@ -1146,18 +1209,56 @@ export default function ActiveWorkoutSheet() {
                 <Text style={styles.validationNoticeText}>{validationNotice}</Text>
               </View>
             ) : null}
-            <TouchableOpacity style={styles.endButton} onPress={handleEndWorkout}>
-              <Text style={styles.endButtonText}>End Workout</Text>
+            <View style={styles.footerSummary}>
+              <View style={styles.footerStat}>
+                <MaterialCommunityIcons name="dumbbell" size={15} color={theme.colors.accent} />
+                <Text style={styles.footerStatText}>{footerStats.exercises} Exercises</Text>
+              </View>
+              <View style={styles.footerStatDivider} />
+              <View style={styles.footerStat}>
+                <MaterialCommunityIcons name="check-circle-outline" size={15} color={theme.colors.accent} />
+                <Text style={styles.footerStatText}>{footerStats.completedSets} Sets Done</Text>
+              </View>
+              <View style={styles.footerStatDivider} />
+              <View style={styles.footerStat}>
+                <MaterialCommunityIcons name="weight-lifter" size={15} color={theme.colors.accent} />
+                <Text style={styles.footerStatText}>{footerStats.volumeLabel}</Text>
+              </View>
+            </View>
+            <TouchableOpacity style={styles.endButton} onPress={handleEndWorkout} activeOpacity={0.82}>
+              <View style={styles.endButtonIcon}>
+                <MaterialCommunityIcons name="flag-checkered" size={18} color={theme.colors.danger} />
+              </View>
+              <View style={styles.endButtonTextBlock}>
+                <Text style={styles.endButtonText}>End Workout</Text>
+                <Text style={styles.endButtonSubtext}>Review and save your session</Text>
+              </View>
+              <MaterialCommunityIcons name="chevron-right" size={20} color={theme.colors.danger} />
             </TouchableOpacity>
           </View>
 
           {dialog ? (
             <View style={styles.dialogOverlay}>
               <View style={styles.dialogCard}>
-                <Text style={styles.dialogTitle}>{dialog.title}</Text>
-                {dialog.message ? (
-                  <Text style={styles.dialogMessage}>{dialog.message}</Text>
-                ) : null}
+                <View style={styles.dialogHeader}>
+                  <View style={styles.dialogIcon}>
+                    <MaterialCommunityIcons
+                      name={dialog.actions.some((action) => action.variant === 'danger')
+                        ? 'alert-circle-outline'
+                        : 'check-circle-outline'}
+                      size={22}
+                      color={dialog.actions.some((action) => action.variant === 'danger')
+                        ? theme.colors.danger
+                        : theme.colors.accent}
+                    />
+                  </View>
+                  <View style={styles.dialogTitleBlock}>
+                    <Text style={styles.dialogTitle}>{dialog.title}</Text>
+                    {dialog.message ? (
+                      <Text style={styles.dialogMessage}>{dialog.message}</Text>
+                    ) : null}
+                  </View>
+                </View>
                 <View style={[
                   styles.dialogActions,
                   dialog.compactActions && styles.dialogActionsCompact,
@@ -1173,16 +1274,16 @@ export default function ActiveWorkoutSheet() {
                         dialog.compactActions &&
                           action.label === 'Cancel' &&
                           styles.dialogCompactCancelButton,
-                        action.variant === 'primary' && styles.dialogPrimaryButton,
-                        action.variant === 'danger' && styles.dialogDangerButton,
-                      ]}
+                          action.variant === 'primary' && styles.dialogPrimaryButton,
+                          action.variant === 'danger' && styles.dialogDangerButton,
+                        ]}
                       onPress={action.onPress}
                     >
                       <Text
                         style={[
                           styles.dialogButtonText,
-                          (action.variant === 'primary' || action.variant === 'danger') &&
-                            styles.dialogFilledButtonText,
+                          action.variant === 'primary' && styles.dialogFilledButtonText,
+                          action.variant === 'danger' && styles.dialogDangerButtonText,
                         ]}
                       >
                         {action.label}
@@ -1196,9 +1297,98 @@ export default function ActiveWorkoutSheet() {
         </View>
         </GestureDetector>
         </GestureHandlerRootView>
+        </Modal>
+      ) : null}
+
+      <Modal
+        visible={prCelebration.length > 0}
+        animationType="fade"
+        onRequestClose={dismissPrCelebration}
+        statusBarTranslucent
+        navigationBarTranslucent
+      >
+        <View
+          style={[
+            styles.prCelebrationRoot,
+            {
+              paddingTop: insets.top + theme.spacing.lg,
+              paddingBottom: insets.bottom + theme.spacing.lg,
+            },
+          ]}
+        >
+          <View style={styles.prCelebrationCard}>
+            <View style={styles.prCelebrationIcon}>
+              <MaterialCommunityIcons name="trophy-outline" size={34} color="#D9A441" />
+            </View>
+            <Text style={styles.prCelebrationEyebrow}>New Personal Record</Text>
+            <Text style={styles.prCelebrationTitle}>That one counts.</Text>
+            <Text style={styles.prCelebrationMessage}>
+              You pushed your top weight higher this workout.
+            </Text>
+
+            <ScrollView
+              style={styles.prList}
+              contentContainerStyle={styles.prListContent}
+              showsVerticalScrollIndicator={false}
+            >
+              {prCelebration.map((achievement) => (
+                <View key={achievement.setId} style={styles.prResultCard}>
+                  <View style={styles.prResultHeader}>
+                    <View style={styles.prResultTitleBlock}>
+                      <Text style={styles.prExerciseName} numberOfLines={1}>
+                        {achievement.exerciseName}
+                      </Text>
+                      <Text style={styles.prMethodName} numberOfLines={1}>
+                        {achievement.methodName}
+                      </Text>
+                    </View>
+                    <View style={styles.prMiniBadge}>
+                      <Text style={styles.prMiniBadgeText}>
+                        {achievement.isCurrentWeightPr ? 'Current PR' : 'PR'}
+                      </Text>
+                    </View>
+                  </View>
+
+                  <View style={styles.prValuesRow}>
+                    <View style={styles.prValueBox}>
+                      <Text style={styles.prValueLabel}>Previous</Text>
+                      <Text style={styles.prPreviousValue}>
+                        {achievement.previousWeightKg === null
+                          ? 'No previous PR'
+                          : formatPrWeight(achievement.previousWeightKg, achievement.weightUnit)}
+                      </Text>
+                    </View>
+                    <MaterialCommunityIcons
+                      name="arrow-right"
+                      size={18}
+                      color={theme.colors.textMuted}
+                    />
+                    <View style={[styles.prValueBox, styles.prNewValueBox]}>
+                      <Text style={styles.prValueLabel}>Now</Text>
+                      <Text style={styles.prNewValue}>
+                        {formatPrWeight(achievement.newWeightKg, achievement.weightUnit)}
+                        <Text style={styles.prRepsText}> x {achievement.reps}</Text>
+                      </Text>
+                    </View>
+                  </View>
+                </View>
+              ))}
+            </ScrollView>
+
+            <TouchableOpacity
+              style={styles.prDoneButton}
+              onPress={dismissPrCelebration}
+              activeOpacity={0.78}
+            >
+              <Text style={styles.prDoneButtonText}>Nice</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
       </Modal>
 
-      <ExercisePickerModal visible={pickerVisible} onClose={handlePickerClose} />
+      {activeWorkoutId ? (
+        <ExercisePickerModal visible={pickerVisible} onClose={handlePickerClose} />
+      ) : null}
     </>
   )
 }
@@ -1293,7 +1483,7 @@ const stylesheet = createStyleSheet((theme) => ({
   },
   scrollContent: {
     paddingHorizontal: theme.spacing.sm,
-    paddingTop: theme.spacing.sm,
+    paddingTop: theme.spacing.md,
     paddingBottom: theme.spacing.xs,
     gap: theme.spacing.sm,
   },
@@ -1306,11 +1496,11 @@ const stylesheet = createStyleSheet((theme) => ({
   workoutNameCard: {
     backgroundColor: theme.colors.surface,
     borderRadius: theme.radius.md,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    paddingHorizontal: theme.spacing.sm,
-    paddingVertical: theme.spacing.xs,
-    gap: 2,
+    borderWidth: 1.5,
+    borderColor: theme.colors.textMuted + '45',
+    paddingHorizontal: theme.spacing.md,
+    paddingVertical: theme.spacing.sm,
+    gap: 3,
   },
   workoutNameLabel: {
     color: theme.colors.textMuted,
@@ -1323,7 +1513,7 @@ const stylesheet = createStyleSheet((theme) => ({
     color: theme.colors.text,
     fontSize: theme.fontSize.lg,
     fontWeight: '800',
-    minHeight: 34,
+    minHeight: 36,
     padding: 0,
   },
   // ── Exercise card ────────────────────────────────────────
@@ -1497,22 +1687,68 @@ const stylesheet = createStyleSheet((theme) => ({
     justifyContent: 'center',
     gap: theme.spacing.sm,
     borderRadius: theme.radius.md,
-    paddingVertical: theme.spacing.sm,
-    borderWidth: 1.5,
+    minHeight: 48,
+    paddingVertical: theme.spacing.xs,
+    paddingHorizontal: theme.spacing.md,
+    backgroundColor: theme.colors.accentMuted,
+    borderWidth: 1,
     borderColor: theme.colors.accent,
+  },
+  addExerciseIcon: {
+    width: 28,
+    height: 28,
+    borderRadius: theme.radius.full,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: theme.colors.surface,
   },
   addExerciseText: {
     color: theme.colors.accent,
     fontSize: theme.fontSize.md,
-    fontWeight: '600',
+    fontWeight: '800',
   },
   // ── Footer ───────────────────────────────────────────────
   footer: {
     paddingHorizontal: theme.spacing.md,
-    paddingVertical: theme.spacing.md,
+    paddingTop: theme.spacing.sm,
+    paddingBottom: theme.spacing.md,
     borderTopWidth: 1,
     borderTopColor: theme.colors.border,
-    gap: theme.spacing.sm,
+    backgroundColor: theme.colors.surface,
+    gap: theme.spacing.md,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -6 },
+    shadowOpacity: 0.12,
+    shadowRadius: 14,
+    elevation: 8,
+  },
+  footerSummary: {
+    minHeight: 42,
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: theme.radius.md,
+    borderWidth: 1.5,
+    borderColor: theme.colors.textMuted + '55',
+    backgroundColor: theme.colors.surface2,
+    paddingHorizontal: theme.spacing.sm,
+  },
+  footerStat: {
+    flex: 1,
+    minWidth: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+  },
+  footerStatText: {
+    color: theme.colors.textMuted,
+    fontSize: theme.fontSize.xs,
+    fontWeight: '800',
+  },
+  footerStatDivider: {
+    width: 1,
+    height: 18,
+    backgroundColor: theme.colors.border,
   },
   validationNotice: {
     flexDirection: 'row',
@@ -1532,17 +1768,44 @@ const stylesheet = createStyleSheet((theme) => ({
     fontWeight: '600',
   },
   endButton: {
-    backgroundColor: theme.colors.danger,
-    borderRadius: theme.radius.md,
-    paddingVertical: theme.spacing.md,
+    minHeight: 58,
+    flexDirection: 'row',
     alignItems: 'center',
-    borderWidth: 1.5,
-    borderColor: 'rgba(255, 255, 255, 0.15)',
+    gap: theme.spacing.sm,
+    backgroundColor: '#4A2428',
+    borderRadius: theme.radius.lg,
+    paddingHorizontal: theme.spacing.md,
+    paddingVertical: theme.spacing.sm,
+    borderWidth: 1,
+    borderColor: theme.colors.danger + '45',
+    shadowColor: theme.colors.danger,
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.32,
+    shadowRadius: 18,
+    elevation: 5,
+  },
+  endButtonIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: theme.radius.full,
+    backgroundColor: '#5A2B30',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  endButtonTextBlock: {
+    flex: 1,
+    minWidth: 0,
   },
   endButtonText: {
-    color: '#FFFFFF',
+    color: theme.colors.danger,
     fontSize: theme.fontSize.md,
+    fontWeight: '800',
+  },
+  endButtonSubtext: {
+    color: theme.colors.textMuted,
+    fontSize: theme.fontSize.xs,
     fontWeight: '700',
+    marginTop: 1,
   },
   dialogOverlay: {
     position: 'absolute',
@@ -1551,7 +1814,7 @@ const stylesheet = createStyleSheet((theme) => ({
     bottom: 0,
     left: 0,
     zIndex: 20,
-    backgroundColor: 'rgba(0, 0, 0, 0.62)',
+    backgroundColor: 'rgba(0, 0, 0, 0.58)',
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: theme.spacing.lg,
@@ -1561,25 +1824,51 @@ const stylesheet = createStyleSheet((theme) => ({
     maxWidth: 360,
     backgroundColor: theme.colors.surface,
     borderRadius: theme.radius.lg,
-    borderWidth: 1,
+    borderWidth: 1.5,
     borderColor: theme.colors.border,
     padding: theme.spacing.lg,
     gap: theme.spacing.md,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 12 },
-    shadowOpacity: 0.25,
-    shadowRadius: 18,
-    elevation: 10,
+    shadowOffset: { width: 0, height: 14 },
+    shadowOpacity: 0.32,
+    shadowRadius: 22,
+    elevation: 12,
+  },
+  dialogHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: theme.spacing.md,
+    borderRadius: theme.radius.md,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.surface2,
+    padding: theme.spacing.md,
+  },
+  dialogIcon: {
+    width: 42,
+    height: 42,
+    borderRadius: theme.radius.full,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  dialogTitleBlock: {
+    flex: 1,
+    minWidth: 0,
   },
   dialogTitle: {
     color: theme.colors.text,
     fontSize: theme.fontSize.lg,
-    fontWeight: '700',
+    fontWeight: '800',
   },
   dialogMessage: {
     color: theme.colors.textMuted,
-    fontSize: theme.fontSize.md,
-    lineHeight: 22,
+    fontSize: theme.fontSize.sm,
+    fontWeight: '600',
+    lineHeight: 20,
+    marginTop: 4,
   },
   dialogActions: {
     gap: theme.spacing.sm,
@@ -1587,10 +1876,11 @@ const stylesheet = createStyleSheet((theme) => ({
   dialogActionsCompact: {
     flexDirection: 'row',
     flexWrap: 'wrap',
+    gap: theme.spacing.sm,
   },
   dialogButton: {
-    minHeight: 46,
-    borderRadius: theme.radius.md,
+    minHeight: 48,
+    borderRadius: theme.radius.full,
     borderWidth: 1,
     borderColor: theme.colors.border,
     backgroundColor: theme.colors.surface2,
@@ -1604,21 +1894,185 @@ const stylesheet = createStyleSheet((theme) => ({
   },
   dialogCompactCancelButton: {
     flexBasis: '100%',
+    order: 2,
   },
   dialogPrimaryButton: {
     backgroundColor: theme.colors.accent,
     borderColor: 'rgba(255, 255, 255, 0.28)',
+    shadowColor: theme.colors.accent,
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.22,
+    shadowRadius: 10,
+    elevation: 3,
   },
   dialogDangerButton: {
-    backgroundColor: theme.colors.danger,
-    borderColor: 'rgba(255, 255, 255, 0.22)',
+    backgroundColor: theme.colors.danger + '22',
+    borderColor: theme.colors.danger + '70',
   },
   dialogButtonText: {
     color: theme.colors.text,
     fontSize: theme.fontSize.md,
-    fontWeight: '700',
+    fontWeight: '800',
   },
   dialogFilledButtonText: {
     color: '#FFFFFF',
+  },
+  dialogDangerButtonText: {
+    color: theme.colors.danger,
+  },
+  prCelebrationRoot: {
+    flex: 1,
+    backgroundColor: theme.colors.bg,
+    paddingHorizontal: theme.spacing.md,
+    justifyContent: 'center',
+  },
+  prCelebrationCard: {
+    maxHeight: '92%',
+    backgroundColor: theme.colors.surface,
+    borderRadius: theme.radius.lg,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    padding: theme.spacing.lg,
+    gap: theme.spacing.md,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.24,
+    shadowRadius: 20,
+    elevation: 10,
+  },
+  prCelebrationIcon: {
+    width: 66,
+    height: 66,
+    borderRadius: 33,
+    alignItems: 'center',
+    justifyContent: 'center',
+    alignSelf: 'center',
+    backgroundColor: '#D9A44126',
+    borderWidth: 1,
+    borderColor: '#D9A44166',
+  },
+  prCelebrationEyebrow: {
+    color: '#D9A441',
+    fontSize: theme.fontSize.xs,
+    fontWeight: '900',
+    letterSpacing: 1,
+    textAlign: 'center',
+    textTransform: 'uppercase',
+  },
+  prCelebrationTitle: {
+    color: theme.colors.text,
+    fontSize: theme.fontSize.xxl,
+    fontWeight: '900',
+    textAlign: 'center',
+  },
+  prCelebrationMessage: {
+    color: theme.colors.textMuted,
+    fontSize: theme.fontSize.md,
+    fontWeight: '600',
+    lineHeight: 22,
+    textAlign: 'center',
+  },
+  prList: {
+    maxHeight: 320,
+  },
+  prListContent: {
+    gap: theme.spacing.sm,
+  },
+  prResultCard: {
+    backgroundColor: theme.colors.surface2,
+    borderRadius: theme.radius.md,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    padding: theme.spacing.md,
+    gap: theme.spacing.sm,
+  },
+  prResultHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: theme.spacing.sm,
+  },
+  prResultTitleBlock: {
+    flex: 1,
+    minWidth: 0,
+  },
+  prExerciseName: {
+    color: theme.colors.text,
+    fontSize: theme.fontSize.md,
+    fontWeight: '800',
+  },
+  prMethodName: {
+    color: theme.colors.textMuted,
+    fontSize: theme.fontSize.xs,
+    fontWeight: '700',
+    marginTop: 2,
+  },
+  prMiniBadge: {
+    borderRadius: theme.radius.full,
+    borderWidth: 1,
+    borderColor: '#D9A441',
+    backgroundColor: '#D9A44122',
+    paddingHorizontal: theme.spacing.sm,
+    paddingVertical: 3,
+  },
+  prMiniBadgeText: {
+    color: '#D9A441',
+    fontSize: theme.fontSize.xs,
+    fontWeight: '900',
+  },
+  prValuesRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: theme.spacing.sm,
+  },
+  prValueBox: {
+    flex: 1,
+    minHeight: 62,
+    borderRadius: theme.radius.md,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.surface,
+    padding: theme.spacing.sm,
+    justifyContent: 'center',
+  },
+  prNewValueBox: {
+    borderColor: '#D9A44166',
+    backgroundColor: '#D9A44118',
+  },
+  prValueLabel: {
+    color: theme.colors.textMuted,
+    fontSize: theme.fontSize.xs,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+    marginBottom: 3,
+  },
+  prPreviousValue: {
+    color: theme.colors.text,
+    fontSize: theme.fontSize.sm,
+    fontWeight: '800',
+  },
+  prNewValue: {
+    color: '#D9A441',
+    fontSize: theme.fontSize.md,
+    fontWeight: '900',
+  },
+  prRepsText: {
+    color: theme.colors.textMuted,
+    fontSize: theme.fontSize.sm,
+    fontWeight: '800',
+  },
+  prDoneButton: {
+    minHeight: 48,
+    borderRadius: theme.radius.md,
+    backgroundColor: theme.colors.accent,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.28)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  prDoneButtonText: {
+    color: '#FFFFFF',
+    fontSize: theme.fontSize.md,
+    fontWeight: '900',
   },
 }))

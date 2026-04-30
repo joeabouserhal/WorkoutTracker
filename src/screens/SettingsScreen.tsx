@@ -82,8 +82,12 @@ export default function SettingsScreen({ navigation }: Props) {
       <TouchableOpacity
         style={styles.cardButton}
         onPress={() => navigation.navigate('Themes')}
+        activeOpacity={0.75}
       >
-        <View>
+        <View style={styles.cardIconBadge}>
+          <MaterialCommunityIcons name="palette-outline" size={19} color={theme.colors.accent} />
+        </View>
+        <View style={styles.cardTextBlock}>
           <Text style={styles.cardTitle}>Themes</Text>
           <Text style={styles.cardDescription}>
             Choose the look and feel of the app.
@@ -95,7 +99,12 @@ export default function SettingsScreen({ navigation }: Props) {
       <Text style={styles.sectionSubtitle}>Default Units</Text>
 
       <View style={styles.unitsCard}>
-        <Text style={styles.unitLabel}>Weight Unit</Text>
+        <View style={styles.settingCardHeader}>
+          <View style={styles.cardIconBadge}>
+            <MaterialCommunityIcons name="weight-kilogram" size={19} color={theme.colors.accent} />
+          </View>
+          <Text style={styles.unitLabel}>Weight Unit</Text>
+        </View>
         <View style={styles.unitButtonsRow}>
           <TouchableOpacity
             style={[
@@ -133,7 +142,12 @@ export default function SettingsScreen({ navigation }: Props) {
       </View>
 
       <View style={styles.unitsCard}>
-        <Text style={styles.unitLabel}>Height Unit</Text>
+        <View style={styles.settingCardHeader}>
+          <View style={styles.cardIconBadge}>
+            <MaterialCommunityIcons name="human-male-height" size={19} color={theme.colors.accent} />
+          </View>
+          <Text style={styles.unitLabel}>Height Unit</Text>
+        </View>
         <View style={styles.unitButtonsRow}>
           <TouchableOpacity
             style={[
@@ -173,7 +187,12 @@ export default function SettingsScreen({ navigation }: Props) {
       <Text style={styles.sectionSubtitle}>Workout Defaults</Text>
 
       <View style={styles.unitsCard}>
-        <Text style={styles.unitLabel}>Rest Timer</Text>
+        <View style={styles.settingCardHeader}>
+          <View style={styles.cardIconBadge}>
+            <MaterialCommunityIcons name="timer-sand" size={19} color={theme.colors.accent} />
+          </View>
+          <Text style={styles.unitLabel}>Rest Timer</Text>
+        </View>
         <View style={styles.timerControlRow}>
           <TouchableOpacity
             style={[
@@ -235,7 +254,7 @@ const stylesheet = createStyleSheet((theme) => ({
   sectionTitle: {
     color: theme.colors.text,
     fontSize: theme.fontSize.xxl,
-    fontWeight: '700',
+    fontWeight: '800',
     marginBottom: theme.spacing.md,
   },
   sectionSubtitle: {
@@ -252,22 +271,30 @@ const stylesheet = createStyleSheet((theme) => ({
     alignItems: 'center',
     justifyContent: 'space-between',
     backgroundColor: theme.colors.surface,
-    borderRadius: theme.radius.lg,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    padding: theme.spacing.md,
-    // Add subtle shadow for depth
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.08,
-    shadowRadius: 3,
-    elevation: 2,
+    borderRadius: theme.radius.md,
+    borderWidth: 1.5,
+    borderColor: theme.colors.textMuted + '35',
+    paddingHorizontal: theme.spacing.md,
+    paddingVertical: theme.spacing.sm,
+    gap: theme.spacing.sm,
+  },
+  cardIconBadge: {
+    width: 38,
+    height: 38,
+    borderRadius: theme.radius.full,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: theme.colors.accentMuted,
+  },
+  cardTextBlock: {
+    flex: 1,
+    minWidth: 0,
   },
   cardTitle: {
     color: theme.colors.text,
     fontSize: theme.fontSize.md,
-    fontWeight: '600',
-    marginBottom: theme.spacing.xs,
+    fontWeight: '800',
+    marginBottom: 2,
   },
   cardDescription: {
     color: theme.colors.textMuted,
@@ -280,17 +307,23 @@ const stylesheet = createStyleSheet((theme) => ({
   },
   unitsCard: {
     backgroundColor: theme.colors.surface,
-    borderRadius: theme.radius.lg,
-    borderWidth: 0.5,
-    borderColor: theme.colors.border,
-    padding: theme.spacing.md,
-    marginBottom: theme.spacing.md,
+    borderRadius: theme.radius.md,
+    borderWidth: 1.5,
+    borderColor: theme.colors.textMuted + '35',
+    padding: theme.spacing.sm,
+    marginBottom: theme.spacing.sm,
     gap: theme.spacing.md,
   },
+  settingCardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: theme.spacing.sm,
+  },
   unitLabel: {
+    flex: 1,
     color: theme.colors.text,
     fontSize: theme.fontSize.md,
-    fontWeight: '600',
+    fontWeight: '800',
   },
   unitButtonsRow: {
     flexDirection: 'row',
@@ -335,23 +368,10 @@ const stylesheet = createStyleSheet((theme) => ({
     borderWidth: 1,
     borderColor: theme.colors.border,
     alignItems: 'center',
-    // Add subtle shadow for inactive buttons
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
-    elevation: 1,
   },
   unitButtonActive: {
     backgroundColor: theme.colors.accent,
     borderColor: 'rgba(255, 255, 255, 0.3)',
-    // Add enhanced shadow for active state
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.15,
-    shadowRadius: 4,
-    elevation: 3,
-    // Add visible border with white highlight
     borderWidth: 1.5,
   },
   unitButtonText: {

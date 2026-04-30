@@ -172,7 +172,12 @@ export default function EditProfileScreen({ navigation }: Props) {
         <Text style={styles.sectionTitle}>Edit Profile</Text>
 
         <View style={styles.card}>
-          <Text style={styles.label}>Name</Text>
+          <View style={styles.fieldHeader}>
+            <View style={styles.fieldIcon}>
+              <MaterialCommunityIcons name="account-outline" size={18} color={theme.colors.accent} />
+            </View>
+            <Text style={styles.label}>Name</Text>
+          </View>
           <TextInput
             style={styles.input}
             value={name}
@@ -184,7 +189,13 @@ export default function EditProfileScreen({ navigation }: Props) {
         </View>
 
         <View style={styles.card}>
-          <Text style={styles.label}>Height ({heightUnit})</Text>
+          <View style={styles.fieldHeader}>
+            <View style={styles.fieldIcon}>
+              <MaterialCommunityIcons name="human-male-height" size={18} color={theme.colors.accent} />
+            </View>
+            <Text style={styles.label}>Height</Text>
+            <Text style={styles.unitPill}>{heightUnit}</Text>
+          </View>
           <TextInput
             style={styles.input}
             value={height}
@@ -196,7 +207,13 @@ export default function EditProfileScreen({ navigation }: Props) {
         </View>
 
         <View style={styles.card}>
-          <Text style={styles.label}>Weight ({weightUnit})</Text>
+          <View style={styles.fieldHeader}>
+            <View style={styles.fieldIcon}>
+              <MaterialCommunityIcons name="scale-bathroom" size={18} color={theme.colors.accent} />
+            </View>
+            <Text style={styles.label}>Weight</Text>
+            <Text style={styles.unitPill}>{weightUnit}</Text>
+          </View>
           <TextInput
             style={styles.input}
             value={weight}
@@ -212,7 +229,13 @@ export default function EditProfileScreen({ navigation }: Props) {
             style={[styles.saveButton, saving && styles.saveButtonDisabled]}
             onPress={requestSaveProfile}
             disabled={saving}
+            activeOpacity={0.82}
           >
+            <MaterialCommunityIcons
+              name={saving ? 'progress-clock' : 'content-save-outline'}
+              size={18}
+              color="#FFFFFF"
+            />
             <Text style={styles.saveButtonText}>
               {saving ? 'Saving...' : 'Save Changes'}
             </Text>
@@ -220,6 +243,7 @@ export default function EditProfileScreen({ navigation }: Props) {
           <TouchableOpacity
             style={styles.cancelButton}
             onPress={() => navigation.goBack()}
+            activeOpacity={0.75}
           >
             <Text style={styles.cancelButtonText}>Cancel</Text>
           </TouchableOpacity>
@@ -278,80 +302,96 @@ const stylesheet = createStyleSheet((theme) => ({
   sectionTitle: {
     color: theme.colors.text,
     fontSize: theme.fontSize.xxl,
-    fontWeight: '700',
+    fontWeight: '800',
     marginBottom: theme.spacing.lg,
   },
   card: {
     backgroundColor: theme.colors.surface,
     borderRadius: theme.radius.lg,
-    borderWidth: 0.5,
-    borderColor: theme.colors.border,
-    padding: theme.spacing.md,
-    marginBottom: theme.spacing.md,
+    borderWidth: 1.5,
+    borderColor: theme.colors.textMuted + '35',
+    padding: theme.spacing.sm,
+    marginBottom: theme.spacing.sm,
     gap: theme.spacing.sm,
   },
+  fieldHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: theme.spacing.sm,
+  },
+  fieldIcon: {
+    width: 28,
+    height: 28,
+    borderRadius: theme.radius.full,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: theme.colors.accentMuted,
+  },
   label: {
+    flex: 1,
     color: theme.colors.text,
-    fontSize: theme.fontSize.sm,
-    fontWeight: '500',
+    fontSize: theme.fontSize.md,
+    fontWeight: '800',
+  },
+  unitPill: {
+    overflow: 'hidden',
+    color: theme.colors.accent,
+    fontSize: theme.fontSize.xs,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+    backgroundColor: theme.colors.accentMuted,
+    borderRadius: theme.radius.full,
+    paddingHorizontal: theme.spacing.sm,
+    paddingVertical: 3,
   },
   input: {
     backgroundColor: theme.colors.surface2,
     borderRadius: theme.radius.md,
-    borderWidth: 0.5,
+    borderWidth: 1,
     borderColor: theme.colors.border,
-    paddingHorizontal: theme.spacing.md,
+    paddingHorizontal: theme.spacing.sm,
     paddingVertical: theme.spacing.sm,
     color: theme.colors.text,
     fontSize: theme.fontSize.md,
+    fontWeight: '700',
+    minHeight: 42,
   },
   formActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
     gap: theme.spacing.sm,
-    marginTop: theme.spacing.lg,
+    marginTop: theme.spacing.md,
   },
   saveButton: {
-    flex: 1,
+    minHeight: 52,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: theme.spacing.sm,
     backgroundColor: theme.colors.accent,
     borderRadius: theme.radius.md,
-    paddingVertical: theme.spacing.md,
-    alignItems: 'center',
-    // Add subtle shadow and border for depth
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.15,
-    shadowRadius: 6,
-    elevation: 4,
-    borderWidth: 1.5,
-    borderColor: 'rgba(255, 255, 255, 0.3)',
+    paddingHorizontal: theme.spacing.md,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.28)',
   },
   saveButtonDisabled: {
     opacity: 0.5,
   },
   saveButtonText: {
     color: '#FFFFFF',
-    fontSize: theme.fontSize.sm,
-    fontWeight: '600',
+    fontSize: theme.fontSize.md,
+    fontWeight: '900',
   },
   cancelButton: {
-    flex: 1,
-    paddingVertical: theme.spacing.md,
+    minHeight: 46,
     borderRadius: theme.radius.md,
     backgroundColor: theme.colors.surface2,
     borderWidth: 1,
     borderColor: theme.colors.border,
     alignItems: 'center',
-    // Add subtle shadow for consistency
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.08,
-    shadowRadius: 3,
-    elevation: 2,
+    justifyContent: 'center',
   },
   cancelButtonText: {
-    color: theme.colors.text,
+    color: theme.colors.textMuted,
     fontSize: theme.fontSize.sm,
-    fontWeight: '600',
+    fontWeight: '800',
   },
 }))

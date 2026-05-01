@@ -151,7 +151,7 @@ function WorkoutMiniBar() {
 
   function skipRest() {
     clearRest()
-    showWorkoutNotification(elapsed).catch(console.error)
+    showWorkoutNotification(elapsed, 0, startedAt).catch(console.error)
   }
 
   const swipeUpGesture = Gesture.Pan()

@@ -10,8 +10,7 @@ import { name as appName } from './app.json'
 import notifee, { EventType } from '@notifee/react-native'
 import { storage, removeKey, setString } from './src/storage/mmkv'
 import {
-  WORKOUT_CHANNEL_ID,
-  formatElapsedNotif,
+  buildWorkoutNotification,
   showRestDoneNotification,
 } from './src/services/WorkoutNotification'
 import {
@@ -19,54 +18,58 @@ import {
   MMKV_REST_ENDS_AT,
   MMKV_STARTED_AT,
 } from './src/store/sessionStore'
-import { formatRestTimer } from './src/services/restTimerSettings'
 
-// Runs inside the Android foreground service — keeps the notification
-// timer ticking every second while the app is backgrounded.
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+
+// Runs inside the Android foreground service. It keeps the notification
+// alive while the app is backgrounded. Android's native chronometer handles
+// the live timer so we do not hammer the system notification manager.
 notifee.registerForegroundService((notification) => {
-  return new Promise(() => {
-    const interval = setInterval(async () => {
-      const startedAtStr = storage.getString(MMKV_STARTED_AT)
-      if (!startedAtStr) {
-        clearInterval(interval)
-        return
-      }
-      const elapsed = Math.floor((Date.now() - parseInt(startedAtStr, 10)) / 1000)
-      const restEndsAtStr = storage.getString(MMKV_REST_ENDS_AT)
-      const restSecondsRemaining = restEndsAtStr
-        ? Math.ceil((parseInt(restEndsAtStr, 10) - Date.now()) / 1000)
-        : 0
+  return new Promise((resolve) => {
+    async function run() {
+      while (true) {
+        const startedAtStr = storage.getString(MMKV_STARTED_AT)
+        if (!startedAtStr) {
+          resolve()
+          return
+        }
 
-      if (restEndsAtStr && restSecondsRemaining <= 0) {
-        removeKey(MMKV_REST_ENDS_AT)
-        await showRestDoneNotification(restEndsAtStr)
-      }
+        const startedAt = parseInt(startedAtStr, 10)
+        const elapsed = Math.floor((Date.now() - startedAt) / 1000)
+        const restEndsAtStr = storage.getString(MMKV_REST_ENDS_AT)
+        const restSecondsRemaining = restEndsAtStr
+          ? Math.ceil((parseInt(restEndsAtStr, 10) - Date.now()) / 1000)
+          : 0
 
-      const hasRestTimer = restSecondsRemaining > 0
-      const elapsedTitle = formatElapsedNotif(elapsed)
-      const actions = [
-        ...(hasRestTimer
-          ? [{ title: 'Skip Rest', pressAction: { id: 'skip_rest', launchActivity: 'default' } }]
-          : []),
-        { title: 'End Workout', pressAction: { id: 'end_workout', launchActivity: 'default' } },
-      ]
-      await notifee.displayNotification({
-        id: notification.id,
-        title: `Workout in Progress ${elapsedTitle}`,
-        body: hasRestTimer
-          ? `Rest ${formatRestTimer(restSecondsRemaining)}`
-          : 'Keep going. Tap to return to your workout.',
-        android: {
-          channelId: WORKOUT_CHANNEL_ID,
-          asForegroundService: true,
-          ongoing: true,
-          onlyAlertOnce: true,
-          smallIcon: 'ic_stat_notification',
-          actions,
-          pressAction: { id: 'default', launchActivity: 'default' },
-        },
-      })
-    }, 1000)
+        if (restEndsAtStr && restSecondsRemaining <= 0) {
+          removeKey(MMKV_REST_ENDS_AT)
+          await showRestDoneNotification(restEndsAtStr)
+          await notifee.displayNotification(buildWorkoutNotification(elapsed, 0, startedAt))
+          await sleep(5000)
+          continue
+        }
+
+        const nextNotification = buildWorkoutNotification(
+          elapsed,
+          Math.max(0, restSecondsRemaining),
+          startedAt,
+        )
+        await notifee.displayNotification({
+          ...nextNotification,
+          id: notification.id ?? nextNotification.id,
+        })
+
+        const nextDelay = restSecondsRemaining > 0
+          ? Math.max(1000, Math.min(5000, restSecondsRemaining * 1000))
+          : 5000
+        await sleep(nextDelay)
+      }
+    }
+
+    run().catch((error) => {
+      console.error('Workout foreground service failed', error)
+      resolve()
+    })
   })
 })
 

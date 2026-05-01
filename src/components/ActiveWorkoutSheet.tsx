@@ -22,8 +22,9 @@ import notifee, { EventType } from '@notifee/react-native'
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons'
 import { createStyleSheet, useStyles } from 'react-native-unistyles'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import { getString, removeKey } from '@/storage/mmkv'
+import { getString, removeKey, setString } from '@/storage/mmkv'
 import {
+  MMKV_LOCAL_SETS,
   MMKV_PENDING_WORKOUT_ACTION,
   useSessionStore,
 } from '@/store/sessionStore'
@@ -62,8 +63,6 @@ type LocalSet = {
   completed: boolean
   persistedSetId?: string
 }
-
-type NativeFocusTargetEvent = NativeSyntheticEvent<{ target: number }>
 
 const LB_PER_KG = 2.20462
 
@@ -117,6 +116,94 @@ function newLocalSet(weightUnit = 'kg'): LocalSet {
   }
 }
 
+function localSetFromCompletedSet(
+  set: {
+    id: string
+    weight: number
+    weightUnit: string
+    reps: number
+  },
+  fallbackWeightUnit: string,
+): LocalSet {
+  const weightKg = formatStoredKg(set.weight)
+  const weightInputUnit = set.weightUnit === 'lb'
+    ? 'lb'
+    : set.weightUnit === 'kg'
+      ? 'kg'
+      : fallbackWeightUnit
+  return {
+    id: set.id,
+    weightKg,
+    weightInput: fromKgInput(weightKg, weightInputUnit),
+    weightInputUnit,
+    reps: String(Math.trunc(set.reps)),
+    completed: true,
+    persistedSetId: set.id,
+  }
+}
+
+function normalizeLocalSet(value: unknown): LocalSet | null {
+  if (!value || typeof value !== 'object') return null
+  const item = value as Partial<LocalSet>
+  if (typeof item.id !== 'string') return null
+  return {
+    id: item.id,
+    weightKg: typeof item.weightKg === 'string' ? item.weightKg : '',
+    weightInput: typeof item.weightInput === 'string' ? item.weightInput : '',
+    weightInputUnit: item.weightInputUnit === 'lb' ? 'lb' : 'kg',
+    reps: typeof item.reps === 'string' ? sanitizeRepsInput(item.reps) : '',
+    completed: Boolean(item.completed),
+    persistedSetId: typeof item.persistedSetId === 'string' ? item.persistedSetId : undefined,
+  }
+}
+
+function readActiveWorkoutDraft(workoutId: string): {
+  localSets: Record<string, LocalSet[]>
+  exerciseUnits: Record<string, string>
+} | null {
+  const raw = getString(MMKV_LOCAL_SETS)
+  if (!raw) return null
+
+  try {
+    const parsed = JSON.parse(raw) as {
+      workoutId?: unknown
+      localSets?: unknown
+      exerciseUnits?: unknown
+    }
+    if (parsed.workoutId !== workoutId || !parsed.localSets || typeof parsed.localSets !== 'object') {
+      return null
+    }
+
+    const localSets = Object.entries(parsed.localSets as Record<string, unknown>).reduce<Record<string, LocalSet[]>>(
+      (acc, [workoutExerciseId, sets]) => {
+        if (!Array.isArray(sets)) return acc
+        const normalizedSets = sets
+          .map(normalizeLocalSet)
+          .filter((set): set is LocalSet => Boolean(set))
+        if (normalizedSets.length > 0) {
+          acc[workoutExerciseId] = normalizedSets
+        }
+        return acc
+      },
+      {},
+    )
+    const exerciseUnits =
+      parsed.exerciseUnits && typeof parsed.exerciseUnits === 'object'
+        ? Object.entries(parsed.exerciseUnits as Record<string, unknown>)
+          .reduce<Record<string, string>>((acc, [workoutExerciseId, unit]) => {
+            if (unit === 'kg' || unit === 'lb') acc[workoutExerciseId] = unit
+            return acc
+          }, {})
+        : {}
+
+    return { localSets, exerciseUnits }
+  } catch (e) {
+    console.error('Could not restore active workout draft', e)
+    removeKey(MMKV_LOCAL_SETS)
+    return null
+  }
+}
+
 function formatElapsed(seconds: number): string {
   const h = Math.floor(seconds / 3600)
   const m = Math.floor((seconds % 3600) / 60)
@@ -164,6 +251,7 @@ export default function ActiveWorkoutSheet() {
   const [prCelebration, setPrCelebration] = useState<WorkoutWeightPrAchievement[]>([])
   const [draggingExerciseId, setDraggingExerciseId] = useState<string | null>(null)
   const elapsedRef = useRef(0)
+  const startedAtRef = useRef<number | null>(null)
   const restDoneNotifiedRef = useRef(false)
   const keyboardHeightRef = useRef(0)
   const footerHeightRef = useRef(0)
@@ -183,8 +271,8 @@ export default function ActiveWorkoutSheet() {
   const exercisePanResponderRef = useRef<Record<string, ReturnType<typeof PanResponder.create>>>({})
   const exerciseShiftValuesRef = useRef<Record<string, Animated.Value>>({})
   const exerciseDragTranslateY = useRef(new Animated.Value(0)).current
+  const localSetsDraftHydratedForWorkoutRef = useRef<string | null>(null)
   const focusedSetKeyRef = useRef<string | null>(null)
-  const focusedInputTargetRef = useRef<number | null>(null)
   const sheetScrollAtTop = useSharedValue(true)
 
   const {
@@ -201,11 +289,18 @@ export default function ActiveWorkoutSheet() {
     removeExercise,
     reorderExercises,
     updateExerciseWeightUnit,
+    addSet,
+    removeSet,
     startRest,
     tickRest,
     clearRest,
   } = useSessionStore()
   const exercisesRef = useRef(exercises)
+
+  const dismissSetKeyboard = useCallback(() => {
+    Keyboard.dismiss()
+    focusedSetKeyRef.current = null
+  }, [])
 
   const footerStats = useMemo(() => {
     const sets = Object.values(localSets).flat()
@@ -431,7 +526,7 @@ export default function ActiveWorkoutSheet() {
     if (action === 'skip_rest') {
       clearRest()
       setRestSetKey(null)
-      showWorkoutNotification(elapsedRef.current).catch(console.error)
+      showWorkoutNotification(elapsedRef.current, 0, startedAtRef.current).catch(console.error)
       return
     }
 
@@ -443,7 +538,7 @@ export default function ActiveWorkoutSheet() {
   const skipRestTimer = useCallback(() => {
     clearRest()
     setRestSetKey(null)
-    showWorkoutNotification(elapsedRef.current).catch(console.error)
+    showWorkoutNotification(elapsedRef.current, 0, startedAtRef.current).catch(console.error)
   }, [clearRest])
 
   useEffect(() => {
@@ -451,13 +546,18 @@ export default function ActiveWorkoutSheet() {
   }, [elapsed])
 
   useEffect(() => {
+    startedAtRef.current = startedAt
+  }, [startedAt])
+
+  useEffect(() => {
     setValidationNotice(null)
     setValidationErrors({})
     setDialog(null)
     setRestSetKey(null)
     setPickerVisible(false)
+    setLocalSets({})
+    localSetsDraftHydratedForWorkoutRef.current = null
     focusedSetKeyRef.current = null
-    focusedInputTargetRef.current = null
     setLayoutRef.current = {}
     scrollOffsetRef.current = 0
     exerciseLayoutRef.current = {}
@@ -510,14 +610,64 @@ export default function ActiveWorkoutSheet() {
     }
   }, [activeWorkoutId])
 
+  useEffect(() => {
+    if (!activeWorkoutId) return
+    if (localSetsDraftHydratedForWorkoutRef.current === activeWorkoutId) return
+    localSetsDraftHydratedForWorkoutRef.current = activeWorkoutId
+
+    const draft = readActiveWorkoutDraft(activeWorkoutId)
+    if (draft) {
+      setLocalSets(draft.localSets)
+      for (const [workoutExerciseId, weightUnit] of Object.entries(draft.exerciseUnits)) {
+        updateExerciseWeightUnit(workoutExerciseId, weightUnit)
+      }
+    }
+  }, [activeWorkoutId, updateExerciseWeightUnit])
+
+  useEffect(() => {
+    if (!activeWorkoutId) {
+      removeKey(MMKV_LOCAL_SETS)
+      return
+    }
+
+    setString(MMKV_LOCAL_SETS, JSON.stringify({
+      workoutId: activeWorkoutId,
+      localSets,
+      exerciseUnits: Object.fromEntries(
+        exercises.map((exercise) => [exercise.workoutExerciseId, exercise.weightUnit]),
+      ),
+    }))
+  }, [activeWorkoutId, exercises, localSets])
+
   // Sync new exercises into local set state (one empty set each)
   useEffect(() => {
     setLocalSets((prev) => {
       const next = { ...prev }
       for (const ex of exercises) {
-        if (!next[ex.workoutExerciseId]) {
+        const existingSets = next[ex.workoutExerciseId] ?? []
+        const restoredCompletedSets = ex.sets.map((set) =>
+          localSetFromCompletedSet(set, ex.weightUnit),
+        )
+
+        if (restoredCompletedSets.length > 0) {
+          const draftSetsByPersistedId = new Map(
+            existingSets
+              .filter((set) => set.persistedSetId)
+              .map((set) => [set.persistedSetId, set]),
+          )
+          const completedSets = restoredCompletedSets.map((set) =>
+            draftSetsByPersistedId.get(set.persistedSetId) ?? set,
+          )
+          const draftSets = existingSets.filter((set) => !set.completed)
+          next[ex.workoutExerciseId] = [...completedSets, ...draftSets]
+        } else if (!next[ex.workoutExerciseId]) {
           next[ex.workoutExerciseId] = [newLocalSet(ex.weightUnit)]
         }
+
+        if (next[ex.workoutExerciseId]?.length === 0) {
+          next[ex.workoutExerciseId] = [newLocalSet(ex.weightUnit)]
+        }
+
       }
       for (const key of Object.keys(next)) {
         if (!exercises.find((ex) => ex.workoutExerciseId === key)) {
@@ -529,6 +679,20 @@ export default function ActiveWorkoutSheet() {
   }, [exercises])
 
   useEffect(() => {
+    if (!activeWorkoutId || !isResting || restSetKey) return
+
+    for (const exercise of [...exercises].reverse()) {
+      const latestCompletedSet = [...(localSets[exercise.workoutExerciseId] ?? [])]
+        .reverse()
+        .find((set) => set.completed)
+      if (latestCompletedSet) {
+        setRestSetKey(getRestSetKey(exercise.workoutExerciseId, latestCompletedSet.id))
+        return
+      }
+    }
+  }, [activeWorkoutId, exercises, getRestSetKey, isResting, localSets, restSetKey])
+
+  useEffect(() => {
     if (!activeWorkoutId || !startedAt) {
       cancelWorkoutNotification().catch(() => {})
       return
@@ -537,12 +701,9 @@ export default function ActiveWorkoutSheet() {
       await setupWorkoutChannel()
       await notifee.requestPermission()
       const initial = Math.floor((Date.now() - startedAt!) / 1000)
-      await showWorkoutNotification(initial)
+      await showWorkoutNotification(initial, 0, startedAt)
     }
     startNotification().catch(console.error)
-    return () => {
-      cancelWorkoutNotification().catch(() => {})
-    }
   }, [activeWorkoutId, startedAt])
 
   useEffect(() => {
@@ -565,12 +726,17 @@ export default function ActiveWorkoutSheet() {
 
     handleNotificationAction(getString(MMKV_PENDING_WORKOUT_ACTION))
     const appStateSub = AppState.addEventListener('change', (state) => {
+      if (state !== 'active') {
+        dismissSetKeyboard()
+        return
+      }
       if (state === 'active') {
+        dismissSetKeyboard()
         handleNotificationAction(getString(MMKV_PENDING_WORKOUT_ACTION))
       }
     })
     return () => appStateSub.remove()
-  }, [activeWorkoutId, handleNotificationAction])
+  }, [activeWorkoutId, dismissSetKeyboard, handleNotificationAction])
 
   useEffect(() => {
     if (!activeWorkoutId || endWorkoutRequestId === 0) return
@@ -598,11 +764,6 @@ export default function ActiveWorkoutSheet() {
   }, [startedAt])
 
   useEffect(() => {
-    if (!activeWorkoutId || !startedAt || !isResting) return
-    showWorkoutNotification(elapsed, restSecondsRemaining).catch(console.error)
-  }, [activeWorkoutId, elapsed, isResting, restSecondsRemaining, startedAt])
-
-  useEffect(() => {
     if (!isResting) return
 
     const interval = setInterval(() => {
@@ -623,6 +784,7 @@ export default function ActiveWorkoutSheet() {
   }, [isResting, tickRest])
 
   function handleEndWorkout() {
+    dismissSetKeyboard()
     requestEndWorkout()
   }
 
@@ -633,6 +795,7 @@ export default function ActiveWorkoutSheet() {
   }, [closeDialog, closeWorkoutSheet])
 
   function handlePickerOpen() {
+    dismissSetKeyboard()
     setPickerVisible(true)
   }
 
@@ -657,9 +820,10 @@ export default function ActiveWorkoutSheet() {
     setFooterHeight(nextHeight)
   }
 
-  function handleSetRowLayout(key: string, event: LayoutChangeEvent) {
+  function handleSetRowLayout(weId: string, key: string, event: LayoutChangeEvent) {
+    const exerciseY = exerciseLayoutRef.current[weId]?.y ?? 0
     setLayoutRef.current[key] = {
-      y: event.nativeEvent.layout.y,
+      y: exerciseY + event.nativeEvent.layout.y,
       height: event.nativeEvent.layout.height,
     }
   }
@@ -692,7 +856,7 @@ export default function ActiveWorkoutSheet() {
     }
   }
 
-  const scrollSetIntoView = useCallback((key: string, delay?: number) => {
+  const scrollSetIntoView = useCallback((key: string, delay = 40) => {
     setTimeout(() => {
       const layout = setLayoutRef.current[key]
       const viewportHeight = scrollHeightRef.current
@@ -700,8 +864,8 @@ export default function ActiveWorkoutSheet() {
 
       const currentOffset = scrollOffsetRef.current
       const safeBottom = Math.max(
-        footerHeightRef.current + theme.spacing.sm,
-        keyboardHeightRef.current + theme.spacing.sm,
+        footerHeightRef.current,
+        keyboardHeightRef.current,
       )
       const visibleTop = currentOffset + theme.spacing.sm
       const visibleBottom = currentOffset + viewportHeight - safeBottom
@@ -710,7 +874,7 @@ export default function ActiveWorkoutSheet() {
 
       if (rowBottom > visibleBottom) {
         scrollRef.current?.scrollTo({
-          y: Math.max(0, rowBottom - viewportHeight + safeBottom + theme.spacing.sm),
+          y: Math.max(0, rowBottom - viewportHeight + safeBottom),
           animated: true,
         })
         return
@@ -722,49 +886,21 @@ export default function ActiveWorkoutSheet() {
           animated: true,
         })
       }
-    }, delay ?? (keyboardHeightRef.current > 0 ? 80 : 30))
-  }, [theme.spacing.sm])
-
-  const scrollInputToKeyboard = useCallback((target: number | null, delay = 0) => {
-    if (!target) return
-    setTimeout(() => {
-      const responder = scrollRef.current?.getScrollResponder()
-      responder?.scrollResponderScrollNativeHandleToKeyboard(
-        target,
-        footerHeightRef.current + theme.spacing.sm,
-        true,
-      )
     }, delay)
   }, [theme.spacing.sm])
 
-  function handleSetInputFocus(
-    key: string,
-    event: NativeFocusTargetEvent,
-  ) {
-    const target = event.nativeEvent.target
+  function handleSetInputFocus(key: string) {
     focusedSetKeyRef.current = key
-    focusedInputTargetRef.current = target
-    scrollInputToKeyboard(target, 30)
-    scrollInputToKeyboard(target, 180)
-    if (keyboardHeightRef.current === 0) {
-      scrollInputToKeyboard(target, 360)
-      scrollSetIntoView(key, 360)
-    }
+    scrollSetIntoView(key, keyboardHeightRef.current > 0 ? 30 : 120)
   }
 
   useEffect(() => {
     const showSub = Keyboard.addListener('keyboardDidShow', (event) => {
       keyboardHeightRef.current = event.endCoordinates.height
       setKeyboardHeight(event.endCoordinates.height)
-      const focusedTarget = focusedInputTargetRef.current
-      if (focusedTarget) {
-        scrollInputToKeyboard(focusedTarget, 40)
-        scrollInputToKeyboard(focusedTarget, 180)
-      }
       const focusedKey = focusedSetKeyRef.current
       if (focusedKey) {
-        scrollSetIntoView(focusedKey, 80)
-        scrollSetIntoView(focusedKey, 220)
+        scrollSetIntoView(focusedKey, 60)
       }
     })
     const hideSub = Keyboard.addListener('keyboardDidHide', () => {
@@ -775,7 +911,7 @@ export default function ActiveWorkoutSheet() {
       showSub.remove()
       hideSub.remove()
     }
-  }, [scrollInputToKeyboard, scrollSetIntoView])
+  }, [scrollSetIntoView])
 
   function saveWorkoutName() {
     if (!activeWorkoutId) return
@@ -785,6 +921,7 @@ export default function ActiveWorkoutSheet() {
   }
 
   function addLocalSet(weId: string) {
+    dismissSetKeyboard()
     const weightUnit = exercises.find((ex) => ex.workoutExerciseId === weId)?.weightUnit ?? 'kg'
     const previousCompletedSet = [...(localSets[weId] ?? [])]
       .reverse()
@@ -806,10 +943,12 @@ export default function ActiveWorkoutSheet() {
   }
 
   async function removeLocalSet(weId: string, setId: string) {
+    dismissSetKeyboard()
     const currentSet = localSets[weId]?.find((s) => s.id === setId)
     if (currentSet?.persistedSetId) {
       try {
         await deleteCompletedSet(currentSet.persistedSetId)
+        removeSet(weId, currentSet.persistedSetId)
       } catch (e) {
         console.error('Could not delete completed set', e)
       }
@@ -864,9 +1003,7 @@ export default function ActiveWorkoutSheet() {
   }
 
   function showWeightUnitPicker(weId: string, currentUnit: string) {
-    Keyboard.dismiss()
-    focusedSetKeyRef.current = null
-    focusedInputTargetRef.current = null
+    dismissSetKeyboard()
     setDialog({
       title: 'Weight Unit',
       message: 'Change the unit for this exercise only.',
@@ -911,6 +1048,7 @@ export default function ActiveWorkoutSheet() {
   }
 
   async function toggleSetCompleted(weId: string, setId: string) {
+    dismissSetKeyboard()
     const currentSet = localSets[weId]?.find((s) => s.id === setId)
     if (!currentSet) return
 
@@ -918,6 +1056,7 @@ export default function ActiveWorkoutSheet() {
       if (currentSet.persistedSetId) {
         try {
           await deleteCompletedSet(currentSet.persistedSetId)
+          removeSet(weId, currentSet.persistedSetId)
         } catch (e) {
           console.error('Could not delete completed set', e)
         }
@@ -933,7 +1072,7 @@ export default function ActiveWorkoutSheet() {
       if (restSetKey === getRestSetKey(weId, setId)) {
         clearRest()
         setRestSetKey(null)
-        showWorkoutNotification(elapsed).catch(console.error)
+        showWorkoutNotification(elapsed, 0, startedAt).catch(console.error)
       }
       return
     }
@@ -953,6 +1092,14 @@ export default function ActiveWorkoutSheet() {
         weightUnit: currentSet.weightInputUnit,
         reps: parseRepsInput(currentSet.reps),
       })
+      addSet(weId, {
+        id: persistedSetId,
+        setType: 'working',
+        weight: parseWeightInput(currentSet.weightKg) ?? 0,
+        weightUnit: currentSet.weightInputUnit,
+        reps: parseRepsInput(currentSet.reps),
+        completedAt: Date.now(),
+      })
 
       setLocalSets((prev) => ({
         ...prev,
@@ -965,7 +1112,7 @@ export default function ActiveWorkoutSheet() {
       restDoneNotifiedRef.current = false
       setRestSetKey(getRestSetKey(weId, setId))
       startRest(restSeconds)
-      showWorkoutNotification(elapsed, restSeconds).catch(console.error)
+      showWorkoutNotification(elapsed, restSeconds, startedAt).catch(console.error)
     } catch (e) {
       console.error('Could not complete set', e)
       showErrorDialog('Could not save this set.')
@@ -1274,81 +1421,86 @@ export default function ActiveWorkoutSheet() {
                     const setLayoutKey = getSetLayoutKey(ex.workoutExerciseId, s.id)
                     return (
                       <React.Fragment key={s.id}>
-                        <ReanimatedSwipeable
-                          renderRightActions={() => renderDeleteAction(() => removeLocalSet(ex.workoutExerciseId, s.id))}
-                          childrenContainerStyle={styles.swipeableSetContent}
-                          dragOffsetFromRightEdge={3}
-                          overshootRight={false}
+                        <View
+                          onLayout={(event) =>
+                            handleSetRowLayout(ex.workoutExerciseId, setLayoutKey, event)
+                          }
                         >
-                          <View
-                            style={[styles.setRow, s.completed && styles.setRowCompleted]}
-                            onLayout={(event) => handleSetRowLayout(setLayoutKey, event)}
+                          <ReanimatedSwipeable
+                            renderRightActions={() => renderDeleteAction(() => removeLocalSet(ex.workoutExerciseId, s.id))}
+                            childrenContainerStyle={styles.swipeableSetContent}
+                            dragOffsetFromRightEdge={3}
+                            overshootRight={false}
                           >
-                            <Text style={[styles.setNum, styles.setNumCol]}>{i + 1}</Text>
-
                             <View
-                              style={[
-                                styles.inputWrap,
-                                styles.weightCol,
-                                hasFieldError(ex.workoutExerciseId, s.id, 'weight') &&
-                                  styles.inputWrapError,
-                              ]}
+                              style={[styles.setRow, s.completed && styles.setRowCompleted]}
                             >
-                              <TextInput
-                                style={styles.input}
-                                value={getDisplayWeight(s, ex.weightUnit)}
-                                onChangeText={(v) => updateSetField(ex.workoutExerciseId, s.id, 'weight', v)}
-                                keyboardType="decimal-pad"
-                                placeholder="0"
-                                placeholderTextColor={theme.colors.textMuted}
-                                returnKeyType="done"
-                                onFocus={(event) => handleSetInputFocus(setLayoutKey, event)}
-                              />
+                              <Text style={[styles.setNum, styles.setNumCol]}>{i + 1}</Text>
+
+                              <View
+                                style={[
+                                  styles.inputWrap,
+                                  styles.weightCol,
+                                  hasFieldError(ex.workoutExerciseId, s.id, 'weight') &&
+                                    styles.inputWrapError,
+                                ]}
+                              >
+                                <TextInput
+                                  style={styles.input}
+                                  value={getDisplayWeight(s, ex.weightUnit)}
+                                  onChangeText={(v) => updateSetField(ex.workoutExerciseId, s.id, 'weight', v)}
+                                  keyboardType="decimal-pad"
+                                  placeholder="0"
+                                  placeholderTextColor={theme.colors.textMuted}
+                                  returnKeyType="done"
+                                  onFocus={() => handleSetInputFocus(setLayoutKey)}
+                                />
+                                <TouchableOpacity
+                                  style={styles.inputUnitButton}
+                                  onPress={() => showWeightUnitPicker(ex.workoutExerciseId, ex.weightUnit)}
+                                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                                >
+                                  <Text style={styles.inputUnit}>{ex.weightUnit}</Text>
+                                </TouchableOpacity>
+                              </View>
+
+                              <View
+                                style={[
+                                  styles.inputWrap,
+                                  styles.repsCol,
+                                  hasFieldError(ex.workoutExerciseId, s.id, 'reps') &&
+                                    styles.inputWrapError,
+                                ]}
+                              >
+                                <TextInput
+                                  style={styles.input}
+                                  value={s.reps}
+                                  onChangeText={(v) => updateSetField(ex.workoutExerciseId, s.id, 'reps', v)}
+                                  keyboardType="number-pad"
+                                  placeholder="0"
+                                  placeholderTextColor={theme.colors.textMuted}
+                                  returnKeyType="done"
+                                  onFocus={() => handleSetInputFocus(setLayoutKey)}
+                                />
+                                <View style={styles.inputUnitButton}>
+                                  <Text style={styles.inputUnit}>reps</Text>
+                                </View>
+                              </View>
+
                               <TouchableOpacity
-                                style={styles.inputUnitButton}
-                                onPress={() => showWeightUnitPicker(ex.workoutExerciseId, ex.weightUnit)}
+                                style={styles.checkCol}
+                                onPress={() => toggleSetCompleted(ex.workoutExerciseId, s.id)}
                                 hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                               >
-                                <Text style={styles.inputUnit}>{ex.weightUnit}</Text>
+                                <MaterialCommunityIcons
+                                  name={s.completed ? 'check-circle' : 'check-circle-outline'}
+                                  size={22}
+                                  color={s.completed ? theme.colors.accent : theme.colors.textMuted}
+                                />
                               </TouchableOpacity>
                             </View>
-
-                            <View
-                              style={[
-                                styles.inputWrap,
-                                styles.repsCol,
-                                hasFieldError(ex.workoutExerciseId, s.id, 'reps') &&
-                                  styles.inputWrapError,
-                              ]}
-                            >
-                              <TextInput
-                                style={styles.input}
-                                value={s.reps}
-                                onChangeText={(v) => updateSetField(ex.workoutExerciseId, s.id, 'reps', v)}
-                                keyboardType="number-pad"
-                                placeholder="0"
-                                placeholderTextColor={theme.colors.textMuted}
-                                returnKeyType="done"
-                                onFocus={(event) => handleSetInputFocus(setLayoutKey, event)}
-                              />
-                              <View style={styles.inputUnitButton}>
-                                <Text style={styles.inputUnit}>reps</Text>
-                              </View>
-                            </View>
-
-                            <TouchableOpacity
-                              style={styles.checkCol}
-                              onPress={() => toggleSetCompleted(ex.workoutExerciseId, s.id)}
-                              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                            >
-                              <MaterialCommunityIcons
-                                name={s.completed ? 'check-circle' : 'check-circle-outline'}
-                                size={22}
-                                color={s.completed ? theme.colors.accent : theme.colors.textMuted}
-                              />
-                            </TouchableOpacity>
-                          </View>
-                        </ReanimatedSwipeable>
+                          </ReanimatedSwipeable>
+                        </View>
                         {isResting && restSetKey === setRestKey && (
                           <View style={styles.restTimerRow}>
                             <MaterialCommunityIcons name="timer-sand" size={14} color={theme.colors.accent} />

@@ -5,8 +5,9 @@ export const MMKV_WORKOUT_ID = 'active_workout_id'
 export const MMKV_STARTED_AT = 'workout_started_at'
 export const MMKV_REST_ENDS_AT = 'rest_ends_at'
 export const MMKV_PENDING_WORKOUT_ACTION = 'pending_workout_action'
+export const MMKV_LOCAL_SETS = 'active_workout_local_sets'
 
-interface SetEntry {
+export interface SetEntry {
   id: string
   setType: string
   weight: number
@@ -15,7 +16,7 @@ interface SetEntry {
   completedAt: number
 }
 
-interface ExerciseEntry {
+export interface ExerciseEntry {
   workoutExerciseId: string
   exerciseTypeId: string
   exerciseTypeName: string
@@ -24,6 +25,14 @@ interface ExerciseEntry {
   methodName: string
   weightUnit: string
   sets: SetEntry[]
+}
+
+type RestoreWorkoutSessionParams = {
+  workoutId: string
+  startedAt: number
+  exercises: ExerciseEntry[]
+  restEndsAt?: number | null
+  openSheet?: boolean
 }
 
 interface SessionState {
@@ -38,6 +47,7 @@ interface SessionState {
   endWorkoutRequestId: number
 
   startWorkout: (workoutId: string) => void
+  restoreWorkoutSession: (params: RestoreWorkoutSessionParams) => void
   endWorkout: () => void
   openWorkoutSheet: () => void
   closeWorkoutSheet: () => void
@@ -47,6 +57,7 @@ interface SessionState {
   reorderExercises: (workoutExerciseIds: string[]) => void
   updateExerciseWeightUnit: (workoutExerciseId: string, weightUnit: string) => void
   addSet: (workoutExerciseId: string, set: SetEntry) => void
+  removeSet: (workoutExerciseId: string, setId: string) => void
   startRest: (seconds: number) => void
   tickRest: () => void
   clearRest: () => void
@@ -70,6 +81,7 @@ export const useSessionStore = create<SessionState>()((set) => ({
     setString(MMKV_WORKOUT_ID, workoutId)
     setString(MMKV_STARTED_AT, now.toString())
     removeKey(MMKV_REST_ENDS_AT)
+    removeKey(MMKV_LOCAL_SETS)
     set({
       activeWorkoutId: workoutId,
       startedAt: now,
@@ -83,11 +95,49 @@ export const useSessionStore = create<SessionState>()((set) => ({
     })
   },
 
+  restoreWorkoutSession: ({
+    workoutId,
+    startedAt,
+    exercises,
+    restEndsAt = null,
+    openSheet = false,
+  }) => {
+    const safeStartedAt = Number.isFinite(startedAt) ? startedAt : Date.now()
+    const safeRestEndsAt =
+      typeof restEndsAt === 'number' && restEndsAt > Date.now()
+        ? restEndsAt
+        : null
+    const restSecondsRemaining = safeRestEndsAt
+      ? Math.max(1, Math.ceil((safeRestEndsAt - Date.now()) / 1000))
+      : 0
+
+    setString(MMKV_WORKOUT_ID, workoutId)
+    setString(MMKV_STARTED_AT, safeStartedAt.toString())
+    if (safeRestEndsAt) {
+      setString(MMKV_REST_ENDS_AT, safeRestEndsAt.toString())
+    } else {
+      removeKey(MMKV_REST_ENDS_AT)
+    }
+
+    set({
+      activeWorkoutId: workoutId,
+      startedAt: safeStartedAt,
+      exercises,
+      isResting: Boolean(safeRestEndsAt),
+      restSecondsRemaining,
+      restEndsAt: safeRestEndsAt,
+      elapsedSeconds: Math.max(0, Math.floor((Date.now() - safeStartedAt) / 1000)),
+      isWorkoutSheetOpen: openSheet,
+      endWorkoutRequestId: 0,
+    })
+  },
+
   endWorkout: () => {
     removeKey(MMKV_WORKOUT_ID)
     removeKey(MMKV_STARTED_AT)
     removeKey(MMKV_REST_ENDS_AT)
     removeKey(MMKV_PENDING_WORKOUT_ACTION)
+    removeKey(MMKV_LOCAL_SETS)
     set({
       activeWorkoutId: null,
       startedAt: null,
@@ -146,6 +196,15 @@ export const useSessionStore = create<SessionState>()((set) => ({
       exercises: state.exercises.map((ex) =>
         ex.workoutExerciseId === workoutExerciseId
           ? { ...ex, sets: [...ex.sets, newSet] }
+          : ex,
+      ),
+    })),
+
+  removeSet: (workoutExerciseId, setId) =>
+    set((state) => ({
+      exercises: state.exercises.map((ex) =>
+        ex.workoutExerciseId === workoutExerciseId
+          ? { ...ex, sets: ex.sets.filter((setEntry) => setEntry.id !== setId) }
           : ex,
       ),
     })),

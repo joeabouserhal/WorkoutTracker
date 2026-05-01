@@ -204,6 +204,29 @@ export type WorkoutDetail = WorkoutSummary & {
   }>
 }
 
+export type ActiveWorkoutSession = {
+  id: string
+  name: string | null
+  startedAt: number
+  exercises: Array<{
+    workoutExerciseId: string
+    exerciseTypeId: string
+    exerciseTypeName: string
+    methodLocked: number
+    methodId: string
+    methodName: string
+    weightUnit: string
+    sets: Array<{
+      id: string
+      setType: string
+      weight: number
+      weightUnit: string
+      reps: number
+      completedAt: number
+    }>
+  }>
+}
+
 export type WorkoutWeightPrAchievement = {
   setId: string
   exerciseName: string
@@ -1114,4 +1137,119 @@ export async function addCompletedSetToWorkout(params: {
 export async function deleteCompletedSet(setId: string): Promise<void> {
   await ensureExerciseTables()
   await db.$client.execute('DELETE FROM sets WHERE id = ?', [setId])
+}
+
+export async function getLatestOpenWorkoutId(): Promise<string | null> {
+  await ensureTable()
+  const result = await db.$client.execute(
+    `SELECT id
+     FROM workouts
+     WHERE ended_at IS NULL
+     ORDER BY started_at DESC
+     LIMIT 1`,
+  )
+  const row = result.rows[0] as { id?: string } | undefined
+  return row?.id ?? null
+}
+
+export async function getActiveWorkoutSession(
+  workoutId: string,
+): Promise<ActiveWorkoutSession | null> {
+  await ensureTable()
+  await ensureExerciseTables()
+  await ensureLibraryTables()
+
+  const workoutResult = await db.$client.execute(
+    `SELECT id, name, started_at as startedAt
+     FROM workouts
+     WHERE id = ? AND ended_at IS NULL`,
+    [workoutId],
+  )
+  const workout = workoutResult.rows[0] as {
+    id: string
+    name: string | null
+    startedAt: number
+  } | undefined
+
+  if (!workout) return null
+
+  const rows = (await db.$client.execute(
+    `SELECT
+       we.id as workoutExerciseId,
+       we.order_index as orderIndex,
+       et.id as exerciseTypeId,
+       et.name as exerciseTypeName,
+       et.method_locked as methodLocked,
+       m.id as methodId,
+       m.name as methodName,
+       e.default_unit as defaultWeightUnit,
+       s.id as setId,
+       s.set_type as setType,
+       s.weight as weight,
+       s.weight_unit as setWeightUnit,
+       s.reps as reps,
+       s.completed_at as completedAt
+     FROM workout_exercises we
+     JOIN exercises e ON e.id = we.exercise_id
+     JOIN exercise_types et ON et.id = e.exercise_type_id
+     JOIN methods m ON m.id = e.method_id
+     LEFT JOIN sets s ON s.workout_exercise_id = we.id
+     WHERE we.workout_id = ?
+     ORDER BY we.order_index ASC, s.completed_at ASC, s.id ASC`,
+    [workoutId],
+  )).rows as Array<{
+    workoutExerciseId: string
+    orderIndex: number
+    exerciseTypeId: string
+    exerciseTypeName: string
+    methodLocked: number
+    methodId: string
+    methodName: string
+    defaultWeightUnit: string | null
+    setId: string | null
+    setType: string | null
+    weight: number | null
+    setWeightUnit: string | null
+    reps: number | null
+    completedAt: number | null
+  }>
+
+  const exercises = rows.reduce<ActiveWorkoutSession['exercises']>((acc, row) => {
+    let exercise = acc.find((item) => item.workoutExerciseId === row.workoutExerciseId)
+    if (!exercise) {
+      exercise = {
+        workoutExerciseId: row.workoutExerciseId,
+        exerciseTypeId: row.exerciseTypeId,
+        exerciseTypeName: row.exerciseTypeName,
+        methodLocked: row.methodLocked,
+        methodId: row.methodId,
+        methodName: row.methodName,
+        weightUnit: row.defaultWeightUnit === 'lb' ? 'lb' : 'kg',
+        sets: [],
+      }
+      acc.push(exercise)
+    }
+
+    if (row.setId) {
+      const weightUnit = row.setWeightUnit === 'lb' ? 'lb' : 'kg'
+      exercise.weightUnit = weightUnit
+      exercise.sets.push({
+        id: row.setId,
+        setType: row.setType ?? 'working',
+        weight: row.weight ?? 0,
+        weightUnit,
+        reps: row.reps ?? 0,
+        completedAt: row.completedAt ?? 0,
+      })
+    }
+
+    return acc
+  }, [])
+
+  return {
+    id: workout.id,
+    name: workout.name,
+    startedAt: workout.startedAt,
+    exercises,
+  }
 }

@@ -5,6 +5,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context'
 import { createStyleSheet, useStyles } from 'react-native-unistyles'
 import RootNavigator from './src/navigation/RootNavigator'
 import { seedDatabaseIfEmpty } from './src/db/seedData'
+import { restoreActiveWorkoutSession } from './src/services/activeWorkoutRecovery'
 
 const stylesheet = createStyleSheet(() => ({}))
 
@@ -13,9 +14,18 @@ export default function App() {
   const [seeded, setSeeded] = useState(false)
 
   useEffect(() => {
-    seedDatabaseIfEmpty()
-      .catch(console.error)
-      .finally(() => setSeeded(true))
+    async function bootstrapApp() {
+      try {
+        await seedDatabaseIfEmpty()
+        await restoreActiveWorkoutSession()
+      } catch (e) {
+        console.error(e)
+      } finally {
+        setSeeded(true)
+      }
+    }
+
+    bootstrapApp()
   }, [])
 
   return (

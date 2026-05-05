@@ -31,6 +31,7 @@ export default function Text({
 const stylesheet = createStyleSheet((theme) => ({
   base: (size: SizeKey) => ({
     fontSize: theme.fontSize[size],
+    fontFamily: theme.fontFamily.regular,
     color: theme.colors.text,
   }),
   muted: {

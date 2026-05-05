@@ -79,7 +79,7 @@ const stylesheet = createStyleSheet((theme) => ({
   cardTitle: {
     color: theme.colors.text,
     fontSize: theme.fontSize.lg,
-    fontWeight: '700',
+    fontFamily: theme.fontFamily.bold,
     textAlign: 'center',
   },
   cardDescription: {

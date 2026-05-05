@@ -520,7 +520,7 @@ const stylesheet = createStyleSheet((theme) => ({
   workoutTitle: {
     color: theme.colors.text,
     fontSize: theme.fontSize.sm,
-    fontWeight: '700',
+    fontFamily: theme.fontFamily.bold,
   },
   workoutMeta: {
     color: theme.colors.textMuted,
@@ -543,7 +543,7 @@ const stylesheet = createStyleSheet((theme) => ({
   prBadgeText: {
     color: theme.colors.accent,
     fontSize: theme.fontSize.xs,
-    fontWeight: '800',
+    fontFamily: theme.fontFamily.extraBold,
   },
   currentPrBadge: {
     backgroundColor: PR_GOLD + '26',
@@ -562,7 +562,7 @@ const stylesheet = createStyleSheet((theme) => ({
   quickPreviewText: {
     color: theme.colors.textMuted,
     fontSize: theme.fontSize.xs,
-    fontWeight: '600',
+    fontFamily: theme.fontFamily.semiBold,
   },
   quickExerciseRow: {
     paddingVertical: 4,
@@ -576,17 +576,17 @@ const stylesheet = createStyleSheet((theme) => ({
     minWidth: 0,
     color: theme.colors.text,
     fontSize: theme.fontSize.xs,
-    fontWeight: '700',
+    fontFamily: theme.fontFamily.bold,
   },
   quickExerciseMethod: {
     color: theme.colors.textMuted,
-    fontWeight: '600',
+    fontFamily: theme.fontFamily.semiBold,
   },
   quickExerciseSets: {
     flexShrink: 1,
     color: theme.colors.textMuted,
     fontSize: theme.fontSize.xxs,
-    fontWeight: '600',
+    fontFamily: theme.fontFamily.semiBold,
     textAlign: 'right',
   },
   quickSetList: {
@@ -635,7 +635,7 @@ const stylesheet = createStyleSheet((theme) => ({
   viewButtonText: {
     color: theme.colors.text,
     fontSize: theme.fontSize.sm,
-    fontWeight: '700',
+    fontFamily: theme.fontFamily.bold,
   },
   detailRoot: {
     flex: 1,
@@ -663,7 +663,7 @@ const stylesheet = createStyleSheet((theme) => ({
   deleteButtonText: {
     color: theme.colors.danger,
     fontSize: theme.fontSize.sm,
-    fontWeight: '700',
+    fontFamily: theme.fontFamily.bold,
   },
   detailContent: {
     padding: theme.spacing.md,
@@ -688,31 +688,31 @@ const stylesheet = createStyleSheet((theme) => ({
   renameLabel: {
     color: theme.colors.textMuted,
     fontSize: theme.fontSize.xs,
-    fontWeight: '700',
+    fontFamily: theme.fontFamily.bold,
     textTransform: 'uppercase',
     letterSpacing: 0.8,
   },
   renameInput: {
     color: theme.colors.text,
     fontSize: theme.fontSize.lg,
-    fontWeight: '800',
+    fontFamily: theme.fontFamily.extraBold,
     minHeight: 34,
     padding: 0,
   },
   detailName: {
     color: theme.colors.text,
     fontSize: theme.fontSize.lg,
-    fontWeight: '800',
+    fontFamily: theme.fontFamily.extraBold,
   },
   dateTitle: {
     color: theme.colors.text,
     fontSize: theme.fontSize.xl,
-    fontWeight: '800',
+    fontFamily: theme.fontFamily.extraBold,
   },
   detailMeta: {
     color: theme.colors.textMuted,
     fontSize: theme.fontSize.sm,
-    fontWeight: '600',
+    fontFamily: theme.fontFamily.semiBold,
   },
   summaryRow: {
     flexDirection: 'row',
@@ -729,12 +729,12 @@ const stylesheet = createStyleSheet((theme) => ({
   summaryValue: {
     color: theme.colors.text,
     fontSize: theme.fontSize.md,
-    fontWeight: '800',
+    fontFamily: theme.fontFamily.extraBold,
   },
   summaryLabel: {
     color: theme.colors.textMuted,
     fontSize: theme.fontSize.xs,
-    fontWeight: '600',
+    fontFamily: theme.fontFamily.semiBold,
     marginTop: 2,
   },
   exerciseCard: {
@@ -747,7 +747,7 @@ const stylesheet = createStyleSheet((theme) => ({
   exerciseTitle: {
     color: theme.colors.text,
     fontSize: theme.fontSize.sm,
-    fontWeight: '800',
+    fontFamily: theme.fontFamily.extraBold,
   },
   exerciseTitleBlock: {
     flex: 1,
@@ -776,11 +776,11 @@ const stylesheet = createStyleSheet((theme) => ({
   unitToggleText: {
     color: theme.colors.accent,
     fontSize: theme.fontSize.xs,
-    fontWeight: '800',
+    fontFamily: theme.fontFamily.extraBold,
   },
   exerciseMethod: {
     color: theme.colors.textMuted,
-    fontWeight: '500',
+    fontFamily: theme.fontFamily.medium,
   },
   badgeRow: {
     flexDirection: 'row',
@@ -815,7 +815,7 @@ const stylesheet = createStyleSheet((theme) => ({
   setHeaderText: {
     color: theme.colors.textMuted,
     fontSize: theme.fontSize.xs,
-    fontWeight: '800',
+    fontFamily: theme.fontFamily.extraBold,
     textTransform: 'uppercase',
   },
   setRow: {
@@ -845,17 +845,17 @@ const stylesheet = createStyleSheet((theme) => ({
   setIndex: {
     color: theme.colors.textMuted,
     fontSize: theme.fontSize.sm,
-    fontWeight: '700',
+    fontFamily: theme.fontFamily.bold,
   },
   setValue: {
     color: theme.colors.text,
     fontSize: theme.fontSize.sm,
-    fontWeight: '700',
+    fontFamily: theme.fontFamily.bold,
   },
   setVolume: {
     color: theme.colors.textMuted,
     fontSize: theme.fontSize.sm,
-    fontWeight: '700',
+    fontFamily: theme.fontFamily.bold,
   },
   valueWithPrCol: {
     flexDirection: 'row',
@@ -875,7 +875,7 @@ const stylesheet = createStyleSheet((theme) => ({
   inlinePrText: {
     color: theme.colors.accent,
     fontSize: theme.fontSize.xxs,
-    fontWeight: '800',
+    fontFamily: theme.fontFamily.extraBold,
   },
   currentInlinePrPill: {
     backgroundColor: PR_GOLD + '26',

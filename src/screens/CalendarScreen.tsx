@@ -465,7 +465,7 @@ const stylesheet = createStyleSheet((theme) => ({
   todayButtonText: {
     color: theme.colors.text,
     fontSize: theme.fontSize.sm,
-    fontWeight: '700',
+    fontFamily: theme.fontFamily.bold,
   },
   summaryRow: {
     flexDirection: 'row',
@@ -482,12 +482,12 @@ const stylesheet = createStyleSheet((theme) => ({
   summaryValue: {
     color: theme.colors.text,
     fontSize: theme.fontSize.lg,
-    fontWeight: '800',
+    fontFamily: theme.fontFamily.extraBold,
   },
   summaryLabel: {
     color: theme.colors.textMuted,
     fontSize: theme.fontSize.xs,
-    fontWeight: '600',
+    fontFamily: theme.fontFamily.semiBold,
     marginTop: 2,
   },
   calendarGrid: {
@@ -522,7 +522,7 @@ const stylesheet = createStyleSheet((theme) => ({
   dayText: {
     color: theme.colors.text,
     fontSize: theme.fontSize.sm,
-    fontWeight: '700',
+    fontFamily: theme.fontFamily.bold,
   },
   todayText: {
     color: theme.colors.accent,
@@ -539,7 +539,7 @@ const stylesheet = createStyleSheet((theme) => ({
   listTitle: {
     color: theme.colors.textMuted,
     fontSize: theme.fontSize.xs,
-    fontWeight: '700',
+    fontFamily: theme.fontFamily.bold,
     textTransform: 'uppercase',
     letterSpacing: 1,
   },

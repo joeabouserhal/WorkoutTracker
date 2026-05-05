@@ -177,7 +177,7 @@ const stylesheet = createStyleSheet((theme) => ({
   headerButtonText: {
     color: theme.colors.text,
     fontSize: theme.fontSize.sm,
-    fontWeight: '600',
+    fontFamily: theme.fontFamily.semiBold,
   },
   titleRow: {
     flexDirection: 'row',
@@ -192,7 +192,7 @@ const stylesheet = createStyleSheet((theme) => ({
   eyebrow: {
     color: theme.colors.textMuted,
     fontSize: theme.fontSize.xs,
-    fontWeight: '700',
+    fontFamily: theme.fontFamily.bold,
     textTransform: 'uppercase',
     letterSpacing: 0.8,
     marginBottom: theme.spacing.xs,
@@ -200,7 +200,7 @@ const stylesheet = createStyleSheet((theme) => ({
   title: {
     color: theme.colors.text,
     fontSize: theme.fontSize.xxl,
-    fontWeight: '800',
+    fontFamily: theme.fontFamily.extraBold,
   },
   headerFade: {
     position: 'absolute',

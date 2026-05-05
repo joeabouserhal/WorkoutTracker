@@ -122,12 +122,12 @@ const stylesheet = createStyleSheet((theme) => ({
   title: {
     color: theme.colors.text,
     fontSize: theme.fontSize.lg,
-    fontWeight: '800',
+    fontFamily: theme.fontFamily.extraBold,
   },
   message: {
     color: theme.colors.textMuted,
     fontSize: theme.fontSize.sm,
-    fontWeight: '600',
+    fontFamily: theme.fontFamily.semiBold,
     lineHeight: 20,
     marginTop: 4,
   },
@@ -160,7 +160,7 @@ const stylesheet = createStyleSheet((theme) => ({
   buttonText: {
     color: theme.colors.text,
     fontSize: theme.fontSize.md,
-    fontWeight: '800',
+    fontFamily: theme.fontFamily.extraBold,
   },
   filledButtonText: {
     color: '#FFFFFF',

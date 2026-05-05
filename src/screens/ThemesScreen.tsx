@@ -190,11 +190,11 @@ const stylesheet = createStyleSheet((theme) => ({
   themeLabel: {
     color: theme.colors.text,
     fontSize: theme.fontSize.md,
-    fontWeight: '600',
+    fontFamily: theme.fontFamily.semiBold,
   },
   themeStatus: {
     color: theme.colors.textMuted,
     fontSize: theme.fontSize.sm,
-    fontWeight: '600',
+    fontFamily: theme.fontFamily.semiBold,
   },
 }))

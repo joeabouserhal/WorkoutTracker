@@ -1,3 +1,5 @@
+import { fontFamily } from './fonts'
+
 const baseSpacing = {
   xs: 4,
   sm: 8,
@@ -24,6 +26,8 @@ const baseRadius = {
   full: 9999,
 } as const
 
+const baseFontFamily = fontFamily
+
 const createTheme = (colors: {
   bg: string
   surface: string
@@ -40,6 +44,7 @@ const createTheme = (colors: {
     colors,
     spacing: baseSpacing,
     fontSize: baseFontSize,
+    fontFamily: baseFontFamily,
     radius: baseRadius,
   }) as const
 

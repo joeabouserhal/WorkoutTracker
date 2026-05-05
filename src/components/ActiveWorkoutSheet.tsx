@@ -1961,7 +1961,7 @@ const stylesheet = createStyleSheet((theme) => ({
   headerTitle: {
     color: theme.colors.text,
     fontSize: theme.fontSize.md,
-    fontWeight: '700',
+    fontFamily: theme.fontFamily.bold,
   },
   timerPill: {
     flexDirection: 'row',
@@ -1985,7 +1985,7 @@ const stylesheet = createStyleSheet((theme) => ({
   timerText: {
     color: theme.colors.accent,
     fontSize: theme.fontSize.sm,
-    fontWeight: '700',
+    fontFamily: theme.fontFamily.bold,
     letterSpacing: 0.5,
   },
   headerActions: {
@@ -2008,7 +2008,7 @@ const stylesheet = createStyleSheet((theme) => ({
   cancelIconText: {
     color: theme.colors.text,
     fontSize: theme.fontSize.sm,
-    fontWeight: '600',
+    fontFamily: theme.fontFamily.semiBold,
   },
   // ── Scroll area ──────────────────────────────────────────
   scroll: {
@@ -2039,14 +2039,14 @@ const stylesheet = createStyleSheet((theme) => ({
   workoutNameLabel: {
     color: theme.colors.textMuted,
     fontSize: theme.fontSize.xxs,
-    fontWeight: '700',
+    fontFamily: theme.fontFamily.bold,
     textTransform: 'uppercase',
     letterSpacing: 0.8,
   },
   workoutNameInput: {
     color: theme.colors.text,
     fontSize: theme.fontSize.lg,
-    fontWeight: '800',
+    fontFamily: theme.fontFamily.extraBold,
     minHeight: 36,
     padding: 0,
   },
@@ -2080,11 +2080,11 @@ const stylesheet = createStyleSheet((theme) => ({
     minWidth: 0,
     color: theme.colors.text,
     fontSize: theme.fontSize.sm,
-    fontWeight: '700',
+    fontFamily: theme.fontFamily.bold,
   },
   exerciseMethod: {
     color: theme.colors.textMuted,
-    fontWeight: '400',
+    fontFamily: theme.fontFamily.regular,
   },
   reorderButton: {
     width: 30,
@@ -2112,7 +2112,7 @@ const stylesheet = createStyleSheet((theme) => ({
   setLabel: {
     color: theme.colors.textMuted,
     fontSize: 10,
-    fontWeight: '600',
+    fontFamily: theme.fontFamily.semiBold,
     letterSpacing: 0.8,
   },
   setRow: {
@@ -2144,7 +2144,7 @@ const stylesheet = createStyleSheet((theme) => ({
     flex: 1,
     color: theme.colors.accent,
     fontSize: theme.fontSize.sm,
-    fontWeight: '600',
+    fontFamily: theme.fontFamily.semiBold,
   },
   skipRestButton: {
     minHeight: 26,
@@ -2159,7 +2159,7 @@ const stylesheet = createStyleSheet((theme) => ({
   skipRestText: {
     color: theme.colors.accent,
     fontSize: theme.fontSize.xs,
-    fontWeight: '800',
+    fontFamily: theme.fontFamily.extraBold,
   },
   setNumCol: {
     width: 24,
@@ -2180,7 +2180,7 @@ const stylesheet = createStyleSheet((theme) => ({
   setNum: {
     color: theme.colors.textMuted,
     fontSize: theme.fontSize.sm,
-    fontWeight: '600',
+    fontFamily: theme.fontFamily.semiBold,
   },
   inputWrap: {
     flexDirection: 'row',
@@ -2202,7 +2202,7 @@ const stylesheet = createStyleSheet((theme) => ({
     flex: 1,
     color: theme.colors.text,
     fontSize: theme.fontSize.md,
-    fontWeight: '600',
+    fontFamily: theme.fontFamily.semiBold,
     minWidth: 0,
     height: 38,
     padding: 0,
@@ -2217,7 +2217,7 @@ const stylesheet = createStyleSheet((theme) => ({
   inputUnit: {
     color: theme.colors.accent,
     fontSize: theme.fontSize.sm,
-    fontWeight: '700',
+    fontFamily: theme.fontFamily.bold,
   },
   // ── Add Set ──────────────────────────────────────────────
   addSetBtn: {
@@ -2233,7 +2233,7 @@ const stylesheet = createStyleSheet((theme) => ({
   addSetText: {
     color: theme.colors.textMuted,
     fontSize: theme.fontSize.sm,
-    fontWeight: '600',
+    fontFamily: theme.fontFamily.semiBold,
   },
   // ── Delete swipe action ──────────────────────────────────
   deleteAction: {
@@ -2267,7 +2267,7 @@ const stylesheet = createStyleSheet((theme) => ({
   addExerciseText: {
     color: theme.colors.accent,
     fontSize: theme.fontSize.md,
-    fontWeight: '800',
+    fontFamily: theme.fontFamily.extraBold,
   },
   // ── Footer ───────────────────────────────────────────────
   footer: {
@@ -2305,7 +2305,7 @@ const stylesheet = createStyleSheet((theme) => ({
   footerStatText: {
     color: theme.colors.textMuted,
     fontSize: theme.fontSize.xs,
-    fontWeight: '800',
+    fontFamily: theme.fontFamily.extraBold,
   },
   footerStatDivider: {
     width: 1,
@@ -2327,7 +2327,7 @@ const stylesheet = createStyleSheet((theme) => ({
     flex: 1,
     color: theme.colors.text,
     fontSize: theme.fontSize.sm,
-    fontWeight: '600',
+    fontFamily: theme.fontFamily.semiBold,
   },
   endButton: {
     minHeight: 58,
@@ -2361,12 +2361,12 @@ const stylesheet = createStyleSheet((theme) => ({
   endButtonText: {
     color: theme.colors.danger,
     fontSize: theme.fontSize.md,
-    fontWeight: '800',
+    fontFamily: theme.fontFamily.extraBold,
   },
   endButtonSubtext: {
     color: theme.colors.textMuted,
     fontSize: theme.fontSize.xs,
-    fontWeight: '700',
+    fontFamily: theme.fontFamily.bold,
     marginTop: 1,
   },
   dialogOverlay: {
@@ -2423,12 +2423,12 @@ const stylesheet = createStyleSheet((theme) => ({
   dialogTitle: {
     color: theme.colors.text,
     fontSize: theme.fontSize.lg,
-    fontWeight: '800',
+    fontFamily: theme.fontFamily.extraBold,
   },
   dialogMessage: {
     color: theme.colors.textMuted,
     fontSize: theme.fontSize.sm,
-    fontWeight: '600',
+    fontFamily: theme.fontFamily.semiBold,
     lineHeight: 20,
     marginTop: 4,
   },
@@ -2474,7 +2474,7 @@ const stylesheet = createStyleSheet((theme) => ({
   dialogButtonText: {
     color: theme.colors.text,
     fontSize: theme.fontSize.md,
-    fontWeight: '800',
+    fontFamily: theme.fontFamily.extraBold,
   },
   dialogFilledButtonText: {
     color: '#FFFFFF',
@@ -2562,7 +2562,7 @@ const stylesheet = createStyleSheet((theme) => ({
   prCelebrationEyebrow: {
     color: PR_GOLD,
     fontSize: theme.fontSize.xs,
-    fontWeight: '900',
+    fontFamily: theme.fontFamily.black,
     letterSpacing: 1,
     textAlign: 'center',
     textTransform: 'uppercase',
@@ -2570,14 +2570,14 @@ const stylesheet = createStyleSheet((theme) => ({
   prCelebrationTitle: {
     color: theme.colors.text,
     fontSize: theme.fontSize.xxl,
-    fontWeight: '900',
+    fontFamily: theme.fontFamily.black,
     textAlign: 'center',
     marginTop: -2,
   },
   prCelebrationMessage: {
     color: theme.colors.textMuted,
     fontSize: theme.fontSize.md,
-    fontWeight: '600',
+    fontFamily: theme.fontFamily.semiBold,
     lineHeight: 22,
     textAlign: 'center',
   },
@@ -2596,7 +2596,7 @@ const stylesheet = createStyleSheet((theme) => ({
   prSummaryPillText: {
     color: PR_GOLD,
     fontSize: theme.fontSize.xs,
-    fontWeight: '900',
+    fontFamily: theme.fontFamily.black,
   },
   prList: {
     maxHeight: 320,
@@ -2626,12 +2626,12 @@ const stylesheet = createStyleSheet((theme) => ({
   prExerciseName: {
     color: theme.colors.text,
     fontSize: theme.fontSize.md,
-    fontWeight: '800',
+    fontFamily: theme.fontFamily.extraBold,
   },
   prMethodName: {
     color: theme.colors.textMuted,
     fontSize: theme.fontSize.xs,
-    fontWeight: '700',
+    fontFamily: theme.fontFamily.bold,
     marginTop: 2,
   },
   prMiniBadge: {
@@ -2645,7 +2645,7 @@ const stylesheet = createStyleSheet((theme) => ({
   prMiniBadgeText: {
     color: PR_GOLD,
     fontSize: theme.fontSize.xs,
-    fontWeight: '900',
+    fontFamily: theme.fontFamily.black,
   },
   prValuesRow: {
     flexDirection: 'row',
@@ -2669,24 +2669,24 @@ const stylesheet = createStyleSheet((theme) => ({
   prValueLabel: {
     color: theme.colors.textMuted,
     fontSize: theme.fontSize.xs,
-    fontWeight: '800',
+    fontFamily: theme.fontFamily.extraBold,
     textTransform: 'uppercase',
     marginBottom: 3,
   },
   prPreviousValue: {
     color: theme.colors.text,
     fontSize: theme.fontSize.sm,
-    fontWeight: '800',
+    fontFamily: theme.fontFamily.extraBold,
   },
   prNewValue: {
     color: PR_GOLD,
     fontSize: theme.fontSize.md,
-    fontWeight: '900',
+    fontFamily: theme.fontFamily.black,
   },
   prRepsText: {
     color: theme.colors.textMuted,
     fontSize: theme.fontSize.sm,
-    fontWeight: '800',
+    fontFamily: theme.fontFamily.extraBold,
   },
   prDoneButton: {
     minHeight: 48,
@@ -2701,6 +2701,6 @@ const stylesheet = createStyleSheet((theme) => ({
   prDoneButtonText: {
     color: '#FFFFFF',
     fontSize: theme.fontSize.md,
-    fontWeight: '900',
+    fontFamily: theme.fontFamily.black,
   },
 }))

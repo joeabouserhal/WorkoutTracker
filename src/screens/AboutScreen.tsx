@@ -100,7 +100,7 @@ const stylesheet = createStyleSheet((theme) => ({
   appName: {
     color: theme.colors.text,
     fontSize: theme.fontSize.xl,
-    fontWeight: '800',
+    fontFamily: theme.fontFamily.extraBold,
     textAlign: 'center',
   },
   description: {
@@ -114,7 +114,7 @@ const stylesheet = createStyleSheet((theme) => ({
     color: theme.colors.textMuted,
     fontSize: theme.fontSize.md,
     fontStyle: 'italic',
-    fontWeight: '300',
+    fontFamily: theme.fontFamily.light,
     letterSpacing: 0.6,
     marginTop: theme.spacing.sm,
     opacity: 0.9,
@@ -135,6 +135,6 @@ const stylesheet = createStyleSheet((theme) => ({
   githubButtonText: {
     color: theme.colors.text,
     fontSize: theme.fontSize.md,
-    fontWeight: '700',
+    fontFamily: theme.fontFamily.bold,
   },
 }))

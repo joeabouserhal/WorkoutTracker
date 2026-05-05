@@ -6,6 +6,9 @@ import { createStyleSheet, useStyles } from 'react-native-unistyles'
 import RootNavigator from './src/navigation/RootNavigator'
 import { seedDatabaseIfEmpty } from './src/db/seedData'
 import { restoreActiveWorkoutSession } from './src/services/activeWorkoutRecovery'
+import { configureAppFonts } from './src/theme/fontBootstrap'
+
+configureAppFonts()
 
 const stylesheet = createStyleSheet(() => ({}))
 

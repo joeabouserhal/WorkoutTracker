@@ -379,7 +379,7 @@ const stylesheet = createStyleSheet((theme) => ({
   sectionLabel: {
     color: theme.colors.textMuted,
     fontSize: theme.fontSize.xs,
-    fontWeight: '600',
+    fontFamily: theme.fontFamily.semiBold,
     letterSpacing: 1,
     marginBottom: theme.spacing.sm,
   },
@@ -392,12 +392,12 @@ const stylesheet = createStyleSheet((theme) => ({
   currentWeightValue: {
     color: theme.colors.text,
     fontSize: 42,
-    fontWeight: '700',
+    fontFamily: theme.fontFamily.bold,
   },
   currentWeightUnit: {
     color: theme.colors.textMuted,
     fontSize: theme.fontSize.lg,
-    fontWeight: '500',
+    fontFamily: theme.fontFamily.medium,
   },
   chartCard: {
     backgroundColor: theme.colors.surface,
@@ -435,7 +435,7 @@ const stylesheet = createStyleSheet((theme) => ({
   logButtonText: {
     color: '#FFFFFF',
     fontSize: theme.fontSize.md,
-    fontWeight: '600',
+    fontFamily: theme.fontFamily.semiBold,
   },
   overlay: {
     flex: 1,
@@ -455,7 +455,7 @@ const stylesheet = createStyleSheet((theme) => ({
   modalTitle: {
     color: theme.colors.text,
     fontSize: theme.fontSize.lg,
-    fontWeight: '700',
+    fontFamily: theme.fontFamily.bold,
     textAlign: 'center',
   },
   inputRow: {
@@ -470,13 +470,13 @@ const stylesheet = createStyleSheet((theme) => ({
   weightInput: {
     flex: 1,
     fontSize: theme.fontSize.xl,
-    fontWeight: '600',
+    fontFamily: theme.fontFamily.semiBold,
     paddingVertical: theme.spacing.md,
   },
   inputUnitLabel: {
     color: theme.colors.textMuted,
     fontSize: theme.fontSize.md,
-    fontWeight: '500',
+    fontFamily: theme.fontFamily.medium,
   },
   modalActions: {
     flexDirection: 'row',
@@ -494,7 +494,7 @@ const stylesheet = createStyleSheet((theme) => ({
   cancelModalText: {
     color: theme.colors.text,
     fontSize: theme.fontSize.sm,
-    fontWeight: '600',
+    fontFamily: theme.fontFamily.semiBold,
   },
   saveModalBtn: {
     flex: 1,
@@ -508,6 +508,6 @@ const stylesheet = createStyleSheet((theme) => ({
   saveModalText: {
     color: '#FFFFFF',
     fontSize: theme.fontSize.sm,
-    fontWeight: '600',
+    fontFamily: theme.fontFamily.semiBold,
   },
 }))

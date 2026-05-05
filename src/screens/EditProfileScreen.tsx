@@ -342,13 +342,13 @@ const stylesheet = createStyleSheet((theme) => ({
     flex: 1,
     color: theme.colors.text,
     fontSize: theme.fontSize.md,
-    fontWeight: '800',
+    fontFamily: theme.fontFamily.extraBold,
   },
   unitPill: {
     overflow: 'hidden',
     color: theme.colors.accent,
     fontSize: theme.fontSize.xs,
-    fontWeight: '900',
+    fontFamily: theme.fontFamily.black,
     textTransform: 'uppercase',
     backgroundColor: theme.colors.accentMuted,
     borderRadius: theme.radius.full,
@@ -364,7 +364,7 @@ const stylesheet = createStyleSheet((theme) => ({
     paddingVertical: theme.spacing.sm,
     color: theme.colors.text,
     fontSize: theme.fontSize.md,
-    fontWeight: '700',
+    fontFamily: theme.fontFamily.bold,
     minHeight: 42,
   },
   formActions: {
@@ -389,7 +389,7 @@ const stylesheet = createStyleSheet((theme) => ({
   saveButtonText: {
     color: '#FFFFFF',
     fontSize: theme.fontSize.md,
-    fontWeight: '900',
+    fontFamily: theme.fontFamily.black,
   },
   cancelButton: {
     minHeight: 46,
@@ -403,6 +403,6 @@ const stylesheet = createStyleSheet((theme) => ({
   cancelButtonText: {
     color: theme.colors.textMuted,
     fontSize: theme.fontSize.sm,
-    fontWeight: '800',
+    fontFamily: theme.fontFamily.extraBold,
   },
 }))

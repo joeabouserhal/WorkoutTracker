@@ -397,7 +397,7 @@ const stylesheet = createStyleSheet((theme) => ({
   startWorkoutText: {
     fontSize: theme.fontSize.md,
     color: '#FFFFFF',
-    fontWeight: '800',
+    fontFamily: theme.fontFamily.extraBold,
   },
   startWorkoutTextDisabled: {
     color: theme.colors.textMuted,
@@ -405,7 +405,7 @@ const stylesheet = createStyleSheet((theme) => ({
   actionSubtitle: {
     color: theme.colors.textMuted,
     fontSize: theme.fontSize.xs,
-    fontWeight: '600',
+    fontFamily: theme.fontFamily.semiBold,
     marginTop: 2,
   },
   primaryActionSubtitle: {
@@ -436,7 +436,7 @@ const stylesheet = createStyleSheet((theme) => ({
   templatesTitle: {
     color: theme.colors.text,
     fontSize: theme.fontSize.md,
-    fontWeight: '800',
+    fontFamily: theme.fontFamily.extraBold,
   },
   sectionHeader: {
     flexDirection: 'row',
@@ -447,12 +447,12 @@ const stylesheet = createStyleSheet((theme) => ({
   sectionTitle: {
     color: theme.colors.text,
     fontSize: theme.fontSize.lg,
-    fontWeight: '800',
+    fontFamily: theme.fontFamily.extraBold,
   },
   sectionHint: {
     color: theme.colors.textMuted,
     fontSize: theme.fontSize.xs,
-    fontWeight: '700',
+    fontFamily: theme.fontFamily.bold,
     textTransform: 'uppercase',
   },
   workoutGroup: {
@@ -465,7 +465,7 @@ const stylesheet = createStyleSheet((theme) => ({
     alignSelf: 'flex-start',
     color: theme.colors.textMuted,
     fontSize: theme.fontSize.xs,
-    fontWeight: '700',
+    fontFamily: theme.fontFamily.bold,
     textTransform: 'uppercase',
     letterSpacing: 0.8,
   },
@@ -480,7 +480,7 @@ const stylesheet = createStyleSheet((theme) => ({
   emptyText: {
     color: theme.colors.textMuted,
     fontSize: theme.fontSize.sm,
-    fontWeight: '600',
+    fontFamily: theme.fontFamily.semiBold,
     textAlign: 'center',
   },
 }))

@@ -80,7 +80,7 @@ const stylesheet = createStyleSheet((theme) => ({
   },
   label: {
     fontSize: theme.fontSize.md,
-    fontWeight: '600' as const,
+    fontFamily: theme.fontFamily.semiBold,
     variants: {
       variant: {
         filled: {

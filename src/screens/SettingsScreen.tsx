@@ -240,7 +240,7 @@ const stylesheet = createStyleSheet((theme) => ({
   sectionSubtitle: {
     color: theme.colors.textMuted,
     fontSize: theme.fontSize.sm,
-    fontWeight: '600',
+    fontFamily: theme.fontFamily.semiBold,
     textTransform: 'uppercase',
     letterSpacing: 1,
     marginTop: theme.spacing.lg,
@@ -273,7 +273,7 @@ const stylesheet = createStyleSheet((theme) => ({
   cardTitle: {
     color: theme.colors.text,
     fontSize: theme.fontSize.md,
-    fontWeight: '800',
+    fontFamily: theme.fontFamily.extraBold,
     marginBottom: 2,
   },
   cardDescription: {
@@ -283,7 +283,7 @@ const stylesheet = createStyleSheet((theme) => ({
   chevron: {
     color: theme.colors.accent,
     fontSize: theme.fontSize.xl,
-    fontWeight: '700',
+    fontFamily: theme.fontFamily.bold,
   },
   unitsCard: {
     backgroundColor: theme.colors.surface,
@@ -303,7 +303,7 @@ const stylesheet = createStyleSheet((theme) => ({
     flex: 1,
     color: theme.colors.text,
     fontSize: theme.fontSize.md,
-    fontWeight: '800',
+    fontFamily: theme.fontFamily.extraBold,
   },
   unitButtonsRow: {
     flexDirection: 'row',
@@ -330,13 +330,13 @@ const stylesheet = createStyleSheet((theme) => ({
   timerAdjustText: {
     color: theme.colors.text,
     fontSize: theme.fontSize.md,
-    fontWeight: '600',
+    fontFamily: theme.fontFamily.semiBold,
   },
   timerValue: {
     minWidth: 72,
     color: theme.colors.accent,
     fontSize: theme.fontSize.lg,
-    fontWeight: '700',
+    fontFamily: theme.fontFamily.bold,
     textAlign: 'center',
   },
   unitButton: {
@@ -356,7 +356,7 @@ const stylesheet = createStyleSheet((theme) => ({
   unitButtonText: {
     color: theme.colors.text,
     fontSize: theme.fontSize.md,
-    fontWeight: '600',
+    fontFamily: theme.fontFamily.semiBold,
   },
   unitButtonTextActive: {
     color: '#FFFFFF',

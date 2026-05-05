@@ -246,7 +246,7 @@ const stylesheet = createStyleSheet((theme) => ({
   sectionTitle: {
     color: theme.colors.textMuted,
     fontSize: theme.fontSize.xs,
-    fontWeight: '600',
+    fontFamily: theme.fontFamily.semiBold,
     textTransform: 'uppercase',
     letterSpacing: 1,
     marginBottom: theme.spacing.sm,
@@ -283,7 +283,7 @@ const stylesheet = createStyleSheet((theme) => ({
   avatarText: {
     color: theme.colors.accent,
     fontSize: theme.fontSize.lg,
-    fontWeight: '900',
+    fontFamily: theme.fontFamily.black,
   },
   profileHeaderText: {
     flex: 1,
@@ -292,7 +292,7 @@ const stylesheet = createStyleSheet((theme) => ({
   profileLabel: {
     color: theme.colors.textMuted,
     fontSize: theme.fontSize.xs,
-    fontWeight: '700',
+    fontFamily: theme.fontFamily.bold,
     textTransform: 'uppercase',
     letterSpacing: 1,
     marginBottom: 2,
@@ -300,7 +300,7 @@ const stylesheet = createStyleSheet((theme) => ({
   profileName: {
     color: theme.colors.text,
     fontSize: theme.fontSize.xl,
-    fontWeight: '800',
+    fontFamily: theme.fontFamily.extraBold,
   },
   statsRow: {
     flexDirection: 'row',
@@ -328,14 +328,14 @@ const stylesheet = createStyleSheet((theme) => ({
   statLabel: {
     color: theme.colors.textMuted,
     fontSize: theme.fontSize.xs,
-    fontWeight: '700',
+    fontFamily: theme.fontFamily.bold,
     textTransform: 'uppercase',
     letterSpacing: 0.8,
   },
   statValue: {
     color: theme.colors.text,
     fontSize: theme.fontSize.md,
-    fontWeight: '800',
+    fontFamily: theme.fontFamily.extraBold,
   },
   settingsButton: {
     flexDirection: 'row',
@@ -361,7 +361,7 @@ const stylesheet = createStyleSheet((theme) => ({
   settingsButtonTitle: {
     color: theme.colors.text,
     fontSize: theme.fontSize.md,
-    fontWeight: '800',
+    fontFamily: theme.fontFamily.extraBold,
     marginBottom: 2,
   },
   settingsTextBlock: {
@@ -376,6 +376,6 @@ const stylesheet = createStyleSheet((theme) => ({
   settingsChevron: {
     color: theme.colors.accent,
     fontSize: theme.fontSize.xl,
-    fontWeight: '700',
+    fontFamily: theme.fontFamily.bold,
   },
 }))

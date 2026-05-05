@@ -716,7 +716,7 @@ const stylesheet = createStyleSheet((theme) => ({
   backButtonText: {
     color: theme.colors.text,
     fontSize: theme.fontSize.sm,
-    fontWeight: '600',
+    fontFamily: theme.fontFamily.semiBold,
   },
   backButtonSpacer: {
     width: 68,
@@ -741,13 +741,13 @@ const stylesheet = createStyleSheet((theme) => ({
   breadcrumbText: {
     color: theme.colors.text,
     fontSize: theme.fontSize.sm,
-    fontWeight: '700',
+    fontFamily: theme.fontFamily.bold,
     maxWidth: 104,
   },
   breadcrumbCurrent: {
     color: theme.colors.accent,
     fontSize: theme.fontSize.xs,
-    fontWeight: '800',
+    fontFamily: theme.fontFamily.extraBold,
     maxWidth: 92,
   },
   addButton: {
@@ -765,7 +765,7 @@ const stylesheet = createStyleSheet((theme) => ({
   addButtonText: {
     color: theme.colors.text,
     fontSize: theme.fontSize.sm,
-    fontWeight: '600',
+    fontFamily: theme.fontFamily.semiBold,
   },
   closeButton: {
     flexDirection: 'row',
@@ -788,12 +788,12 @@ const stylesheet = createStyleSheet((theme) => ({
     minWidth: 0,
     color: theme.colors.text,
     fontSize: theme.fontSize.xl,
-    fontWeight: '800',
+    fontFamily: theme.fontFamily.extraBold,
   },
   sectionTitle: {
     color: theme.colors.textMuted,
     fontSize: theme.fontSize.sm,
-    fontWeight: '700',
+    fontFamily: theme.fontFamily.bold,
     textTransform: 'uppercase',
     letterSpacing: 0,
   },
@@ -851,7 +851,7 @@ const stylesheet = createStyleSheet((theme) => ({
     flexShrink: 1,
     color: theme.colors.text,
     fontSize: theme.fontSize.md,
-    fontWeight: '600',
+    fontFamily: theme.fontFamily.semiBold,
   },
   badgeRow: {
     flexDirection: 'row',
@@ -867,7 +867,7 @@ const stylesheet = createStyleSheet((theme) => ({
   badgeText: {
     color: theme.colors.accent,
     fontSize: theme.fontSize.xs,
-    fontWeight: '600',
+    fontFamily: theme.fontFamily.semiBold,
   },
   badgeMuted: {
     backgroundColor: theme.colors.surface2,
@@ -880,12 +880,12 @@ const stylesheet = createStyleSheet((theme) => ({
   badgeMutedText: {
     color: theme.colors.textMuted,
     fontSize: theme.fontSize.xs,
-    fontWeight: '700',
+    fontFamily: theme.fontFamily.bold,
   },
   emptyText: {
     color: theme.colors.textMuted,
     fontSize: theme.fontSize.md,
-    fontWeight: '600',
+    fontFamily: theme.fontFamily.semiBold,
     textAlign: 'center',
   },
   emptyState: {
@@ -929,7 +929,7 @@ const stylesheet = createStyleSheet((theme) => ({
   createTitle: {
     color: theme.colors.text,
     fontSize: theme.fontSize.lg,
-    fontWeight: '800',
+    fontFamily: theme.fontFamily.extraBold,
   },
   createInput: {
     minHeight: 48,
@@ -940,7 +940,7 @@ const stylesheet = createStyleSheet((theme) => ({
     paddingHorizontal: theme.spacing.md,
     color: theme.colors.text,
     fontSize: theme.fontSize.md,
-    fontWeight: '600',
+    fontFamily: theme.fontFamily.semiBold,
   },
   singleMethodBox: {
     flexDirection: 'row',
@@ -960,7 +960,7 @@ const stylesheet = createStyleSheet((theme) => ({
   singleMethodTitle: {
     color: theme.colors.text,
     fontSize: theme.fontSize.md,
-    fontWeight: '700',
+    fontFamily: theme.fontFamily.bold,
   },
   singleMethodHint: {
     color: theme.colors.textMuted,
@@ -976,7 +976,7 @@ const stylesheet = createStyleSheet((theme) => ({
   methodPickerTitle: {
     color: theme.colors.textMuted,
     fontSize: theme.fontSize.xs,
-    fontWeight: '800',
+    fontFamily: theme.fontFamily.extraBold,
     textTransform: 'uppercase',
     letterSpacing: 0,
     paddingHorizontal: theme.spacing.md,
@@ -1001,16 +1001,16 @@ const stylesheet = createStyleSheet((theme) => ({
   methodChoiceText: {
     color: theme.colors.text,
     fontSize: theme.fontSize.md,
-    fontWeight: '600',
+    fontFamily: theme.fontFamily.semiBold,
   },
   methodChoiceTextActive: {
     color: theme.colors.accent,
-    fontWeight: '800',
+    fontFamily: theme.fontFamily.extraBold,
   },
   errorText: {
     color: theme.colors.danger,
     fontSize: theme.fontSize.sm,
-    fontWeight: '700',
+    fontFamily: theme.fontFamily.bold,
   },
   createActions: {
     flexDirection: 'row',
@@ -1029,7 +1029,7 @@ const stylesheet = createStyleSheet((theme) => ({
   secondaryButtonText: {
     color: theme.colors.text,
     fontSize: theme.fontSize.md,
-    fontWeight: '700',
+    fontFamily: theme.fontFamily.bold,
   },
   primaryButton: {
     flex: 1,
@@ -1044,6 +1044,6 @@ const stylesheet = createStyleSheet((theme) => ({
   primaryButtonText: {
     color: '#FFFFFF',
     fontSize: theme.fontSize.md,
-    fontWeight: '800',
+    fontFamily: theme.fontFamily.extraBold,
   },
 }))

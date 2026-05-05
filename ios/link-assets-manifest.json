@@ -1,0 +1,37 @@
+{
+  "migIndex": 1,
+  "data": [
+    {
+      "path": "assets/fonts/INTER_TIGHT_LICENSE.txt",
+      "sha1": "5b9ae396dd39dea3cae70baee3826559f8af3362"
+    },
+    {
+      "path": "assets/fonts/InterTight_300Light.ttf",
+      "sha1": "d9a7a114754adeccd1852c2eae7f3f8e0ece1719"
+    },
+    {
+      "path": "assets/fonts/InterTight_400Regular.ttf",
+      "sha1": "236dec5e7d0c08f3221a64281d8acd324149cb8b"
+    },
+    {
+      "path": "assets/fonts/InterTight_500Medium.ttf",
+      "sha1": "c0f1ee383ef09b42b631eacbf97e80cec56d55ee"
+    },
+    {
+      "path": "assets/fonts/InterTight_600SemiBold.ttf",
+      "sha1": "13f263b60ce4b5cbe0dcb0c4991d542d24b8a910"
+    },
+    {
+      "path": "assets/fonts/InterTight_700Bold.ttf",
+      "sha1": "523d5132be90d07d77d5effcff8fcd2a5e862179"
+    },
+    {
+      "path": "assets/fonts/InterTight_800ExtraBold.ttf",
+      "sha1": "d0d97a43b29052e2beeafc853403375aed300653"
+    },
+    {
+      "path": "assets/fonts/InterTight_900Black.ttf",
+      "sha1": "679f930e32f4fa64c04bf1962f52895ddf6e7553"
+    }
+  ]
+}

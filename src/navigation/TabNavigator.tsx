@@ -165,95 +165,97 @@ function WorkoutMiniBar() {
 
   return (
     <GestureDetector gesture={swipeUpGesture}>
-      <View style={[styles.miniBar, isResting && styles.miniBarResting]}>
-        <View style={styles.miniBarTopRow}>
-          <TouchableOpacity
-            style={[styles.miniBarMain, isResting && styles.miniBarHeader]}
-            activeOpacity={0.75}
-            onPress={openWorkoutSheet}
-          >
-            <View style={styles.miniBarTitleRow}>
-              <View style={styles.miniBarDot} />
-              <Text
-                style={styles.miniBarTitle}
-              >
-                Workout in Progress
-              </Text>
-            </View>
-            <View style={styles.miniBarTimeRow}>
-              <Text
-                style={styles.miniBarTime}
-              >
-                {formatElapsed(elapsed)}
-              </Text>
-              <MaterialCommunityIcons
-                name="chevron-up"
-                size={isResting ? 18 : 20}
-                color={theme.colors.textMuted}
-              />
-            </View>
-          </TouchableOpacity>
-
-          {!isResting ? (
+      <View style={styles.miniBarWrap}>
+        <View style={[styles.miniBar, isResting && styles.miniBarResting]}>
+          <View style={styles.miniBarTopRow}>
             <TouchableOpacity
-              style={styles.miniEndButton}
-              onPress={requestEndWorkout}
-              activeOpacity={0.75}
-            >
-              <Text style={styles.miniEndButtonText}>
-                End
-              </Text>
-            </TouchableOpacity>
-          ) : null}
-        </View>
-
-        {isResting ? (
-          <>
-            <TouchableOpacity
-              style={styles.miniTimerGrid}
+              style={[styles.miniBarMain, isResting && styles.miniBarHeader]}
               activeOpacity={0.75}
               onPress={openWorkoutSheet}
             >
-              <View style={styles.miniTimerChip}>
-                <Text style={styles.miniTimerLabel}>
-                  Workout
-                </Text>
-                <Text style={styles.miniTimerValue}>
-                  {formatElapsed(elapsed)}
+              <View style={styles.miniBarTitleRow}>
+                <View style={styles.miniBarDot} />
+                <Text
+                  style={styles.miniBarTitle}
+                >
+                  Workout in Progress
                 </Text>
               </View>
-              <View style={[styles.miniTimerChip, styles.miniRestTimerChip]}>
-                <Text style={styles.miniTimerLabel}>
-                  Rest
+              <View style={styles.miniBarTimeRow}>
+                <Text
+                  style={styles.miniBarTime}
+                >
+                  {formatElapsed(elapsed)}
                 </Text>
-                <Text style={styles.miniRestTime}>
-                  {formatRestTimer(restSecondsRemaining)}
-                </Text>
+                <MaterialCommunityIcons
+                  name="chevron-up"
+                  size={isResting ? 18 : 20}
+                  color={theme.colors.textMuted}
+                />
               </View>
             </TouchableOpacity>
 
-            <View style={styles.miniRestRow}>
+            {!isResting ? (
               <TouchableOpacity
-                style={[styles.miniActionButton, styles.miniEndRestButton]}
+                style={styles.miniEndButton}
                 onPress={requestEndWorkout}
                 activeOpacity={0.75}
               >
                 <Text style={styles.miniEndButtonText}>
-                  End Workout
+                  End
                 </Text>
               </TouchableOpacity>
+            ) : null}
+          </View>
+
+          {isResting ? (
+            <>
               <TouchableOpacity
-                style={[styles.miniActionButton, styles.miniSkipButton]}
-                onPress={skipRest}
+                style={styles.miniTimerGrid}
                 activeOpacity={0.75}
+                onPress={openWorkoutSheet}
               >
-                <Text style={styles.miniSkipButtonText}>
-                  Skip Rest
-                </Text>
+                <View style={styles.miniTimerChip}>
+                  <Text style={styles.miniTimerLabel}>
+                    Workout
+                  </Text>
+                  <Text style={styles.miniTimerValue}>
+                    {formatElapsed(elapsed)}
+                  </Text>
+                </View>
+                <View style={[styles.miniTimerChip, styles.miniRestTimerChip]}>
+                  <Text style={styles.miniTimerLabel}>
+                    Rest
+                  </Text>
+                  <Text style={styles.miniRestTime}>
+                    {formatRestTimer(restSecondsRemaining)}
+                  </Text>
+                </View>
               </TouchableOpacity>
-            </View>
-          </>
-        ) : null}
+
+              <View style={styles.miniRestRow}>
+                <TouchableOpacity
+                  style={[styles.miniActionButton, styles.miniEndRestButton]}
+                  onPress={requestEndWorkout}
+                  activeOpacity={0.75}
+                >
+                  <Text style={styles.miniEndButtonText}>
+                    End Workout
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.miniActionButton, styles.miniSkipButton]}
+                  onPress={skipRest}
+                  activeOpacity={0.75}
+                >
+                  <Text style={styles.miniSkipButtonText}>
+                    Skip Rest
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </>
+          ) : null}
+        </View>
       </View>
     </GestureDetector>
   )
@@ -479,7 +481,7 @@ export default function TabNavigator() {
 
 const stylesheet = createStyleSheet((theme) => ({
   tabArea: {
-    backgroundColor: theme.colors.bg,
+    backgroundColor: 'transparent',
   },
   tabBar: {
     flexDirection: 'row',
@@ -525,24 +527,29 @@ const stylesheet = createStyleSheet((theme) => ({
   tabLabel: {
     color: theme.colors.textMuted,
     fontSize: 11,
-    fontWeight: '700',
+    fontFamily: theme.fontFamily.bold,
     textAlign: 'center',
   },
   tabLabelActive: {
     color: theme.colors.accent,
-    fontWeight: '800',
+    fontFamily: theme.fontFamily.extraBold,
+  },
+  miniBarWrap: {
+    backgroundColor: 'transparent',
+    paddingHorizontal: 0,
   },
   miniBar: {
     backgroundColor: theme.colors.surface,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
+    borderTopLeftRadius: theme.radius.lg,
+    borderTopRightRadius: theme.radius.lg,
     borderWidth: 1,
-    borderBottomWidth: 0,
     borderColor: theme.colors.border,
-    paddingHorizontal: 16,
+    borderBottomWidth: 1,
+    paddingHorizontal: 18,
     paddingVertical: 14,
     minHeight: 72,
     overflow: 'hidden',
+    marginBottom: -1,
   },
   miniBarResting: {
     gap: 9,
@@ -578,7 +585,7 @@ const stylesheet = createStyleSheet((theme) => ({
   miniBarTitle: {
     color: theme.colors.text,
     fontSize: 14,
-    fontWeight: '600',
+    fontFamily: theme.fontFamily.semiBold,
   },
   miniBarTimeRow: {
     flexDirection: 'row',
@@ -588,7 +595,7 @@ const stylesheet = createStyleSheet((theme) => ({
   miniBarTime: {
     color: theme.colors.accent,
     fontSize: 18,
-    fontWeight: '800',
+    fontFamily: theme.fontFamily.extraBold,
   },
   miniRestRow: {
     flexDirection: 'row',
@@ -618,18 +625,18 @@ const stylesheet = createStyleSheet((theme) => ({
   miniTimerLabel: {
     color: theme.colors.textMuted,
     fontSize: 11,
-    fontWeight: '800',
+    fontFamily: theme.fontFamily.extraBold,
     textTransform: 'uppercase',
   },
   miniTimerValue: {
     color: theme.colors.accent,
     fontSize: 16,
-    fontWeight: '900',
+    fontFamily: theme.fontFamily.black,
   },
   miniRestTime: {
     color: theme.colors.accent,
     fontSize: 16,
-    fontWeight: '900',
+    fontFamily: theme.fontFamily.black,
   },
   miniActionButton: {
     flex: 1,
@@ -647,7 +654,7 @@ const stylesheet = createStyleSheet((theme) => ({
   miniSkipButtonText: {
     color: theme.colors.accent,
     fontSize: 13,
-    fontWeight: '800',
+    fontFamily: theme.fontFamily.extraBold,
   },
   miniEndRestButton: {
     backgroundColor: theme.colors.surface2,
@@ -665,6 +672,6 @@ const stylesheet = createStyleSheet((theme) => ({
   miniEndButtonText: {
     color: theme.colors.textMuted,
     fontSize: 13,
-    fontWeight: '800',
+    fontFamily: theme.fontFamily.extraBold,
   },
 }))

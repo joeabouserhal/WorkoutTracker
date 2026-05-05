@@ -236,6 +236,7 @@ export type WorkoutWeightPrAchievement = {
   weightUnit: string
   reps: number
   isCurrentWeightPr: boolean
+  hasPriorExerciseHistory: boolean
 }
 
 type WeightPrHistorySetRow = {
@@ -590,8 +591,29 @@ export async function getWorkoutWeightPrAchievements(
     {},
   )
   const workoutSetIds = new Set(workoutRows.map((row) => row.setId))
+  const exerciseTypeIds = workoutRows.map((row) => row.exerciseTypeId)
+  const uniqueExerciseTypeIds = [...new Set(exerciseTypeIds)].filter(Boolean)
+  const priorExerciseTypeIds = new Set<string>()
+  if (uniqueExerciseTypeIds.length > 0) {
+    const placeholders = uniqueExerciseTypeIds.map(() => '?').join(', ')
+    const priorRows = (await db.$client.execute(
+      `SELECT DISTINCT e.exercise_type_id as exerciseTypeId
+       FROM sets s
+       JOIN workout_exercises we ON we.id = s.workout_exercise_id
+       JOIN exercises e ON e.id = we.exercise_id
+       JOIN workouts w ON w.id = we.workout_id
+       WHERE e.exercise_type_id IN (${placeholders})
+         AND w.id <> ?
+         AND w.ended_at IS NOT NULL
+         AND s.weight > 0`,
+      [...uniqueExerciseTypeIds, workoutId],
+    )).rows as Array<{ exerciseTypeId: string }>
+    for (const row of priorRows) {
+      priorExerciseTypeIds.add(row.exerciseTypeId)
+    }
+  }
   const historyRows = await getWeightPrHistoryForExerciseTypes(
-    workoutRows.map((row) => row.exerciseTypeId),
+    exerciseTypeIds,
   )
   const groupedRows = historyRows.reduce<Record<string, WeightPrHistorySetRow[]>>((acc, row) => {
     const key = weightPrKey(row.exerciseTypeId, row.methodId)
@@ -623,6 +645,7 @@ export async function getWorkoutWeightPrAchievements(
             weightUnit: workoutRow.weightUnit === 'lb' ? 'lb' : 'kg',
             reps: workoutRow.reps,
             isCurrentWeightPr: Math.abs(row.weightKg - maxWeight) < 0.000001,
+            hasPriorExerciseHistory: priorExerciseTypeIds.has(workoutRow.exerciseTypeId),
           })
         }
       }

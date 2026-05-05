@@ -16,6 +16,17 @@ import type { ProfileStackParamList } from '../navigation/TabNavigator'
 import ThemedDialog, { type ThemedDialogAction } from '@/components/ui/ThemedDialog'
 
 type Props = NativeStackScreenProps<ProfileStackParamList, 'EditProfile'>
+type LoadedProfile = NonNullable<Awaited<ReturnType<typeof getProfile>>>
+
+const KG_TO_LB = 2.20462
+const FT_TO_CM = 30.48
+const VALUE_EPSILON = 0.000001
+
+function valuesEqual(a: number | null | undefined, b: number | null | undefined): boolean {
+  if (a == null && b == null) return true
+  if (a == null || b == null) return false
+  return Math.abs(a - b) < VALUE_EPSILON
+}
 
 export default function EditProfileScreen({ navigation }: Props) {
   const { styles, theme } = useStyles(stylesheet)
@@ -25,6 +36,7 @@ export default function EditProfileScreen({ navigation }: Props) {
   const [height, setHeight] = useState('')
   const [weightUnit, setWeightUnit] = useState<'kg' | 'lb'>('kg')
   const [heightUnit, setHeightUnit] = useState<'cm' | 'ft'>('cm')
+  const [loadedProfile, setLoadedProfile] = useState<LoadedProfile | null>(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [dialog, setDialog] = useState<{
@@ -50,6 +62,7 @@ export default function EditProfileScreen({ navigation }: Props) {
       try {
         const p = await getProfile()
         if (p) {
+          setLoadedProfile(p)
           setName(p.name || '')
           setWeightUnit((p.defaultWeightUnit === 'lb' ? 'lb' : 'kg') as 'kg' | 'lb')
           setHeightUnit((p.heightUnit === 'ft' ? 'ft' : 'cm') as 'cm' | 'ft')
@@ -57,14 +70,14 @@ export default function EditProfileScreen({ navigation }: Props) {
           // Convert stored values (always in kg/cm) to display units
           if (p.weight) {
             const displayWeight = p.defaultWeightUnit === 'lb'
-              ? (p.weight * 2.20462).toFixed(1) // kg to lb
+              ? (p.weight * KG_TO_LB).toFixed(1) // kg to lb
               : p.weight.toString()
             setWeight(displayWeight)
           }
 
           if (p.height) {
             const displayHeight = p.heightUnit === 'ft'
-              ? (p.height / 30.48).toFixed(2) // cm to ft
+              ? (p.height / FT_TO_CM).toFixed(2) // cm to ft
               : p.height.toString()
             setHeight(displayHeight)
           }
@@ -88,21 +101,41 @@ export default function EditProfileScreen({ navigation }: Props) {
       const weightNum = weight ? parseFloat(weight) : undefined
 
       const storedHeight = heightNum && heightUnit === 'ft'
-        ? heightNum * 30.48 // ft to cm
+        ? heightNum * FT_TO_CM // ft to cm
         : heightNum
 
       const storedWeight = weightNum && weightUnit === 'lb'
-        ? weightNum / 2.20462 // lb to kg
+        ? weightNum / KG_TO_LB // lb to kg
         : weightNum
 
-      await upsertProfile({
-        name: name.trim(),
-        height: storedHeight,
-      })
+      const profileChanges: Parameters<typeof upsertProfile>[0] = {}
+      const nextName = name.trim()
+      if (nextName !== (loadedProfile?.name ?? '')) {
+        profileChanges.name = nextName
+      }
+      if (!valuesEqual(storedHeight, loadedProfile?.height)) {
+        profileChanges.height = storedHeight
+      }
 
-      if (storedWeight !== undefined) {
+      if (Object.keys(profileChanges).length > 0) {
+        await upsertProfile(profileChanges)
+      }
+
+      if (
+        storedWeight !== undefined &&
+        !valuesEqual(storedWeight, loadedProfile?.weight)
+      ) {
         await logBodyWeight(storedWeight)
       }
+
+      if (
+        Object.keys(profileChanges).length === 0 &&
+        (storedWeight === undefined || valuesEqual(storedWeight, loadedProfile?.weight))
+      ) {
+        showDialog('No Changes', 'There are no profile changes to save.')
+        return
+      }
+
       showDialog('Profile Updated', 'Your profile changes were saved.', [
         {
           label: 'OK',

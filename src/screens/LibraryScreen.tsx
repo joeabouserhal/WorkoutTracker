@@ -43,6 +43,8 @@ type Step = 'sections' | 'exerciseTypes' | 'methods'
 type CreateMode = 'section' | 'exercise' | 'method'
 const PR_GOLD = '#D9A441'
 const LB_PER_KG = 2.20462
+const LIBRARY_HEADER_TOP_ROW_HEIGHT = 29
+const LIBRARY_BREADCRUMB_SLOT_HEIGHT = 20
 
 function formatCompactNumber(value: number) {
   return Number.parseFloat(value.toFixed(2)).toString()
@@ -235,26 +237,6 @@ export default function LibraryScreen() {
       selectedExerciseType?.methodLocked ? 'Method' : 'Methods',
     ]
   }, [selectedExerciseType, selectedSection, step])
-
-  const pageTitle = step === 'sections'
-    ? 'Library'
-    : step === 'exerciseTypes'
-      ? selectedSection?.name ?? 'Exercises'
-      : selectedExerciseType?.name ?? 'Methods'
-
-  const sectionLabel = step === 'sections'
-    ? 'Sections'
-    : step === 'exerciseTypes'
-      ? 'Exercises'
-      : selectedExerciseType?.methodLocked
-        ? 'Method'
-        : 'Methods'
-
-  const itemCount = step === 'sections'
-    ? sectionList.length
-    : step === 'exerciseTypes'
-      ? exerciseTypeList.length
-      : methodList.length
 
   const createTitle = createMode === 'section'
     ? 'Add Section'
@@ -636,62 +618,49 @@ export default function LibraryScreen() {
   return (
     <View style={styles.root}>
       <ScreenHeader
-        title={pageTitle}
+        title="Library"
         onBack={step !== 'sections' ? handleBack : undefined}
         showFade={showHeaderFade}
-        rightContent={(
+        beforeTitle={step === 'sections' ? <View style={styles.headerTopSpacer} /> : null}
+        titleRight={(
           <ScreenHeaderButton label="Add" iconName="plus" onPress={openCreateModal} />
         )}
-        beforeTitle={breadcrumbItems.length > 0 ? (
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.breadcrumbContent}
-            style={styles.breadcrumbScroll}
-            scrollEnabled
-          >
-            {breadcrumbItems.map((item, index) => {
-              const isLast = index === breadcrumbItems.length - 1
-              return (
-                <React.Fragment key={`${item}-${index}`}>
-                  <Text
-                    style={[
-                      styles.breadcrumbText,
-                      isLast && styles.breadcrumbCurrent,
-                    ]}
-                    numberOfLines={1}
-                  >
-                    {item}
-                  </Text>
-                  {!isLast ? (
-                    <MaterialCommunityIcons
-                      name="chevron-right"
-                      size={16}
-                      color={theme.colors.textMuted}
-                    />
-                  ) : null}
-                </React.Fragment>
-              )
-            })}
-          </ScrollView>
+        afterTitle={breadcrumbItems.length > 0 ? (
+          <View style={styles.breadcrumbSlot}>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.breadcrumbContent}
+              style={styles.breadcrumbScroll}
+              scrollEnabled
+            >
+              {breadcrumbItems.map((item, index) => {
+                const isLast = index === breadcrumbItems.length - 1
+                return (
+                  <React.Fragment key={`${item}-${index}`}>
+                    <Text
+                      style={[
+                        styles.breadcrumbText,
+                        isLast && styles.breadcrumbCurrent,
+                      ]}
+                      numberOfLines={1}
+                    >
+                      {item}
+                    </Text>
+                    {!isLast ? (
+                      <MaterialCommunityIcons
+                        name="chevron-right"
+                        size={16}
+                        color={theme.colors.textMuted}
+                      />
+                    ) : null}
+                  </React.Fragment>
+                )
+              })}
+            </ScrollView>
+          </View>
         ) : (
-          <View style={styles.breadcrumbSpacer} />
-        )}
-        titleRight={(
-          <View style={styles.countPill}>
-            <Text style={styles.countPillText}>{itemCount}</Text>
-          </View>
-        )}
-        afterTitle={(
-          <View style={styles.sectionTitleRow}>
-            <Text style={styles.sectionTitle}>{sectionLabel}</Text>
-            {step === 'methods' && showRestoreDefaults ? (
-              <TouchableOpacity style={styles.restoreButton} onPress={restoreDefaultMethods}>
-                <MaterialCommunityIcons name="restore" size={14} color={theme.colors.accent} />
-                <Text style={styles.restoreButtonText}>Restore Defaults</Text>
-              </TouchableOpacity>
-            ) : null}
-          </View>
+          <View style={styles.breadcrumbSlot} />
         )}
       />
 
@@ -702,6 +671,14 @@ export default function LibraryScreen() {
         onScroll={handleHeaderScroll}
         scrollEventThrottle={16}
       >
+        {step === 'methods' && showRestoreDefaults ? (
+          <View style={styles.restoreRow}>
+            <TouchableOpacity style={styles.restoreButton} onPress={restoreDefaultMethods}>
+              <MaterialCommunityIcons name="restore" size={14} color={theme.colors.accent} />
+              <Text style={styles.restoreButtonText}>Restore Defaults</Text>
+            </TouchableOpacity>
+          </View>
+        ) : null}
         <View style={styles.listPanel}>
           {renderContent()}
         </View>
@@ -883,9 +860,15 @@ const stylesheet = createStyleSheet((theme) => ({
     flex: 1,
     backgroundColor: theme.colors.bg,
   },
+  headerTopSpacer: {
+    height: LIBRARY_HEADER_TOP_ROW_HEIGHT,
+  },
+  breadcrumbSlot: {
+    height: LIBRARY_BREADCRUMB_SLOT_HEIGHT,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   breadcrumbScroll: {
-    marginTop: 6,
-    marginBottom: 2,
     minWidth: 0,
     alignSelf: 'center',
     maxWidth: '100%',
@@ -900,8 +883,9 @@ const stylesheet = createStyleSheet((theme) => ({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 3,
-    paddingHorizontal: 8,
+    paddingHorizontal: 7,
     paddingVertical: 0,
+    minHeight: 18,
   },
   breadcrumbText: {
     color: theme.colors.text,
@@ -915,47 +899,17 @@ const stylesheet = createStyleSheet((theme) => ({
     fontWeight: '800',
     maxWidth: 84,
   },
-  breadcrumbSpacer: {
-    height: 20,
-    marginTop: 6,
-    marginBottom: 2,
-  },
   deleteAction: {
     width: 72,
     backgroundColor: theme.colors.danger,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  countPill: {
-    minWidth: 34,
-    height: 28,
-    borderRadius: theme.radius.full,
-    backgroundColor: theme.colors.surface,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: theme.spacing.sm,
-  },
-  countPillText: {
-    color: theme.colors.accent,
-    fontSize: theme.fontSize.sm,
-    fontWeight: '800',
-  },
-  sectionTitleRow: {
-    minHeight: 28,
+  restoreRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: theme.spacing.sm,
-    marginTop: theme.spacing.md,
-  },
-  sectionTitle: {
-    color: theme.colors.textMuted,
-    fontSize: theme.fontSize.sm,
-    fontWeight: '600',
-    textTransform: 'uppercase',
-    letterSpacing: 0,
+    justifyContent: 'flex-end',
+    marginBottom: theme.spacing.sm,
   },
   restoreButton: {
     flexDirection: 'row',

@@ -311,11 +311,6 @@ export default function ExercisePickerModal({ visible, onClose }: Props) {
       : selectedExerciseType?.methodLocked
         ? 'Method'
         : 'Methods'
-  const itemCount = step === 'sections'
-    ? sectionList.length
-    : step === 'exerciseTypes'
-      ? exerciseTypeList.length
-      : methodList.length
   const createTitle = createMode === 'section'
     ? 'Add Body Part'
     : createMode === 'exercise'
@@ -393,9 +388,6 @@ export default function ExercisePickerModal({ visible, onClose }: Props) {
 
                 <View style={styles.titleBlock}>
                   <Text style={styles.pageTitle} numberOfLines={1}>{pageTitle}</Text>
-                  <View style={styles.countPill}>
-                    <Text style={styles.countPillText}>{itemCount}</Text>
-                  </View>
                 </View>
                 <Text style={styles.sectionTitle}>{sectionLabel}</Text>
               </View>
@@ -796,22 +788,6 @@ const stylesheet = createStyleSheet((theme) => ({
     minWidth: 0,
     color: theme.colors.text,
     fontSize: theme.fontSize.xl,
-    fontWeight: '800',
-  },
-  countPill: {
-    minWidth: 32,
-    height: 26,
-    borderRadius: theme.radius.full,
-    backgroundColor: theme.colors.surface,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: theme.spacing.sm,
-  },
-  countPillText: {
-    color: theme.colors.accent,
-    fontSize: theme.fontSize.sm,
     fontWeight: '800',
   },
   sectionTitle: {

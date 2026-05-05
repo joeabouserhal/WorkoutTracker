@@ -136,7 +136,7 @@ const stylesheet = createStyleSheet((theme) => ({
   },
   button: {
     minHeight: 48,
-    borderRadius: theme.radius.full,
+    borderRadius: theme.radius.md,
     borderWidth: 1,
     borderColor: theme.colors.border,
     backgroundColor: theme.colors.surface2,

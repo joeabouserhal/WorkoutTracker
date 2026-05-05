@@ -81,25 +81,42 @@ export async function upsertProfile(data: {
 }) {
   await ensureProfileTable()
 
-  const existing = await getProfile()
+  const fields: string[] = []
+  const values: Array<number | string | null> = []
+
+  if ('name' in data) {
+    fields.push('name = ?')
+    values.push(data.name ?? null)
+  }
+  if ('height' in data) {
+    fields.push('height = ?')
+    values.push(data.height ?? null)
+  }
+  if ('weight' in data) {
+    fields.push('weight = ?')
+    values.push(data.weight ?? null)
+  }
+  if ('heightUnit' in data) {
+    fields.push('height_unit = ?')
+    values.push(data.heightUnit ?? 'cm')
+  }
+  if ('defaultWeightUnit' in data) {
+    fields.push('default_weight_unit = ?')
+    values.push(data.defaultWeightUnit ?? 'kg')
+  }
+
+  if (fields.length === 0) return
+
   await db.$client.execute(
-    `
-      INSERT OR REPLACE INTO profile (
-        id,
-        name,
-        height,
-        weight,
-        height_unit,
-        default_weight_unit
-      ) VALUES (?, ?, ?, ?, ?, ?)
-    `,
-    [
-      PROFILE_ID,
-      data.name ?? existing?.name ?? null,
-      data.height ?? existing?.height ?? null,
-      data.weight ?? existing?.weight ?? null,
-      data.heightUnit ?? existing?.heightUnit ?? 'cm',
-      data.defaultWeightUnit ?? existing?.defaultWeightUnit ?? 'kg',
-    ]
+    `INSERT OR IGNORE INTO profile (
+      id,
+      height_unit,
+      default_weight_unit
+    ) VALUES (?, ?, ?)`,
+    [PROFILE_ID, 'cm', 'kg'],
+  )
+  await db.$client.execute(
+    `UPDATE profile SET ${fields.join(', ')} WHERE id = ?`,
+    [...values, PROFILE_ID],
   )
 }

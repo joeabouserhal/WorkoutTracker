@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   AppState,
   Animated,
+  Easing,
   Keyboard,
   Modal,
   PanResponder,
@@ -65,6 +66,26 @@ type LocalSet = {
 }
 
 const LB_PER_KG = 2.20462
+const PR_GOLD = '#D9A441'
+const SHEET_TOP_SWIPE_TOLERANCE = 10
+const SHEET_SWIPE_CAPTURE_DISTANCE = 6
+const SHEET_SWIPE_CLOSE_DISTANCE = 48
+const SHEET_SWIPE_CLOSE_VELOCITY = 0.48
+const PR_CONFETTI_COLORS = [PR_GOLD, '#F7D774', '#FFFFFF', '#75C7E6', '#8FE3B0']
+const PR_CONFETTI = Array.from({ length: 22 }, (_, index) => {
+  const column = index % 11
+  const row = Math.floor(index / 11)
+  return {
+    left: `${6 + column * 8.8}%`,
+    top: 72 + row * 18,
+    size: 6 + (index % 3) * 2,
+    color: PR_CONFETTI_COLORS[index % PR_CONFETTI_COLORS.length],
+    translateX: (column - 5) * (7 + row * 3),
+    translateY: 92 + (index % 5) * 14,
+    rotate: column % 2 === 0 ? 160 : -160,
+    delay: index * 16,
+  }
+})
 
 function formatConvertedWeight(value: number): string {
   return Number.parseFloat(value.toFixed(2)).toString()
@@ -252,6 +273,10 @@ export default function ActiveWorkoutSheet() {
   const [draggingExerciseId, setDraggingExerciseId] = useState<string | null>(null)
   const elapsedRef = useRef(0)
   const startedAtRef = useRef<number | null>(null)
+  const prConfettiAnimations = useRef(
+    PR_CONFETTI.map(() => new Animated.Value(0)),
+  ).current
+  const prSpotlightAnimation = useRef(new Animated.Value(0)).current
   const restDoneNotifiedRef = useRef(false)
   const keyboardHeightRef = useRef(0)
   const footerHeightRef = useRef(0)
@@ -273,6 +298,7 @@ export default function ActiveWorkoutSheet() {
   const exerciseDragTranslateY = useRef(new Animated.Value(0)).current
   const localSetsDraftHydratedForWorkoutRef = useRef<string | null>(null)
   const focusedSetKeyRef = useRef<string | null>(null)
+  const sheetScrollAtTopRef = useRef(true)
   const sheetScrollAtTop = useSharedValue(true)
 
   const {
@@ -328,7 +354,10 @@ export default function ActiveWorkoutSheet() {
       await updateWorkoutName(activeWorkoutId, workoutName)
       await finishWorkout(activeWorkoutId)
       achievements = (await getWorkoutWeightPrAchievements(activeWorkoutId))
-        .filter((achievement) => achievement.previousWeightKg !== null)
+        .filter((achievement) =>
+          achievement.previousWeightKg !== null &&
+          achievement.hasPriorExerciseHistory,
+        )
     }
     if (achievements.length > 0) {
       await cancelWorkoutNotification()
@@ -342,6 +371,43 @@ export default function ActiveWorkoutSheet() {
     setPrCelebration([])
     endWorkout()
   }, [endWorkout])
+
+  useEffect(() => {
+    prConfettiAnimations.forEach((animation) => animation.setValue(0))
+    prSpotlightAnimation.stopAnimation()
+    prSpotlightAnimation.setValue(0)
+    if (prCelebration.length === 0) return
+
+    Animated.parallel(
+      prConfettiAnimations.map((animation, index) =>
+        Animated.timing(animation, {
+          toValue: 1,
+          duration: 980 + (index % 4) * 80,
+          delay: PR_CONFETTI[index].delay,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: true,
+        }),
+      ),
+    ).start()
+    const breatheAnimation = Animated.loop(
+      Animated.sequence([
+        Animated.timing(prSpotlightAnimation, {
+          toValue: 1,
+          duration: 1650,
+          easing: Easing.inOut(Easing.sin),
+          useNativeDriver: true,
+        }),
+        Animated.timing(prSpotlightAnimation, {
+          toValue: 0,
+          duration: 1650,
+          easing: Easing.inOut(Easing.sin),
+          useNativeDriver: true,
+        }),
+      ]),
+    )
+    breatheAnimation.start()
+    return () => breatheAnimation.stop()
+  }, [prCelebration.length, prConfettiAnimations, prSpotlightAnimation])
 
   const discardWorkout = useCallback(async () => {
     if (activeWorkoutId) await deleteWorkout(activeWorkoutId)
@@ -560,6 +626,7 @@ export default function ActiveWorkoutSheet() {
     focusedSetKeyRef.current = null
     setLayoutRef.current = {}
     scrollOffsetRef.current = 0
+    sheetScrollAtTopRef.current = true
     exerciseLayoutRef.current = {}
     exerciseDragRef.current = null
     exerciseShiftValuesRef.current = {}
@@ -804,10 +871,43 @@ export default function ActiveWorkoutSheet() {
     if (activeWorkoutId) openWorkoutSheet()
   }
 
+  const sheetSwipePanHandlers = useMemo(() =>
+    PanResponder.create({
+      onMoveShouldSetPanResponderCapture: (_event, gestureState) => {
+        if (draggingExerciseId) return false
+        if (!sheetScrollAtTopRef.current) return false
+        if (gestureState.dy <= SHEET_SWIPE_CAPTURE_DISTANCE) return false
+        return Math.abs(gestureState.dx) < 72 ||
+          gestureState.dy > Math.abs(gestureState.dx) * 0.55
+      },
+      onPanResponderTerminationRequest: () => false,
+      onPanResponderRelease: (_event, gestureState) => {
+        if (!sheetScrollAtTopRef.current) return
+        if (
+          gestureState.dy > SHEET_SWIPE_CLOSE_DISTANCE ||
+          gestureState.vy > SHEET_SWIPE_CLOSE_VELOCITY
+        ) {
+          handleCloseSheet()
+        }
+      },
+      onPanResponderTerminate: (_event, gestureState) => {
+        if (!sheetScrollAtTopRef.current) return
+        if (
+          gestureState.dy > SHEET_SWIPE_CLOSE_DISTANCE + 18 ||
+          gestureState.vy > SHEET_SWIPE_CLOSE_VELOCITY + 0.2
+        ) {
+          handleCloseSheet()
+        }
+      },
+    }).panHandlers,
+  [draggingExerciseId, handleCloseSheet])
+
   function handleScroll(event: NativeSyntheticEvent<NativeScrollEvent>) {
     const offsetY = event.nativeEvent.contentOffset.y
     scrollOffsetRef.current = offsetY
-    sheetScrollAtTop.value = offsetY <= 2
+    const isAtTop = offsetY <= SHEET_TOP_SWIPE_TOLERANCE
+    sheetScrollAtTopRef.current = isAtTop
+    sheetScrollAtTop.value = isAtTop
   }
 
   function handleScrollLayout(event: LayoutChangeEvent) {
@@ -1278,11 +1378,14 @@ export default function ActiveWorkoutSheet() {
   }
 
   const swipeDownToCloseGesture = Gesture.Pan()
-    .activeOffsetY(24)
-    .failOffsetX([-14, 14])
+    .activeOffsetY(SHEET_SWIPE_CAPTURE_DISTANCE)
+    .failOffsetX([-90, 90])
     .onEnd((event) => {
       if (!sheetScrollAtTop.value) return
-      if (event.translationY > 95 || event.velocityY > 760) {
+      if (
+        event.translationY > SHEET_SWIPE_CLOSE_DISTANCE ||
+        event.velocityY > SHEET_SWIPE_CLOSE_VELOCITY * 1000
+      ) {
         runOnJS(handleCloseSheet)()
       }
     })
@@ -1301,7 +1404,10 @@ export default function ActiveWorkoutSheet() {
         >
         <GestureHandlerRootView style={styles.gestureRoot}>
         <GestureDetector gesture={swipeDownToCloseGesture}>
-        <View style={[styles.root, { paddingTop: insets.top }]}>
+        <View
+          style={[styles.root, { paddingTop: insets.top }]}
+          {...sheetSwipePanHandlers}
+        >
           {/* Fixed header */}
           <View style={styles.header}>
             <TouchableOpacity style={styles.iconBtn} onPress={handleCloseSheet}>
@@ -1668,15 +1774,91 @@ export default function ActiveWorkoutSheet() {
             },
           ]}
         >
+          <View pointerEvents="none" style={styles.prConfettiLayer}>
+            {PR_CONFETTI.map((piece, index) => {
+              const animation = prConfettiAnimations[index]
+              return (
+                <Animated.View
+                  key={`${piece.left}-${index}`}
+                  style={[
+                    styles.prConfettiPiece,
+                    {
+                      left: piece.left as `${number}%`,
+                      top: piece.top,
+                      width: piece.size,
+                      height: piece.size * 1.45,
+                      backgroundColor: piece.color,
+                      opacity: animation.interpolate({
+                        inputRange: [0, 0.12, 0.72, 1],
+                        outputRange: [0, 1, 1, 0],
+                      }),
+                      transform: [
+                        {
+                          translateX: animation.interpolate({
+                            inputRange: [0, 1],
+                            outputRange: [0, piece.translateX],
+                          }),
+                        },
+                        {
+                          translateY: animation.interpolate({
+                            inputRange: [0, 1],
+                            outputRange: [0, piece.translateY],
+                          }),
+                        },
+                        {
+                          rotate: animation.interpolate({
+                            inputRange: [0, 1],
+                            outputRange: ['0deg', `${piece.rotate}deg`],
+                          }),
+                        },
+                      ],
+                    },
+                  ]}
+                />
+              )
+            })}
+          </View>
           <View style={styles.prCelebrationCard}>
-            <View style={styles.prCelebrationIcon}>
-              <MaterialCommunityIcons name="trophy-outline" size={34} color="#D9A441" />
+            <View style={styles.prHero}>
+              <View style={styles.prCelebrationIconHalo}>
+                <Animated.View
+                  pointerEvents="none"
+                  style={[
+                    styles.prCelebrationGlow,
+                    {
+                      opacity: prSpotlightAnimation.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [0.45, 0.9],
+                      }),
+                      transform: [
+                        {
+                          scale: prSpotlightAnimation.interpolate({
+                            inputRange: [0, 1],
+                            outputRange: [0.86, 1.18],
+                          }),
+                        },
+                      ],
+                    },
+                  ]}
+                />
+                <View style={styles.prCelebrationIcon}>
+                  <MaterialCommunityIcons name="trophy-variant-outline" size={38} color={PR_GOLD} />
+                </View>
+              </View>
+              <Text style={styles.prCelebrationEyebrow}>New Personal Record</Text>
+              <Text style={styles.prCelebrationTitle}>That one counts.</Text>
+              <Text style={styles.prCelebrationMessage}>
+                You pushed your top weight higher this workout.
+              </Text>
+              <View style={styles.prSummaryPill}>
+                <MaterialCommunityIcons name="weight-lifter" size={14} color={PR_GOLD} />
+                <Text style={styles.prSummaryPillText}>
+                  {prCelebration.length === 1
+                    ? '1 weight PR'
+                    : `${prCelebration.length} weight PRs`}
+                </Text>
+              </View>
             </View>
-            <Text style={styles.prCelebrationEyebrow}>New Personal Record</Text>
-            <Text style={styles.prCelebrationTitle}>That one counts.</Text>
-            <Text style={styles.prCelebrationMessage}>
-              You pushed your top weight higher this workout.
-            </Text>
 
             <ScrollView
               style={styles.prList}
@@ -2260,7 +2442,7 @@ const stylesheet = createStyleSheet((theme) => ({
   },
   dialogButton: {
     minHeight: 48,
-    borderRadius: theme.radius.full,
+    borderRadius: theme.radius.md,
     borderWidth: 1,
     borderColor: theme.colors.border,
     backgroundColor: theme.colors.surface2,
@@ -2306,19 +2488,59 @@ const stylesheet = createStyleSheet((theme) => ({
     paddingHorizontal: theme.spacing.md,
     justifyContent: 'center',
   },
+  prConfettiLayer: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    zIndex: 2,
+  },
+  prConfettiPiece: {
+    position: 'absolute',
+    borderRadius: 2,
+  },
   prCelebrationCard: {
     maxHeight: '92%',
     backgroundColor: theme.colors.surface,
     borderRadius: theme.radius.lg,
     borderWidth: 1,
-    borderColor: theme.colors.border,
+    borderColor: PR_GOLD + '44',
     padding: theme.spacing.lg,
     gap: theme.spacing.md,
+    position: 'relative',
+    overflow: 'hidden',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 10 },
     shadowOpacity: 0.24,
     shadowRadius: 20,
     elevation: 10,
+  },
+  prCelebrationGlow: {
+    position: 'absolute',
+    width: 104,
+    height: 104,
+    borderRadius: theme.radius.full,
+    backgroundColor: PR_GOLD + '2A',
+    zIndex: 0,
+  },
+  prHero: {
+    alignItems: 'center',
+    gap: theme.spacing.xs,
+    paddingTop: theme.spacing.xs,
+    zIndex: 1,
+  },
+  prCelebrationIconHalo: {
+    width: 88,
+    height: 88,
+    borderRadius: theme.radius.full,
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'visible',
+    backgroundColor: PR_GOLD + '14',
+    borderWidth: 1,
+    borderColor: PR_GOLD + '2E',
+    marginBottom: theme.spacing.xs,
   },
   prCelebrationIcon: {
     width: 66,
@@ -2327,12 +2549,18 @@ const stylesheet = createStyleSheet((theme) => ({
     alignItems: 'center',
     justifyContent: 'center',
     alignSelf: 'center',
-    backgroundColor: '#D9A44126',
+    backgroundColor: theme.colors.surface,
     borderWidth: 1,
-    borderColor: '#D9A44166',
+    borderColor: PR_GOLD + '77',
+    zIndex: 1,
+    shadowColor: PR_GOLD,
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.38,
+    shadowRadius: 16,
+    elevation: 5,
   },
   prCelebrationEyebrow: {
-    color: '#D9A441',
+    color: PR_GOLD,
     fontSize: theme.fontSize.xs,
     fontWeight: '900',
     letterSpacing: 1,
@@ -2344,6 +2572,7 @@ const stylesheet = createStyleSheet((theme) => ({
     fontSize: theme.fontSize.xxl,
     fontWeight: '900',
     textAlign: 'center',
+    marginTop: -2,
   },
   prCelebrationMessage: {
     color: theme.colors.textMuted,
@@ -2352,8 +2581,26 @@ const stylesheet = createStyleSheet((theme) => ({
     lineHeight: 22,
     textAlign: 'center',
   },
+  prSummaryPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    borderRadius: theme.radius.full,
+    borderWidth: 1,
+    borderColor: PR_GOLD + '66',
+    backgroundColor: PR_GOLD + '18',
+    paddingHorizontal: theme.spacing.md,
+    paddingVertical: 7,
+    marginTop: theme.spacing.xs,
+  },
+  prSummaryPillText: {
+    color: PR_GOLD,
+    fontSize: theme.fontSize.xs,
+    fontWeight: '900',
+  },
   prList: {
     maxHeight: 320,
+    zIndex: 1,
   },
   prListContent: {
     gap: theme.spacing.sm,
@@ -2390,13 +2637,13 @@ const stylesheet = createStyleSheet((theme) => ({
   prMiniBadge: {
     borderRadius: theme.radius.full,
     borderWidth: 1,
-    borderColor: '#D9A441',
-    backgroundColor: '#D9A44122',
+    borderColor: PR_GOLD,
+    backgroundColor: PR_GOLD + '22',
     paddingHorizontal: theme.spacing.sm,
     paddingVertical: 3,
   },
   prMiniBadgeText: {
-    color: '#D9A441',
+    color: PR_GOLD,
     fontSize: theme.fontSize.xs,
     fontWeight: '900',
   },
@@ -2416,8 +2663,8 @@ const stylesheet = createStyleSheet((theme) => ({
     justifyContent: 'center',
   },
   prNewValueBox: {
-    borderColor: '#D9A44166',
-    backgroundColor: '#D9A44118',
+    borderColor: PR_GOLD + '66',
+    backgroundColor: PR_GOLD + '18',
   },
   prValueLabel: {
     color: theme.colors.textMuted,
@@ -2432,7 +2679,7 @@ const stylesheet = createStyleSheet((theme) => ({
     fontWeight: '800',
   },
   prNewValue: {
-    color: '#D9A441',
+    color: PR_GOLD,
     fontSize: theme.fontSize.md,
     fontWeight: '900',
   },
@@ -2449,6 +2696,7 @@ const stylesheet = createStyleSheet((theme) => ({
     borderColor: 'rgba(255, 255, 255, 0.28)',
     alignItems: 'center',
     justifyContent: 'center',
+    zIndex: 1,
   },
   prDoneButtonText: {
     color: '#FFFFFF',

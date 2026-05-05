@@ -19,6 +19,7 @@ type ScreenHeaderProps = {
   onBack?: () => void
   backLabel?: string
   rightContent?: ReactNode
+  titleLeft?: ReactNode
   titleRight?: ReactNode
   beforeTitle?: ReactNode
   afterTitle?: ReactNode
@@ -91,6 +92,7 @@ export default function ScreenHeader({
   onBack,
   backLabel = 'Back',
   rightContent,
+  titleLeft,
   titleRight,
   beforeTitle,
   afterTitle,
@@ -125,6 +127,7 @@ export default function ScreenHeader({
       {beforeTitle}
 
       <View style={styles.titleRow}>
+        {titleLeft}
         <View style={styles.titleTextBlock}>
           {eyebrow ? <Text style={styles.eyebrow}>{eyebrow}</Text> : null}
           <Text style={styles.title} numberOfLines={2}>

@@ -25,13 +25,51 @@ import { createStyleSheet, useStyles } from 'react-native-unistyles'
 import ScreenHeader, { useHeaderFade } from '@/components/ui/ScreenHeader'
 import { getBodyWeightLogs, logBodyWeight, type WeightLog } from '@/db/bodyWeightHelpers'
 import { getProfile } from '@/db/profileHelpers'
+import {
+  getProgressOverview,
+  type ProgressExerciseSummary,
+  type ProgressPoint,
+} from '@/db/progressHelpers'
 
 const CHART_HEIGHT = 160
 const PAD = { top: 16, right: 16, bottom: 40, left: 52 }
+const LB_PER_KG = 2.20462
+
+type WeightUnit = 'kg' | 'lb'
 
 function formatShortDate(ts: number): string {
   const d = new Date(ts)
   return `${d.getMonth() + 1}/${d.getDate()}`
+}
+
+function normalizeWeightUnit(unit?: string | null): WeightUnit {
+  return unit === 'lb' ? 'lb' : 'kg'
+}
+
+function convertKg(weightKg: number, unit: WeightUnit): number {
+  return unit === 'lb' ? weightKg * LB_PER_KG : weightKg
+}
+
+function formatWeightValue(weightKg: number, unit: WeightUnit): string {
+  const value = convertKg(weightKg, unit)
+  return value >= 100 ? value.toFixed(0) : value.toFixed(1)
+}
+
+function formatWeight(weightKg: number, unit: WeightUnit): string {
+  return `${formatWeightValue(weightKg, unit)} ${unit}`
+}
+
+function formatSignedWeight(weightKg: number, unit: WeightUnit): string {
+  const value = convertKg(weightKg, unit)
+  const sign = value > 0 ? '+' : ''
+  return `${sign}${value.toFixed(1)} ${unit}`
+}
+
+function formatDateLabel(ts: number): string {
+  return new Date(ts).toLocaleDateString(undefined, {
+    month: 'short',
+    day: 'numeric',
+  })
 }
 
 const emptySheet = createStyleSheet(() => ({}))
@@ -191,11 +229,161 @@ function WeightChart({ logs, displayUnit }: WeightChartProps) {
   )
 }
 
+interface ExerciseProgressChartProps {
+  points: ProgressPoint[]
+  displayUnit: WeightUnit
+}
+
+function ExerciseProgressChart({ points, displayUnit }: ExerciseProgressChartProps) {
+  const { theme } = useStyles(emptySheet)
+  const [containerWidth, setContainerWidth] = useState(0)
+
+  const chartData = useMemo(() => {
+    if (containerWidth === 0 || points.length < 2) return null
+
+    const plotW = containerWidth - PAD.left - PAD.right
+    const plotH = CHART_HEIGHT - PAD.top - PAD.bottom
+    const bottomY = PAD.top + plotH
+    const displayWeights = points.map(point => convertKg(point.weightKg, displayUnit))
+    const minW = Math.min(...displayWeights) - 1
+    const maxW = Math.max(...displayWeights) + 1
+    const range = maxW - minW || 1
+    const toX = (i: number) => PAD.left + (i / (points.length - 1)) * plotW
+    const toY = (w: number) => PAD.top + (1 - (w - minW) / range) * plotH
+
+    const linePath = Skia.Path.Make()
+    const fillPath = Skia.Path.Make()
+
+    displayWeights.forEach((w, i) => {
+      const x = toX(i)
+      const y = toY(w)
+      if (i === 0) {
+        linePath.moveTo(x, y)
+        fillPath.moveTo(x, y)
+      } else {
+        linePath.lineTo(x, y)
+        fillPath.lineTo(x, y)
+      }
+    })
+    fillPath.lineTo(toX(points.length - 1), bottomY)
+    fillPath.lineTo(toX(0), bottomY)
+    fillPath.close()
+
+    const dots = displayWeights.map((w, i) => ({ cx: toX(i), cy: toY(w) }))
+    const yTickCount = 4
+    const yTicks = Array.from({ length: yTickCount }, (_, i) => ({
+      label: (minW + (range * i) / (yTickCount - 1)).toFixed(1),
+      y: toY(minW + (range * i) / (yTickCount - 1)),
+    }))
+    const maxXTicks = 5
+    const step = Math.max(1, Math.ceil(points.length / maxXTicks))
+    const xTicks = points
+      .map((point, i) => ({ point, i }))
+      .filter(({ i }) => i % step === 0 || i === points.length - 1)
+      .map(({ point, i }) => ({ label: formatShortDate(point.timestamp), x: toX(i) }))
+
+    return { linePath, fillPath, dots, yTicks, xTicks, bottomY, plotW }
+  }, [containerWidth, points, displayUnit])
+
+  const accentColor = theme.colors.accent
+  const gridColor = theme.colors.border
+  const bgColor = theme.colors.surface
+
+  return (
+    <View
+      style={{ height: CHART_HEIGHT }}
+      onLayout={e => setContainerWidth(e.nativeEvent.layout.width)}
+    >
+      {chartData && containerWidth > 0 && (
+        <Canvas
+          style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            width: containerWidth,
+            height: CHART_HEIGHT,
+          }}
+        >
+          {chartData.yTicks.map((tick, i) => (
+            <SkiaLine
+              key={`progress-grid-${i}`}
+              p1={vec(PAD.left, tick.y)}
+              p2={vec(PAD.left + chartData.plotW, tick.y)}
+              color={gridColor}
+              strokeWidth={0.5}
+            />
+          ))}
+
+          <Path path={chartData.fillPath} style="fill">
+            <LinearGradient
+              start={vec(0, PAD.top)}
+              end={vec(0, chartData.bottomY)}
+              colors={[accentColor + '44', accentColor + '00']}
+            />
+          </Path>
+
+          <Path
+            path={chartData.linePath}
+            style="stroke"
+            strokeWidth={2}
+            color={accentColor}
+            strokeJoin="round"
+            strokeCap="round"
+          />
+
+          {chartData.dots.map((dot, i) => (
+            <Group key={`progress-dot-${i}`}>
+              <Circle cx={dot.cx} cy={dot.cy} r={5} color={bgColor} />
+              <Circle cx={dot.cx} cy={dot.cy} r={3} color={accentColor} />
+            </Group>
+          ))}
+        </Canvas>
+      )}
+
+      {chartData?.yTicks.map((tick, i) => (
+        <RNText
+          key={`progress-y-${i}`}
+          style={{
+            position: 'absolute',
+            top: tick.y - 7,
+            left: 0,
+            width: PAD.left - 6,
+            textAlign: 'right',
+            fontSize: 10,
+            color: theme.colors.textMuted,
+          }}
+        >
+          {tick.label}
+        </RNText>
+      ))}
+
+      {chartData?.xTicks.map((tick, i) => (
+        <RNText
+          key={`progress-x-${i}`}
+          style={{
+            position: 'absolute',
+            top: chartData.bottomY + 6,
+            left: tick.x - 20,
+            width: 40,
+            textAlign: 'center',
+            fontSize: 10,
+            color: theme.colors.textMuted,
+          }}
+        >
+          {tick.label}
+        </RNText>
+      ))}
+    </View>
+  )
+}
+
 export default function ProgressScreen() {
   const { styles, theme } = useStyles(stylesheet)
   const { showHeaderFade, handleHeaderScroll } = useHeaderFade()
   const [logs, setLogs] = useState<WeightLog[]>([])
   const [weightUnit, setWeightUnit] = useState<'kg' | 'lb'>('kg')
+  const [progressExercises, setProgressExercises] = useState<ProgressExerciseSummary[]>([])
+  const [selectedProgressExerciseId, setSelectedProgressExerciseId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [showModal, setShowModal] = useState(false)
   const [inputWeight, setInputWeight] = useState('')
@@ -209,12 +397,19 @@ export default function ProgressScreen() {
 
   async function loadData() {
     try {
-      const [profile, weightLogs] = await Promise.all([
+      const [profile, weightLogs, progressOverview] = await Promise.all([
         getProfile(),
         getBodyWeightLogs(),
+        getProgressOverview(),
       ])
       setWeightUnit((profile?.defaultWeightUnit as 'kg' | 'lb') ?? 'kg')
       setLogs(weightLogs)
+      setProgressExercises(progressOverview.exercises)
+      setSelectedProgressExerciseId(current =>
+        progressOverview.exercises.some(exercise => exercise.exerciseTypeId === current)
+          ? current
+          : progressOverview.exercises[0]?.exerciseTypeId ?? null,
+      )
     } catch (e) {
       console.error('Failed to load weight data', e)
     } finally {
@@ -262,6 +457,19 @@ export default function ProgressScreen() {
       : latestLog.weight.toFixed(1)
     : null
 
+  const selectedProgressExercise = useMemo(
+    () =>
+      progressExercises.find(exercise => exercise.exerciseTypeId === selectedProgressExerciseId) ??
+      progressExercises[0] ??
+      null,
+    [progressExercises, selectedProgressExerciseId],
+  )
+  const selectedExerciseRank = selectedProgressExercise
+    ? progressExercises.findIndex(
+        exercise => exercise.exerciseTypeId === selectedProgressExercise.exerciseTypeId,
+      ) + 1
+    : 0
+
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
@@ -307,6 +515,162 @@ export default function ProgressScreen() {
         <TouchableOpacity style={styles.logButton} onPress={openModal}>
           <RNText style={styles.logButtonText}>Log Weight</RNText>
         </TouchableOpacity>
+
+        <RNText style={styles.strengthSectionLabel}>STRENGTH PROGRESS</RNText>
+
+        {progressExercises.length === 0 ? (
+          <View style={styles.emptyStrengthCard}>
+            <RNText style={styles.emptyStrengthTitle}>No strength history yet</RNText>
+            <RNText style={styles.emptyStrengthText}>
+              Finish workouts with weighted sets to see PR history, estimated 1RM, and weight trends.
+            </RNText>
+          </View>
+        ) : (
+          <>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.exerciseSelector}
+            >
+              {progressExercises.map((exercise, index) => {
+                const selected =
+                  selectedProgressExercise?.exerciseTypeId === exercise.exerciseTypeId
+                return (
+                  <TouchableOpacity
+                    key={exercise.exerciseTypeId}
+                    style={[
+                      styles.exerciseChip,
+                      selected && styles.exerciseChipSelected,
+                    ]}
+                    onPress={() => setSelectedProgressExerciseId(exercise.exerciseTypeId)}
+                    activeOpacity={0.85}
+                  >
+                    <RNText
+                      style={[
+                        styles.exerciseChipRank,
+                        selected && styles.exerciseChipRankSelected,
+                      ]}
+                    >
+                      #{index + 1}
+                    </RNText>
+                    <RNText
+                      style={[
+                        styles.exerciseChipTitle,
+                        selected && styles.exerciseChipTitleSelected,
+                      ]}
+                      numberOfLines={1}
+                    >
+                      {exercise.exerciseName}
+                    </RNText>
+                    <RNText style={styles.exerciseChipMeta}>
+                      {exercise.workoutCount} workouts
+                    </RNText>
+                  </TouchableOpacity>
+                )
+              })}
+            </ScrollView>
+
+            {selectedProgressExercise && (
+              <View style={styles.progressCard}>
+                <View style={styles.progressHeader}>
+                  <View style={styles.progressHeaderText}>
+                    <RNText style={styles.progressTitle}>
+                      {selectedProgressExercise.exerciseName}
+                    </RNText>
+                    <RNText style={styles.progressSubtitle}>
+                      {selectedProgressExercise.setCount} sets -{' '}
+                      {selectedProgressExercise.workoutCount} workouts -{' '}
+                      {selectedProgressExercise.methodCount} methods
+                    </RNText>
+                  </View>
+                  <View style={styles.rankPill}>
+                    <RNText style={styles.rankPillText}>#{selectedExerciseRank}</RNText>
+                  </View>
+                </View>
+
+                <View style={styles.progressStats}>
+                  <View style={styles.progressStat}>
+                    <RNText style={styles.progressStatLabel}>Current PR</RNText>
+                    <RNText style={styles.progressStatValue}>
+                      {formatWeight(
+                        selectedProgressExercise.currentPrKg,
+                        normalizeWeightUnit(selectedProgressExercise.currentPrUnit),
+                      )}
+                    </RNText>
+                    <RNText style={styles.progressStatNote}>
+                      {selectedProgressExercise.currentPrReps} reps -{' '}
+                      {selectedProgressExercise.currentPrMethodName}
+                    </RNText>
+                  </View>
+                  <View style={styles.progressStat}>
+                    <RNText style={styles.progressStatLabel}>Est. 1RM</RNText>
+                    <RNText style={styles.progressStatValue}>
+                      {formatWeight(selectedProgressExercise.estimatedOneRmKg, weightUnit)}
+                    </RNText>
+                    <RNText style={styles.progressStatNote}>
+                      from {selectedProgressExercise.estimatedOneRmReps} reps -{' '}
+                      {selectedProgressExercise.estimatedOneRmMethodName}
+                    </RNText>
+                  </View>
+                  <View style={styles.progressStat}>
+                    <RNText style={styles.progressStatLabel}>Progression</RNText>
+                    <RNText style={styles.progressStatValue}>
+                      {formatSignedWeight(selectedProgressExercise.weightDeltaKg, weightUnit)}
+                    </RNText>
+                    <RNText style={styles.progressStatNote}>
+                      since {formatDateLabel(selectedProgressExercise.firstSetAt)}
+                    </RNText>
+                  </View>
+                </View>
+
+                <View style={styles.trendCard}>
+                  <View style={styles.trendHeader}>
+                    <RNText style={styles.trendTitle}>Best weight over time</RNText>
+                    <RNText style={styles.trendUnit}>{weightUnit}</RNText>
+                  </View>
+                  {selectedProgressExercise.trend.length >= 2 ? (
+                    <ExerciseProgressChart
+                      points={selectedProgressExercise.trend}
+                      displayUnit={weightUnit}
+                    />
+                  ) : (
+                    <View style={styles.emptyTrend}>
+                      <RNText style={styles.emptyChartText}>
+                        Finish this exercise in another workout to start the trend line.
+                      </RNText>
+                    </View>
+                  )}
+                </View>
+
+                <View style={styles.prHistoryHeader}>
+                  <RNText style={styles.prHistoryTitle}>PR history</RNText>
+                  <RNText style={styles.prHistoryHint}>weight milestones</RNText>
+                </View>
+                <View style={styles.prHistoryList}>
+                  {selectedProgressExercise.prHistory.slice(-4).reverse().map((pr) => (
+                    <View
+                      key={`${pr.timestamp}-${pr.weightKg}-${pr.reps}`}
+                      style={styles.prHistoryRow}
+                    >
+                      <View style={styles.prDot} />
+                      <View style={styles.prHistoryText}>
+                        <RNText style={styles.prHistoryValue}>
+                          {formatWeight(pr.weightKg, normalizeWeightUnit(pr.weightUnit))}
+                        </RNText>
+                        <RNText style={styles.prHistoryMeta}>
+                          {pr.reps} reps - {pr.methodName}
+                        </RNText>
+                      </View>
+                      <RNText style={styles.prHistoryDate}>
+                        {formatDateLabel(pr.timestamp)}
+                      </RNText>
+                    </View>
+                  ))}
+                </View>
+              </View>
+            )}
+          </>
+        )}
       </ScrollView>
 
       <Modal
@@ -435,6 +799,228 @@ const stylesheet = createStyleSheet((theme) => ({
   logButtonText: {
     color: '#FFFFFF',
     fontSize: theme.fontSize.md,
+    fontFamily: theme.fontFamily.semiBold,
+  },
+  strengthSectionLabel: {
+    color: theme.colors.textMuted,
+    fontSize: theme.fontSize.xs,
+    fontFamily: theme.fontFamily.semiBold,
+    letterSpacing: 1,
+    marginTop: theme.spacing.xl,
+    marginBottom: theme.spacing.sm,
+  },
+  emptyStrengthCard: {
+    backgroundColor: theme.colors.surface,
+    borderRadius: theme.radius.lg,
+    borderWidth: 0.5,
+    borderColor: theme.colors.border,
+    padding: theme.spacing.md,
+    gap: theme.spacing.xs,
+  },
+  emptyStrengthTitle: {
+    color: theme.colors.text,
+    fontSize: theme.fontSize.md,
+    fontFamily: theme.fontFamily.bold,
+  },
+  emptyStrengthText: {
+    color: theme.colors.textMuted,
+    fontSize: theme.fontSize.sm,
+    fontFamily: theme.fontFamily.medium,
+    lineHeight: 19,
+  },
+  exerciseSelector: {
+    gap: theme.spacing.sm,
+    paddingRight: theme.spacing.md,
+    paddingBottom: theme.spacing.md,
+  },
+  exerciseChip: {
+    width: 152,
+    backgroundColor: theme.colors.surface,
+    borderRadius: theme.radius.lg,
+    borderWidth: 0.5,
+    borderColor: theme.colors.border,
+    padding: theme.spacing.sm,
+    gap: 3,
+  },
+  exerciseChipSelected: {
+    borderColor: theme.colors.accent,
+    backgroundColor: theme.colors.accentMuted,
+  },
+  exerciseChipRank: {
+    color: theme.colors.textMuted,
+    fontSize: theme.fontSize.xxs,
+    fontFamily: theme.fontFamily.extraBold,
+  },
+  exerciseChipRankSelected: {
+    color: theme.colors.accent,
+  },
+  exerciseChipTitle: {
+    color: theme.colors.text,
+    fontSize: theme.fontSize.sm,
+    fontFamily: theme.fontFamily.bold,
+  },
+  exerciseChipTitleSelected: {
+    color: theme.colors.text,
+  },
+  exerciseChipMeta: {
+    color: theme.colors.textMuted,
+    fontSize: theme.fontSize.xs,
+    fontFamily: theme.fontFamily.medium,
+  },
+  progressCard: {
+    backgroundColor: theme.colors.surface,
+    borderRadius: theme.radius.lg,
+    borderWidth: 0.5,
+    borderColor: theme.colors.border,
+    padding: theme.spacing.md,
+    gap: theme.spacing.md,
+  },
+  progressHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: theme.spacing.sm,
+  },
+  progressHeaderText: {
+    flex: 1,
+    gap: 2,
+  },
+  progressTitle: {
+    color: theme.colors.text,
+    fontSize: theme.fontSize.lg,
+    fontFamily: theme.fontFamily.extraBold,
+  },
+  progressSubtitle: {
+    color: theme.colors.textMuted,
+    fontSize: theme.fontSize.xs,
+    fontFamily: theme.fontFamily.medium,
+  },
+  rankPill: {
+    borderRadius: theme.radius.full,
+    backgroundColor: theme.colors.accentMuted,
+    borderWidth: 0.5,
+    borderColor: theme.colors.accent,
+    paddingHorizontal: theme.spacing.sm,
+    paddingVertical: theme.spacing.xs,
+  },
+  rankPillText: {
+    color: theme.colors.accent,
+    fontSize: theme.fontSize.xs,
+    fontFamily: theme.fontFamily.extraBold,
+  },
+  progressStats: {
+    flexDirection: 'row',
+    gap: theme.spacing.sm,
+  },
+  progressStat: {
+    flex: 1,
+    backgroundColor: theme.colors.surface2,
+    borderRadius: theme.radius.md,
+    borderWidth: 0.5,
+    borderColor: theme.colors.border,
+    padding: theme.spacing.sm,
+    gap: 3,
+  },
+  progressStatLabel: {
+    color: theme.colors.textMuted,
+    fontSize: theme.fontSize.xxs,
+    fontFamily: theme.fontFamily.extraBold,
+    textTransform: 'uppercase',
+  },
+  progressStatValue: {
+    color: theme.colors.text,
+    fontSize: theme.fontSize.sm,
+    fontFamily: theme.fontFamily.extraBold,
+  },
+  progressStatNote: {
+    color: theme.colors.textMuted,
+    fontSize: theme.fontSize.xxs,
+    fontFamily: theme.fontFamily.medium,
+    lineHeight: 13,
+  },
+  trendCard: {
+    backgroundColor: theme.colors.surface2,
+    borderRadius: theme.radius.md,
+    borderWidth: 0.5,
+    borderColor: theme.colors.border,
+    padding: theme.spacing.xs,
+    overflow: 'hidden',
+  },
+  trendHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: theme.spacing.sm,
+    paddingTop: theme.spacing.xs,
+  },
+  trendTitle: {
+    color: theme.colors.text,
+    fontSize: theme.fontSize.sm,
+    fontFamily: theme.fontFamily.bold,
+  },
+  trendUnit: {
+    color: theme.colors.textMuted,
+    fontSize: theme.fontSize.xs,
+    fontFamily: theme.fontFamily.extraBold,
+    textTransform: 'uppercase',
+  },
+  emptyTrend: {
+    height: CHART_HEIGHT,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: theme.spacing.md,
+  },
+  prHistoryHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  prHistoryTitle: {
+    color: theme.colors.text,
+    fontSize: theme.fontSize.md,
+    fontFamily: theme.fontFamily.bold,
+  },
+  prHistoryHint: {
+    color: theme.colors.textMuted,
+    fontSize: theme.fontSize.xs,
+    fontFamily: theme.fontFamily.medium,
+  },
+  prHistoryList: {
+    gap: theme.spacing.xs,
+  },
+  prHistoryRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: theme.colors.surface2,
+    borderRadius: theme.radius.md,
+    borderWidth: 0.5,
+    borderColor: theme.colors.border,
+    paddingHorizontal: theme.spacing.sm,
+    paddingVertical: theme.spacing.sm,
+    gap: theme.spacing.sm,
+  },
+  prDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: theme.colors.accent,
+  },
+  prHistoryText: {
+    flex: 1,
+    gap: 2,
+  },
+  prHistoryValue: {
+    color: theme.colors.text,
+    fontSize: theme.fontSize.sm,
+    fontFamily: theme.fontFamily.bold,
+  },
+  prHistoryMeta: {
+    color: theme.colors.textMuted,
+    fontSize: theme.fontSize.xs,
+    fontFamily: theme.fontFamily.medium,
+  },
+  prHistoryDate: {
+    color: theme.colors.textMuted,
+    fontSize: theme.fontSize.xs,
     fontFamily: theme.fontFamily.semiBold,
   },
   overlay: {

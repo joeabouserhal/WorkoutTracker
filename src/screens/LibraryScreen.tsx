@@ -488,11 +488,11 @@ export default function LibraryScreen() {
         >
           <View style={styles.rowLeft}>
             <View style={styles.rowIcon}>
-              <MaterialCommunityIcons name="folder-outline" size={20} color={theme.colors.accent} />
+              <MaterialCommunityIcons name="folder-outline" size={18} color={theme.colors.accent} />
             </View>
             <Text style={styles.rowText}>{section.name}</Text>
           </View>
-          <MaterialCommunityIcons name="chevron-right" size={18} color={theme.colors.textMuted} />
+          <MaterialCommunityIcons name="chevron-right" size={16} color={theme.colors.textMuted} />
         </TouchableOpacity>
       ))
     }
@@ -509,7 +509,7 @@ export default function LibraryScreen() {
           >
             <View style={styles.rowLeft}>
               <View style={styles.rowIcon}>
-                <MaterialCommunityIcons name="dumbbell" size={19} color={theme.colors.accent} />
+                <MaterialCommunityIcons name="dumbbell" size={18} color={theme.colors.accent} />
               </View>
               <View style={styles.rowTextWrap}>
                 <Text style={styles.rowText}>{exerciseType.name}</Text>
@@ -535,7 +535,7 @@ export default function LibraryScreen() {
                 </View>
               </View>
             </View>
-            <MaterialCommunityIcons name="chevron-right" size={18} color={theme.colors.textMuted} />
+            <MaterialCommunityIcons name="chevron-right" size={16} color={theme.colors.textMuted} />
           </TouchableOpacity>
         )
 
@@ -563,7 +563,7 @@ export default function LibraryScreen() {
         <View style={styles.row}>
           <View style={styles.rowLeft}>
             <View style={styles.rowIcon}>
-              <MaterialCommunityIcons name="shape-outline" size={19} color={theme.colors.accent} />
+              <MaterialCommunityIcons name="shape-outline" size={18} color={theme.colors.accent} />
             </View>
             <View style={styles.rowTextWrap}>
               <Text style={styles.rowText}>{method.name}</Text>
@@ -957,11 +957,11 @@ const stylesheet = createStyleSheet((theme) => ({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: theme.spacing.md,
-    paddingVertical: theme.spacing.md,
+    paddingHorizontal: theme.spacing.sm,
+    paddingVertical: 9,
     borderBottomWidth: 1,
     borderBottomColor: theme.colors.border,
-    minHeight: 64,
+    minHeight: 56,
   },
   rowLeft: {
     flex: 1,
@@ -971,8 +971,8 @@ const stylesheet = createStyleSheet((theme) => ({
     gap: theme.spacing.sm,
   },
   rowIcon: {
-    width: 38,
-    height: 38,
+    width: 34,
+    height: 34,
     borderRadius: theme.radius.md,
     backgroundColor: theme.colors.accentMuted,
     alignItems: 'center',
@@ -981,7 +981,7 @@ const stylesheet = createStyleSheet((theme) => ({
   rowTextWrap: {
     flex: 1,
     minWidth: 0,
-    gap: theme.spacing.xs,
+    gap: 4,
   },
   rowText: {
     flexShrink: 1,
@@ -992,7 +992,7 @@ const stylesheet = createStyleSheet((theme) => ({
   badgeRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: theme.spacing.xs,
+    gap: 5,
   },
   badge: {
     backgroundColor: theme.colors.accentMuted,
@@ -1025,7 +1025,7 @@ const stylesheet = createStyleSheet((theme) => ({
     backgroundColor: PR_GOLD + '26',
     borderRadius: theme.radius.full,
     paddingHorizontal: theme.spacing.sm,
-    paddingVertical: 3,
+    paddingVertical: 2,
   },
   prBadgeText: {
     flexShrink: 1,

@@ -415,11 +415,11 @@ export default function ExercisePickerModal({ visible, onClose }: Props) {
                           >
                             <View style={styles.rowLeft}>
                               <View style={styles.rowIcon}>
-                                <MaterialCommunityIcons name="folder-outline" size={19} color={theme.colors.accent} />
+                                <MaterialCommunityIcons name="folder-outline" size={18} color={theme.colors.accent} />
                               </View>
                               <Text style={styles.rowText}>{section.name}</Text>
                             </View>
-                            <MaterialCommunityIcons name="chevron-right" size={18} color={theme.colors.textMuted} />
+                            <MaterialCommunityIcons name="chevron-right" size={16} color={theme.colors.textMuted} />
                           </TouchableOpacity>
                         ))
                     )}
@@ -453,7 +453,7 @@ export default function ExercisePickerModal({ visible, onClose }: Props) {
                                 </View>
                               </View>
                             </View>
-                            <MaterialCommunityIcons name="chevron-right" size={18} color={theme.colors.textMuted} />
+                            <MaterialCommunityIcons name="chevron-right" size={16} color={theme.colors.textMuted} />
                           </TouchableOpacity>
                         ))
                     )}
@@ -482,7 +482,7 @@ export default function ExercisePickerModal({ visible, onClose }: Props) {
                                 ) : null}
                               </View>
                             </View>
-                            <MaterialCommunityIcons name="chevron-right" size={18} color={theme.colors.textMuted} />
+                            <MaterialCommunityIcons name="chevron-right" size={16} color={theme.colors.textMuted} />
                           </TouchableOpacity>
                         ))
                     )}
@@ -821,11 +821,11 @@ const stylesheet = createStyleSheet((theme) => ({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: theme.spacing.md,
-    paddingVertical: theme.spacing.sm,
+    paddingHorizontal: theme.spacing.sm,
+    paddingVertical: 9,
     borderBottomWidth: 1,
     borderBottomColor: theme.colors.border,
-    minHeight: 58,
+    minHeight: 54,
   },
   rowLeft: {
     flex: 1,
@@ -835,8 +835,8 @@ const stylesheet = createStyleSheet((theme) => ({
     gap: theme.spacing.sm,
   },
   rowIcon: {
-    width: 34,
-    height: 34,
+    width: 32,
+    height: 32,
     borderRadius: theme.radius.md,
     backgroundColor: theme.colors.accentMuted,
     alignItems: 'center',
@@ -845,7 +845,7 @@ const stylesheet = createStyleSheet((theme) => ({
   rowTextWrap: {
     flex: 1,
     minWidth: 0,
-    gap: theme.spacing.xs,
+    gap: 4,
   },
   rowText: {
     flexShrink: 1,
@@ -856,7 +856,7 @@ const stylesheet = createStyleSheet((theme) => ({
   badgeRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: theme.spacing.xs,
+    gap: 5,
   },
   badge: {
     backgroundColor: theme.colors.accentMuted,

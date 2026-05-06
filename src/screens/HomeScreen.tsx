@@ -158,6 +158,12 @@ export default function HomeScreen() {
     )
   }
 
+  function handleWorkoutUpdated(workoutId: string, workout: WorkoutDetail) {
+    setSelectedWorkout(workout)
+    setWorkoutPreviews((prev) => ({ ...prev, [workoutId]: workout }))
+    loadHome(false).catch(console.error)
+  }
+
   function handleWorkoutDeleted(workoutId: string) {
     setSelectedWorkoutId(null)
     setSelectedWorkout(null)
@@ -325,6 +331,7 @@ export default function HomeScreen() {
         onClose={closeWorkoutDetail}
         onDeleted={handleWorkoutDeleted}
         onRename={handleWorkoutRenamed}
+        onUpdated={handleWorkoutUpdated}
       />
     </View>
   )

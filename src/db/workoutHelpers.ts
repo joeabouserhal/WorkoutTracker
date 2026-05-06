@@ -123,6 +123,67 @@ export async function updateWorkoutName(workoutId: string, name: string): Promis
   )
 }
 
+export async function updateCompletedWorkout(params: {
+  workoutId: string
+  name: string
+  startedAt: number
+  sets: CompletedWorkoutSetUpdate[]
+}): Promise<void> {
+  await ensureTable()
+  await ensureExerciseTables()
+
+  const workoutResult = await db.$client.execute(
+    'SELECT started_at as startedAt, ended_at as endedAt FROM workouts WHERE id = ? AND ended_at IS NOT NULL',
+    [params.workoutId],
+  )
+  const workout = workoutResult.rows[0] as {
+    startedAt?: number
+    endedAt?: number | null
+  } | undefined
+  if (!workout?.startedAt || !workout.endedAt) {
+    throw new Error('Workout is not available for editing')
+  }
+
+  const startedAt = Number.isFinite(params.startedAt)
+    ? Math.trunc(params.startedAt)
+    : workout.startedAt
+  const delta = startedAt - workout.startedAt
+  const endedAt = workout.endedAt + delta
+  const trimmedName = params.name.trim()
+
+  await db.$client.execute(
+    'UPDATE workouts SET name = ?, started_at = ?, ended_at = ? WHERE id = ?',
+    [trimmedName.length > 0 ? trimmedName : null, startedAt, endedAt, params.workoutId],
+  )
+
+  if (delta !== 0) {
+    await db.$client.execute(
+      `UPDATE sets
+       SET completed_at = completed_at + ?
+       WHERE workout_exercise_id IN (
+         SELECT id FROM workout_exercises WHERE workout_id = ?
+       )`,
+      [delta, params.workoutId],
+    )
+  }
+
+  for (const set of params.sets) {
+    const weightKg = Number.isFinite(set.weightKg) ? set.weightKg : 0
+    const weightUnit = set.weightUnit === 'lb' ? 'lb' : 'kg'
+    const reps = Number.isFinite(set.reps) ? Math.max(0, Math.trunc(set.reps)) : 0
+    const volume = weightKg * reps
+    await db.$client.execute(
+      `UPDATE sets
+       SET weight = ?, weight_unit = ?, reps = ?, volume = ?
+       WHERE id = ?
+         AND workout_exercise_id IN (
+           SELECT id FROM workout_exercises WHERE workout_id = ?
+         )`,
+      [weightKg, weightUnit, reps, volume, set.id, params.workoutId],
+    )
+  }
+}
+
 export async function finishWorkout(workoutId: string): Promise<void> {
   await ensureTable()
   await ensureExerciseTables()
@@ -237,6 +298,13 @@ export type WorkoutWeightPrAchievement = {
   reps: number
   isCurrentWeightPr: boolean
   hasPriorExerciseHistory: boolean
+}
+
+export type CompletedWorkoutSetUpdate = {
+  id: string
+  weightKg: number
+  weightUnit: string
+  reps: number
 }
 
 type WeightPrHistorySetRow = {

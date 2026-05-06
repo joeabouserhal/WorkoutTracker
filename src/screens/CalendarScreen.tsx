@@ -181,6 +181,12 @@ export default function CalendarScreen() {
     )
   }
 
+  function handleWorkoutUpdated(workoutId: string, workout: WorkoutDetail) {
+    setSelectedWorkout(workout)
+    setWorkoutPreviews((prev) => ({ ...prev, [workoutId]: workout }))
+    loadWorkouts().catch(console.error)
+  }
+
   function handleWorkoutDeleted(workoutId: string) {
     setSelectedWorkoutId(null)
     setSelectedWorkout(null)
@@ -352,6 +358,7 @@ export default function CalendarScreen() {
         onClose={closeWorkoutDetail}
         onDeleted={handleWorkoutDeleted}
         onRename={handleWorkoutRenamed}
+        onUpdated={handleWorkoutUpdated}
       />
 
       <ThemedDialog

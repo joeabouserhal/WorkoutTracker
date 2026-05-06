@@ -1,5 +1,8 @@
-import React, { useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
 import {
+  Dimensions,
+  findNodeHandle,
+  Keyboard,
   Modal,
   ScrollView,
   StatusBar,
@@ -7,6 +10,8 @@ import {
   TextInput,
   TouchableOpacity,
   View,
+  type NativeScrollEvent,
+  type NativeSyntheticEvent,
 } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons'
@@ -14,7 +19,10 @@ import { createStyleSheet, useStyles } from 'react-native-unistyles'
 import ThemedDialog from '@/components/ui/ThemedDialog'
 import {
   deleteWorkout,
+  getWorkoutDetail,
+  updateCompletedWorkout,
   updateWorkoutName,
+  type CompletedWorkoutSetUpdate,
   type WorkoutDetail,
   type WorkoutSummary,
 } from '@/db/workoutHelpers'
@@ -34,11 +42,97 @@ function formatCompactNumber(value: number) {
   return Number.parseFloat(value.toFixed(2)).toString()
 }
 
+function roundWeightKg(value: number) {
+  return Number.parseFloat(value.toFixed(6))
+}
+
 function formatSetWeight(weightKg: number, unit: string) {
   if (unit === 'lb') {
     return `${formatCompactNumber(weightKg * LB_PER_KG)} lb`
   }
   return `${formatCompactNumber(weightKg)} kg`
+}
+
+function formatDateInput(timestamp: number) {
+  const date = new Date(timestamp)
+  const year = date.getFullYear()
+  const month = `${date.getMonth() + 1}`.padStart(2, '0')
+  const day = `${date.getDate()}`.padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+function parseDateInput(value: string, originalTimestamp: number): number | null {
+  const match = value.trim().match(/^(\d{4})-(\d{2})-(\d{2})$/)
+  if (!match) return null
+
+  const original = new Date(originalTimestamp)
+  const year = Number(match[1])
+  const month = Number(match[2]) - 1
+  const day = Number(match[3])
+  const next = new Date(
+    year,
+    month,
+    day,
+    original.getHours(),
+    original.getMinutes(),
+    original.getSeconds(),
+    original.getMilliseconds(),
+  )
+
+  if (
+    next.getFullYear() !== year ||
+    next.getMonth() !== month ||
+    next.getDate() !== day
+  ) {
+    return null
+  }
+
+  return next.getTime()
+}
+
+function displayWeightValue(weightKg: number, unit: string) {
+  return unit === 'lb'
+    ? formatCompactNumber(weightKg * LB_PER_KG)
+    : formatCompactNumber(weightKg)
+}
+
+function weightInputToKg(value: string, unit: string) {
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed)) return null
+  return roundWeightKg(unit === 'lb' ? parsed / LB_PER_KG : parsed)
+}
+
+type EditableSet = {
+  id: string
+  weightText: string
+  weightUnit: string
+  weightKg: number | null
+  repsText: string
+}
+
+function buildEditableSets(workout: WorkoutDetail | null): Record<string, EditableSet> {
+  const sets: Record<string, EditableSet> = {}
+  workout?.exercises.forEach((exercise) => {
+    exercise.sets.forEach((set) => {
+      sets[set.id] = {
+        id: set.id,
+        weightText: displayWeightValue(set.weightKg, set.weightUnit),
+        weightUnit: set.weightUnit === 'lb' ? 'lb' : 'kg',
+        weightKg: set.weightKg,
+        repsText: `${set.reps}`,
+      }
+    })
+  })
+  return sets
+}
+
+function getExerciseEditUnit(
+  exercise: WorkoutDetail['exercises'][number],
+  editableSets: Record<string, EditableSet>,
+) {
+  const firstSet = exercise.sets[0]
+  if (!firstSet) return 'kg'
+  return editableSets[firstSet.id]?.weightUnit ?? firstSet.weightUnit
 }
 
 function getExerciseSetSummaries(exercise: WorkoutDetail['exercises'][number]) {
@@ -234,6 +328,7 @@ export function WorkoutDetailModal({
   onClose,
   onDeleted,
   onRename,
+  onUpdated,
 }: {
   workoutId: string | null
   workout: WorkoutDetail | null
@@ -241,26 +336,250 @@ export function WorkoutDetailModal({
   onClose: () => void
   onDeleted?: (workoutId: string) => void
   onRename?: (workoutId: string, name: string) => void
+  onUpdated?: (workoutId: string, workout: WorkoutDetail) => void
 }) {
   const { styles, theme } = useStyles(stylesheet)
   const [name, setName] = useState('')
+  const [dateText, setDateText] = useState('')
+  const [editableSets, setEditableSets] = useState<Record<string, EditableSet>>({})
+  const [editing, setEditing] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [keyboardHeight, setKeyboardHeight] = useState(0)
   const [showDefaultUnits, setShowDefaultUnits] = useState<Record<string, boolean>>({})
   const [showDeleteDialog, setShowDeleteDialog] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const [editError, setEditError] = useState<string | null>(null)
+  const scrollRef = useRef<ScrollView | null>(null)
+  const scrollOffsetRef = useRef(0)
+  const keyboardHeightRef = useRef(0)
+  const keyboardTopRef = useRef(Dimensions.get('window').height)
+  const focusedEditFieldRef = useRef<string | null>(null)
+  const editFieldInputRef = useRef<Record<string, TextInput | null>>({})
 
   useEffect(() => {
     setName(workout?.name || '')
+    setDateText(workout ? formatDateInput(workout.startedAt) : '')
+    setEditableSets(buildEditableSets(workout))
+    setEditing(false)
+    setSaving(false)
+    setEditError(null)
     setShowDefaultUnits({})
   }, [workout])
+
+  const scrollEditFieldIntoView = useCallback((key: string, delay = 40) => {
+    setTimeout(() => {
+      const input = editFieldInputRef.current[key]
+      const scrollView = scrollRef.current
+      if (!input || !scrollView) return
+      const metrics = Keyboard.metrics()
+      if (metrics?.height && metrics.height !== keyboardHeightRef.current) {
+        keyboardHeightRef.current = metrics.height
+        keyboardTopRef.current = metrics.screenY
+        setKeyboardHeight(metrics.height)
+      }
+
+      const nodeHandle = findNodeHandle(input)
+      const keyboardResponder = scrollView.getScrollResponder() as unknown as {
+        scrollResponderScrollNativeHandleToKeyboard?: (
+          nodeHandle: number,
+          additionalOffset?: number,
+          preventNegativeScrollOffset?: boolean,
+        ) => void
+      }
+      if (nodeHandle) {
+        keyboardResponder.scrollResponderScrollNativeHandleToKeyboard?.(
+          nodeHandle,
+          theme.spacing.lg,
+          true,
+        )
+      }
+
+      const measurableScrollView = scrollView as unknown as {
+        measureInWindow: (
+          callback: (
+            x: number,
+            y: number,
+            width: number,
+            height: number,
+          ) => void,
+        ) => void
+      }
+
+      measurableScrollView.measureInWindow((_scrollX, scrollY, _scrollWidth, scrollHeight) => {
+        input.measureInWindow((_inputX, inputY, _inputWidth, inputHeight) => {
+          const windowHeight = Dimensions.get('window').height
+          const liveMetrics = Keyboard.metrics()
+          const knownKeyboardHeight = liveMetrics?.height ?? keyboardHeightRef.current
+          const measuredKeyboardTop = liveMetrics?.screenY ?? keyboardTopRef.current
+          const keyboardTop = knownKeyboardHeight > 0
+            ? measuredKeyboardTop || windowHeight - knownKeyboardHeight
+            : windowHeight
+          const visibleTop = scrollY + theme.spacing.sm
+          const visibleBottom = Math.min(
+            scrollY + scrollHeight,
+            keyboardTop,
+          ) - theme.spacing.lg
+          const inputTop = inputY
+          const inputBottom = inputY + inputHeight
+
+          if (inputBottom > visibleBottom) {
+            scrollView.scrollTo({
+              y: Math.max(0, scrollOffsetRef.current + inputBottom - visibleBottom),
+              animated: true,
+            })
+            return
+          }
+
+          if (inputTop < visibleTop) {
+            scrollView.scrollTo({
+              y: Math.max(0, scrollOffsetRef.current - (visibleTop - inputTop)),
+              animated: true,
+            })
+          }
+        })
+      })
+    }, delay)
+  }, [theme.spacing.lg, theme.spacing.sm])
+
+  function handleEditFieldFocus(key: string) {
+    focusedEditFieldRef.current = key
+    scrollEditFieldIntoView(key, 80)
+    scrollEditFieldIntoView(key, 240)
+    scrollEditFieldIntoView(key, 420)
+  }
+
+  function handleDetailScroll(event: NativeSyntheticEvent<NativeScrollEvent>) {
+    scrollOffsetRef.current = event.nativeEvent.contentOffset.y
+  }
+
+  useEffect(() => {
+    const showSub = Keyboard.addListener('keyboardDidShow', (event) => {
+      keyboardHeightRef.current = event.endCoordinates.height
+      keyboardTopRef.current = event.endCoordinates.screenY
+      setKeyboardHeight(event.endCoordinates.height)
+      const focusedKey = focusedEditFieldRef.current
+      if (focusedKey) {
+        scrollEditFieldIntoView(focusedKey, 60)
+      }
+    })
+    const hideSub = Keyboard.addListener('keyboardDidHide', () => {
+      keyboardHeightRef.current = 0
+      keyboardTopRef.current = Dimensions.get('window').height
+      setKeyboardHeight(0)
+    })
+    return () => {
+      showSub.remove()
+      hideSub.remove()
+    }
+  }, [scrollEditFieldIntoView])
 
   if (!workoutId) return null
   const detailWorkoutId = workoutId
 
   function saveName() {
-    if (!workout || !onRename) return
+    if (!workout || !onRename || editing) return
     updateWorkoutName(detailWorkoutId, name)
       .then(() => onRename(detailWorkoutId, name))
       .catch((e) => console.error('Failed to rename workout', e))
+  }
+
+  function resetEdits() {
+    setName(workout?.name || '')
+    setDateText(workout ? formatDateInput(workout.startedAt) : '')
+    setEditableSets(buildEditableSets(workout))
+    setEditError(null)
+    setEditing(false)
+  }
+
+  function updateEditableSet(setId: string, patch: Partial<EditableSet>) {
+    setEditableSets((prev) => ({
+      ...prev,
+      [setId]: {
+        ...prev[setId],
+        ...patch,
+      },
+    }))
+  }
+
+  function toggleEditableExerciseUnit(exercise: WorkoutDetail['exercises'][number]) {
+    setEditableSets((prev) => {
+      const currentUnit = getExerciseEditUnit(exercise, prev)
+      const nextUnit = currentUnit === 'lb' ? 'kg' : 'lb'
+      const next = { ...prev }
+
+      for (const set of exercise.sets) {
+        const current = next[set.id]
+        if (!current) continue
+        const currentWeightKg = current.weightKg ??
+          weightInputToKg(current.weightText, current.weightUnit)
+        next[set.id] = {
+          ...current,
+          weightUnit: nextUnit,
+          weightText: currentWeightKg === null
+            ? current.weightText
+            : displayWeightValue(currentWeightKg, nextUnit),
+          weightKg: currentWeightKg,
+        }
+      }
+
+      return next
+    })
+  }
+
+  async function saveWorkoutEdits() {
+    if (!workout || saving) return
+
+    const startedAt = parseDateInput(dateText, workout.startedAt)
+    if (startedAt === null) {
+      setEditError('Use a valid date in YYYY-MM-DD format.')
+      return
+    }
+
+    const setUpdates: CompletedWorkoutSetUpdate[] = []
+    for (const exercise of workout.exercises) {
+      for (const set of exercise.sets) {
+        const editSet = editableSets[set.id]
+        if (!editSet) continue
+        const weightKg = editSet.weightKg ??
+          weightInputToKg(editSet.weightText, editSet.weightUnit)
+        const reps = Number(editSet.repsText)
+        if (weightKg === null || weightKg <= 0) {
+          setEditError('Every set needs a weight greater than 0.')
+          return
+        }
+        if (!Number.isInteger(reps) || reps <= 0) {
+          setEditError('Every set needs whole-number reps greater than 0.')
+          return
+        }
+        setUpdates.push({
+          id: set.id,
+          weightKg,
+          weightUnit: editSet.weightUnit === 'lb' ? 'lb' : 'kg',
+          reps,
+        })
+      }
+    }
+
+    setSaving(true)
+    setEditError(null)
+    try {
+      await updateCompletedWorkout({
+        workoutId: detailWorkoutId,
+        name,
+        startedAt,
+        sets: setUpdates,
+      })
+      const updated = await getWorkoutDetail(detailWorkoutId)
+      if (updated) {
+        onUpdated?.(detailWorkoutId, updated)
+      }
+      setEditing(false)
+    } catch (e) {
+      console.error('Failed to update workout', e)
+      setEditError('Could not save workout changes.')
+    } finally {
+      setSaving(false)
+    }
   }
 
   function confirmDelete() {
@@ -291,16 +610,50 @@ export function WorkoutDetailModal({
             <MaterialCommunityIcons name="chevron-left" size={17} color={theme.colors.text} />
             <Text style={styles.viewButtonText}>Back</Text>
           </TouchableOpacity>
-          {onDeleted ? (
-            <TouchableOpacity
-              style={styles.deleteButton}
-              onPress={() => setShowDeleteDialog(true)}
-              disabled={loading || deleting}
-            >
-              <MaterialCommunityIcons name="trash-can-outline" size={17} color={theme.colors.danger} />
-              <Text style={styles.deleteButtonText}>Delete</Text>
-            </TouchableOpacity>
-          ) : null}
+          <View style={styles.headerActionRow}>
+            {editing ? (
+              <>
+                <TouchableOpacity
+                  style={styles.viewButton}
+                  onPress={resetEdits}
+                  disabled={saving}
+                >
+                  <Text style={styles.viewButtonText}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.saveEditButton}
+                  onPress={saveWorkoutEdits}
+                  disabled={saving}
+                >
+                  <MaterialCommunityIcons name="check" size={17} color="#FFFFFF" />
+                  <Text style={styles.saveEditButtonText}>
+                    {saving ? 'Saving' : 'Save'}
+                  </Text>
+                </TouchableOpacity>
+              </>
+            ) : (
+              <>
+                <TouchableOpacity
+                  style={styles.viewButton}
+                  onPress={() => setEditing(true)}
+                  disabled={loading || !workout}
+                >
+                  <MaterialCommunityIcons name="pencil-outline" size={17} color={theme.colors.text} />
+                  <Text style={styles.viewButtonText}>Edit</Text>
+                </TouchableOpacity>
+                {onDeleted ? (
+                  <TouchableOpacity
+                    style={styles.deleteButton}
+                    onPress={() => setShowDeleteDialog(true)}
+                    disabled={loading || deleting}
+                  >
+                    <MaterialCommunityIcons name="trash-can-outline" size={17} color={theme.colors.danger} />
+                    <Text style={styles.deleteButtonText}>Delete</Text>
+                  </TouchableOpacity>
+                ) : null}
+              </>
+            )}
+          </View>
         </View>
 
         {loading || !workout ? (
@@ -308,19 +661,37 @@ export function WorkoutDetailModal({
             <Text style={styles.emptyText}>Loading workout...</Text>
           </View>
         ) : (
-          <ScrollView contentContainerStyle={styles.detailContent}>
+          <ScrollView
+            ref={scrollRef}
+            style={styles.detailScroll}
+            contentContainerStyle={[
+              styles.detailContent,
+              keyboardHeight > 0 && {
+                paddingBottom: keyboardHeight + theme.spacing.lg,
+              },
+            ]}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="interactive"
+            onScroll={handleDetailScroll}
+            scrollEventThrottle={16}
+          >
             {onRename ? (
               <View style={styles.renameCard}>
                 <Text style={styles.renameLabel}>Workout Name</Text>
                 <TextInput
+                  ref={(ref) => {
+                    editFieldInputRef.current.name = ref
+                  }}
                   style={styles.renameInput}
                   value={name}
                   onChangeText={setName}
                   onBlur={saveName}
+                  onFocus={() => handleEditFieldFocus('name')}
                   onSubmitEditing={saveName}
                   placeholder="Workout"
                   placeholderTextColor={theme.colors.textMuted}
                   returnKeyType="done"
+                  editable={editing}
                 />
               </View>
             ) : (
@@ -329,6 +700,31 @@ export function WorkoutDetailModal({
                 <Text style={styles.detailName}>{workout.name || 'Workout'}</Text>
               </View>
             )}
+
+            {editing ? (
+              <View style={styles.renameCard}>
+                <Text style={styles.renameLabel}>Workout Date</Text>
+                <TextInput
+                  ref={(ref) => {
+                    editFieldInputRef.current.date = ref
+                  }}
+                  style={styles.renameInput}
+                  value={dateText}
+                  onChangeText={setDateText}
+                  onFocus={() => handleEditFieldFocus('date')}
+                  placeholder="YYYY-MM-DD"
+                  placeholderTextColor={theme.colors.textMuted}
+                  returnKeyType="done"
+                />
+              </View>
+            ) : null}
+
+            {editError ? (
+              <View style={styles.editErrorCard}>
+                <MaterialCommunityIcons name="alert-circle-outline" size={17} color={theme.colors.danger} />
+                <Text style={styles.editErrorText}>{editError}</Text>
+              </View>
+            ) : null}
 
             <Text style={styles.dateTitle}>
               {new Date(workout.startedAt).toLocaleDateString([], {
@@ -360,6 +756,7 @@ export function WorkoutDetailModal({
               const hasUnitMismatch = exercise.sets.some(
                 (set) => set.weightUnit !== exercise.defaultWeightUnit,
               )
+              const editUnit = getExerciseEditUnit(exercise, editableSets)
               const displayUnit = showDefaultUnits[exercise.id]
                 ? exercise.defaultWeightUnit
                 : null
@@ -425,23 +822,80 @@ export function WorkoutDetailModal({
                         <Text style={[styles.setHeaderText, styles.setRepsCol]}>Reps</Text>
                         <Text style={[styles.setHeaderText, styles.setVolumeCol]}>Volume</Text>
                       </View>
-                      {exercise.sets.map((set, index) => (
-                        <View key={set.id} style={styles.setRow}>
-                          <Text style={[styles.setIndex, styles.setIndexCol]}>{index + 1}</Text>
-                          <View style={[styles.valueWithPrCol, styles.setWeightCol]}>
-                            <Text style={styles.setValue}>
-                              {formatSetWeight(set.weightKg, displayUnit ?? set.weightUnit)}
+                      {exercise.sets.map((set, index) => {
+                        const editSet = editableSets[set.id]
+                        return (
+                          <View
+                            key={set.id}
+                            style={styles.setRow}
+                          >
+                            <Text style={[styles.setIndex, styles.setIndexCol]}>{index + 1}</Text>
+                            {editing && editSet ? (
+                              <>
+                                <View style={[styles.editWeightGroup, styles.setWeightCol]}>
+                                  <TextInput
+                                    ref={(ref) => {
+                                      editFieldInputRef.current[`${set.id}:weight`] = ref
+                                    }}
+                                    style={styles.editSetInput}
+                                    value={editSet.weightText}
+                                    onChangeText={(value) =>
+                                      updateEditableSet(set.id, {
+                                        weightText: value,
+                                        weightKg: weightInputToKg(value, editSet.weightUnit),
+                                      })
+                                    }
+                                    onFocus={() => handleEditFieldFocus(`${set.id}:weight`)}
+                                    keyboardType="decimal-pad"
+                                    selectTextOnFocus
+                                  />
+                                  <TouchableOpacity
+                                    style={styles.editUnitButton}
+                                    onPress={() => toggleEditableExerciseUnit(exercise)}
+                                  >
+                                    <Text style={styles.editUnitText}>{editUnit}</Text>
+                                  </TouchableOpacity>
+                                </View>
+                                <TextInput
+                                  ref={(ref) => {
+                                    editFieldInputRef.current[`${set.id}:reps`] = ref
+                                  }}
+                                  style={[styles.editSetInput, styles.editRepsInput, styles.setRepsCol]}
+                                  value={editSet.repsText}
+                                  onChangeText={(value) =>
+                                    updateEditableSet(set.id, {
+                                      repsText: value.replace(/[^0-9]/g, ''),
+                                    })
+                                  }
+                                  onFocus={() => handleEditFieldFocus(`${set.id}:reps`)}
+                                  keyboardType="number-pad"
+                                  selectTextOnFocus
+                                />
+                              </>
+                            ) : (
+                              <>
+                                <View style={[styles.valueWithPrCol, styles.setWeightCol]}>
+                                  <Text style={styles.setValue}>
+                                    {formatSetWeight(set.weightKg, displayUnit ?? set.weightUnit)}
+                                  </Text>
+                                  {set.isWeightPr ? (
+                                    <InlineWeightPrPill current={set.isCurrentWeightPr} />
+                                  ) : null}
+                                </View>
+                                <Text style={[styles.setValue, styles.setRepsCol]}>{set.reps}</Text>
+                              </>
+                            )}
+                            <Text style={[styles.setVolume, styles.setVolumeCol]}>
+                              {Math.round(
+                                editing && editSet
+                                  ? (editSet.weightKg ?? weightInputToKg(editSet.weightText, editSet.weightUnit) ?? set.weightKg) *
+                                    (Number(editSet.repsText) || set.reps)
+                                  : set.volume,
+                              )} kg
                             </Text>
-                            {set.isWeightPr ? (
-                              <InlineWeightPrPill current={set.isCurrentWeightPr} />
-                            ) : null}
                           </View>
-                          <Text style={[styles.setValue, styles.setRepsCol]}>{set.reps}</Text>
-                          <Text style={[styles.setVolume, styles.setVolumeCol]}>
-                            {Math.round(set.volume)} kg
-                          </Text>
-                        </View>
-                      ))}
+                        )
+                      })}
                     </View>
                   )}
                 </View>
@@ -649,6 +1103,31 @@ const stylesheet = createStyleSheet((theme) => ({
     paddingTop: theme.spacing.md,
     paddingBottom: 4,
   },
+  detailScroll: {
+    flex: 1,
+  },
+  headerActionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: theme.spacing.xs,
+  },
+  saveEditButton: {
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+    backgroundColor: theme.colors.accent,
+    borderRadius: theme.radius.full,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.28)',
+    paddingVertical: theme.spacing.xs,
+    paddingHorizontal: theme.spacing.md,
+  },
+  saveEditButtonText: {
+    color: '#FFFFFF',
+    fontSize: theme.fontSize.sm,
+    fontFamily: theme.fontFamily.bold,
+  },
   deleteButton: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -698,6 +1177,23 @@ const stylesheet = createStyleSheet((theme) => ({
     fontFamily: theme.fontFamily.extraBold,
     minHeight: 34,
     padding: 0,
+  },
+  editErrorCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: theme.spacing.xs,
+    backgroundColor: theme.colors.danger + '18',
+    borderRadius: theme.radius.md,
+    borderWidth: 1,
+    borderColor: theme.colors.danger + '60',
+    paddingHorizontal: theme.spacing.sm,
+    paddingVertical: theme.spacing.sm,
+  },
+  editErrorText: {
+    flex: 1,
+    color: theme.colors.danger,
+    fontSize: theme.fontSize.sm,
+    fontFamily: theme.fontFamily.semiBold,
   },
   detailName: {
     color: theme.colors.text,
@@ -862,6 +1358,45 @@ const stylesheet = createStyleSheet((theme) => ({
     alignItems: 'center',
     gap: 4,
     flexWrap: 'nowrap',
+  },
+  editWeightGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: theme.spacing.xs,
+  },
+  editSetInput: {
+    minHeight: 34,
+    flex: 1,
+    color: theme.colors.text,
+    fontSize: theme.fontSize.sm,
+    fontFamily: theme.fontFamily.bold,
+    backgroundColor: theme.colors.bg,
+    borderRadius: theme.radius.md,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    paddingHorizontal: theme.spacing.sm,
+    paddingVertical: 0,
+  },
+  editRepsInput: {
+    flex: 0,
+    textAlign: 'center',
+  },
+  editUnitButton: {
+    minHeight: 34,
+    minWidth: 42,
+    borderRadius: theme.radius.md,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.surface2,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: theme.spacing.xs,
+  },
+  editUnitText: {
+    color: theme.colors.accent,
+    fontSize: theme.fontSize.xs,
+    fontFamily: theme.fontFamily.extraBold,
+    textTransform: 'uppercase',
   },
   inlinePrPill: {
     flexShrink: 0,

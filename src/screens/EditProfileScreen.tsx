@@ -1,5 +1,10 @@
-import React, { useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
 import {
+  Dimensions,
+  findNodeHandle,
+  Keyboard,
+  type NativeScrollEvent,
+  type NativeSyntheticEvent,
   ScrollView,
   Text,
   TextInput,
@@ -39,11 +44,106 @@ export default function EditProfileScreen({ navigation }: Props) {
   const [loadedProfile, setLoadedProfile] = useState<LoadedProfile | null>(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [keyboardHeight, setKeyboardHeight] = useState(0)
   const [dialog, setDialog] = useState<{
     title: string
     message?: string
     actions: ThemedDialogAction[]
   } | null>(null)
+  const scrollRef = useRef<ScrollView | null>(null)
+  const scrollOffsetRef = useRef(0)
+  const keyboardHeightRef = useRef(0)
+  const keyboardTopRef = useRef(Dimensions.get('window').height)
+  const focusedFieldRef = useRef<string | null>(null)
+  const fieldInputRef = useRef<Record<string, TextInput | null>>({})
+
+  const scrollFieldIntoView = useCallback((key: string, delay = 40) => {
+    setTimeout(() => {
+      const input = fieldInputRef.current[key]
+      const scrollView = scrollRef.current
+      if (!input || !scrollView) return
+
+      const metrics = Keyboard.metrics()
+      if (metrics?.height && metrics.height !== keyboardHeightRef.current) {
+        keyboardHeightRef.current = metrics.height
+        keyboardTopRef.current = metrics.screenY
+        setKeyboardHeight(metrics.height)
+      }
+
+      const nodeHandle = findNodeHandle(input)
+      const keyboardResponder = scrollView.getScrollResponder() as unknown as {
+        scrollResponderScrollNativeHandleToKeyboard?: (
+          nodeHandle: number,
+          additionalOffset?: number,
+          preventNegativeScrollOffset?: boolean,
+        ) => void
+      }
+      if (nodeHandle) {
+        keyboardResponder.scrollResponderScrollNativeHandleToKeyboard?.(
+          nodeHandle,
+          theme.spacing.lg,
+          true,
+        )
+      }
+
+      const measurableScrollView = scrollView as unknown as {
+        measureInWindow: (
+          callback: (
+            x: number,
+            y: number,
+            width: number,
+            height: number,
+          ) => void,
+        ) => void
+      }
+
+      measurableScrollView.measureInWindow((_scrollX, scrollY, _scrollWidth, scrollHeight) => {
+        input.measureInWindow((_inputX, inputY, _inputWidth, inputHeight) => {
+          const windowHeight = Dimensions.get('window').height
+          const liveMetrics = Keyboard.metrics()
+          const knownKeyboardHeight = liveMetrics?.height ?? keyboardHeightRef.current
+          const measuredKeyboardTop = liveMetrics?.screenY ?? keyboardTopRef.current
+          const keyboardTop = knownKeyboardHeight > 0
+            ? measuredKeyboardTop || windowHeight - knownKeyboardHeight
+            : windowHeight
+          const visibleTop = scrollY + theme.spacing.sm
+          const visibleBottom = Math.min(
+            scrollY + scrollHeight,
+            keyboardTop,
+          ) - theme.spacing.lg
+          const inputTop = inputY
+          const inputBottom = inputY + inputHeight
+
+          if (inputBottom > visibleBottom) {
+            scrollView.scrollTo({
+              y: Math.max(0, scrollOffsetRef.current + inputBottom - visibleBottom),
+              animated: true,
+            })
+            return
+          }
+
+          if (inputTop < visibleTop) {
+            scrollView.scrollTo({
+              y: Math.max(0, scrollOffsetRef.current - (visibleTop - inputTop)),
+              animated: true,
+            })
+          }
+        })
+      })
+    }, delay)
+  }, [theme.spacing.lg, theme.spacing.sm])
+
+  function handleFieldFocus(key: string) {
+    focusedFieldRef.current = key
+    scrollFieldIntoView(key, 80)
+    scrollFieldIntoView(key, 240)
+    scrollFieldIntoView(key, 420)
+  }
+
+  function handleScroll(event: NativeSyntheticEvent<NativeScrollEvent>) {
+    scrollOffsetRef.current = event.nativeEvent.contentOffset.y
+    handleHeaderScroll(event)
+  }
 
   function closeDialog() {
     setDialog(null)
@@ -91,6 +191,27 @@ export default function EditProfileScreen({ navigation }: Props) {
 
     load()
   }, [])
+
+  useEffect(() => {
+    const showSub = Keyboard.addListener('keyboardDidShow', (event) => {
+      keyboardHeightRef.current = event.endCoordinates.height
+      keyboardTopRef.current = event.endCoordinates.screenY
+      setKeyboardHeight(event.endCoordinates.height)
+      const focusedKey = focusedFieldRef.current
+      if (focusedKey) {
+        scrollFieldIntoView(focusedKey, 60)
+      }
+    })
+    const hideSub = Keyboard.addListener('keyboardDidHide', () => {
+      keyboardHeightRef.current = 0
+      keyboardTopRef.current = Dimensions.get('window').height
+      setKeyboardHeight(0)
+    })
+    return () => {
+      showSub.remove()
+      hideSub.remove()
+    }
+  }, [scrollFieldIntoView])
 
   async function handleSave() {
     setSaving(true)
@@ -197,10 +318,17 @@ export default function EditProfileScreen({ navigation }: Props) {
         />
 
         <ScrollView
+          ref={scrollRef}
           style={styles.scroll}
-          contentContainerStyle={styles.content}
+          contentContainerStyle={[
+            styles.content,
+            keyboardHeight > 0 && {
+              paddingBottom: keyboardHeight + theme.spacing.lg,
+            },
+          ]}
           keyboardShouldPersistTaps="handled"
-          onScroll={handleHeaderScroll}
+          keyboardDismissMode="interactive"
+          onScroll={handleScroll}
           scrollEventThrottle={16}
         >
 
@@ -212,9 +340,13 @@ export default function EditProfileScreen({ navigation }: Props) {
             <Text style={styles.label}>Name</Text>
           </View>
           <TextInput
+            ref={(ref) => {
+              fieldInputRef.current.name = ref
+            }}
             style={styles.input}
             value={name}
             onChangeText={setName}
+            onFocus={() => handleFieldFocus('name')}
             placeholder="Enter your name"
             placeholderTextColor={theme.colors.textMuted}
             autoCorrect={false}
@@ -230,9 +362,13 @@ export default function EditProfileScreen({ navigation }: Props) {
             <Text style={styles.unitPill}>{heightUnit}</Text>
           </View>
           <TextInput
+            ref={(ref) => {
+              fieldInputRef.current.height = ref
+            }}
             style={styles.input}
             value={height}
             onChangeText={setHeight}
+            onFocus={() => handleFieldFocus('height')}
             placeholder={`Enter your height in ${heightUnit}`}
             placeholderTextColor={theme.colors.textMuted}
             keyboardType="decimal-pad"
@@ -248,9 +384,13 @@ export default function EditProfileScreen({ navigation }: Props) {
             <Text style={styles.unitPill}>{weightUnit}</Text>
           </View>
           <TextInput
+            ref={(ref) => {
+              fieldInputRef.current.weight = ref
+            }}
             style={styles.input}
             value={weight}
             onChangeText={setWeight}
+            onFocus={() => handleFieldFocus('weight')}
             placeholder={`Enter your weight in ${weightUnit}`}
             placeholderTextColor={theme.colors.textMuted}
             keyboardType="decimal-pad"

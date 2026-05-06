@@ -45,7 +45,6 @@ import {
 import {
   cancelWorkoutNotification,
   setupWorkoutChannel,
-  showRestDoneNotification,
   showWorkoutNotification,
 } from '@/services/WorkoutNotification'
 import {
@@ -298,6 +297,7 @@ export default function ActiveWorkoutSheet() {
   const exerciseDragTranslateY = useRef(new Animated.Value(0)).current
   const localSetsDraftHydratedForWorkoutRef = useRef<string | null>(null)
   const focusedSetKeyRef = useRef<string | null>(null)
+  const notificationRestEndsAtRef = useRef<number | null>(null)
   const sheetScrollAtTopRef = useRef(true)
   const sheetScrollAtTop = useSharedValue(true)
 
@@ -307,6 +307,7 @@ export default function ActiveWorkoutSheet() {
     exercises,
     isResting,
     restSecondsRemaining,
+    restEndsAt,
     isWorkoutSheetOpen,
     endWorkoutRequestId,
     closeWorkoutSheet,
@@ -760,18 +761,30 @@ export default function ActiveWorkoutSheet() {
   }, [activeWorkoutId, exercises, getRestSetKey, isResting, localSets, restSetKey])
 
   useEffect(() => {
+    const previousRestEndsAt = notificationRestEndsAtRef.current
+    notificationRestEndsAtRef.current = restEndsAt ?? null
+
     if (!activeWorkoutId || !startedAt) {
+      notificationRestEndsAtRef.current = null
       cancelWorkoutNotification().catch(() => {})
       return
     }
+
+    if (!restEndsAt && previousRestEndsAt) return
+
     async function startNotification() {
       await setupWorkoutChannel()
       await notifee.requestPermission()
       const initial = Math.floor((Date.now() - startedAt!) / 1000)
-      await showWorkoutNotification(initial, 0, startedAt)
+      const restRemaining = restEndsAt && restEndsAt > Date.now()
+        ? Math.ceil((restEndsAt - Date.now()) / 1000)
+        : 0
+      await showWorkoutNotification(initial, restRemaining, startedAt, {
+        restEndsAt,
+      })
     }
     startNotification().catch(console.error)
-  }, [activeWorkoutId, startedAt])
+  }, [activeWorkoutId, restEndsAt, startedAt])
 
   useEffect(() => {
     const unsub = notifee.onForegroundEvent(({ type, detail }) => {
@@ -836,14 +849,15 @@ export default function ActiveWorkoutSheet() {
     const interval = setInterval(() => {
       const state = useSessionStore.getState()
       const wasResting = state.isResting
-      const restEndsAt = state.restEndsAt
       tickRest()
       const stillResting = useSessionStore.getState().isResting
 
       if (wasResting && !stillResting && !restDoneNotifiedRef.current) {
         restDoneNotifiedRef.current = true
         setRestSetKey(null)
-        showRestDoneNotification(restEndsAt).catch(console.error)
+        showWorkoutNotification(elapsedRef.current, 0, startedAtRef.current, {
+          restDone: true,
+        }).catch(console.error)
       }
     }, 1000)
 
@@ -1057,6 +1071,7 @@ export default function ActiveWorkoutSheet() {
     if (restSetKey === getRestSetKey(weId, setId)) {
       clearRest()
       setRestSetKey(null)
+      showWorkoutNotification(elapsed, 0, startedAt).catch(console.error)
     }
     setLocalSets((prev) => ({
       ...prev,
@@ -1212,7 +1227,9 @@ export default function ActiveWorkoutSheet() {
       restDoneNotifiedRef.current = false
       setRestSetKey(getRestSetKey(weId, setId))
       startRest(restSeconds)
-      showWorkoutNotification(elapsed, restSeconds, startedAt).catch(console.error)
+      showWorkoutNotification(elapsed, restSeconds, startedAt, {
+        restEndsAt: useSessionStore.getState().restEndsAt,
+      }).catch(console.error)
     } catch (e) {
       console.error('Could not complete set', e)
       showErrorDialog('Could not save this set.')
@@ -1235,6 +1252,7 @@ export default function ActiveWorkoutSheet() {
     if (restSetKey?.startsWith(`${weId}:`)) {
       clearRest()
       setRestSetKey(null)
+      showWorkoutNotification(elapsed, 0, startedAt).catch(console.error)
     }
     setLocalSets((prev) => {
       const next = { ...prev }

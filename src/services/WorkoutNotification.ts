@@ -1,34 +1,35 @@
 import notifee, {
+  AlarmType,
   AndroidForegroundServiceType,
   AndroidImportance,
+  TriggerType,
   type Notification,
 } from '@notifee/react-native'
-import { getString, setString } from '@/storage/mmkv'
-import { formatRestTimer } from './restTimerSettings'
 
 export const WORKOUT_CHANNEL_ID = 'workout'
 export const WORKOUT_NOTIFICATION_ID = 'workout_active'
-export const REST_DONE_CHANNEL_ID = 'rest_done'
-export const REST_DONE_NOTIFICATION_ID = 'rest_done'
-const REST_DONE_NOTIFIED_AT_KEY = 'rest_done_notified_at'
+export const WORKOUT_REST_DONE_CHANNEL_ID = 'workout_rest_done'
+const LEGACY_REST_DONE_NOTIFICATION_ID = 'rest_done'
+const REST_COUNTDOWN_DISPLAY_GRACE_MS = 900
 
-export function formatElapsedNotif(seconds: number): string {
-  const h = Math.floor(seconds / 3600)
-  const m = Math.floor((seconds % 3600) / 60)
-  const s = seconds % 60
-  if (h > 0) {
-    return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
-  }
-  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+type WorkoutNotificationOptions = {
+  restEndsAt?: number | null
+  restDone?: boolean
+  asForegroundService?: boolean
 }
 
 export function buildWorkoutNotification(
   elapsedSeconds: number,
   restSecondsRemaining = 0,
   startedAt?: number | null,
+  options: WorkoutNotificationOptions = {},
 ): Notification {
-  const hasRestTimer = restSecondsRemaining > 0
-  const elapsed = formatElapsedNotif(elapsedSeconds)
+  const fallbackRestEndsAt = restSecondsRemaining > 0
+    ? Date.now() + restSecondsRemaining * 1000
+    : null
+  const restEndsAt = options.restEndsAt ?? fallbackRestEndsAt
+  const hasRestTimer = !options.restDone && Boolean(restEndsAt && restEndsAt > Date.now())
+  const isRestDone = Boolean(options.restDone)
   const actions = [
     ...(hasRestTimer
       ? [{
@@ -42,23 +43,30 @@ export function buildWorkoutNotification(
     },
   ]
   const timestamp = hasRestTimer
-    ? Date.now() + restSecondsRemaining * 1000
+    ? (restEndsAt ?? Date.now()) + REST_COUNTDOWN_DISPLAY_GRACE_MS
     : startedAt ?? Date.now() - elapsedSeconds * 1000
+  const asForegroundService = options.asForegroundService ?? true
 
   return {
     id: WORKOUT_NOTIFICATION_ID,
-    title: `Workout in Progress ${elapsed}`,
-    body: hasRestTimer
-      ? `Rest ${formatRestTimer(restSecondsRemaining)}`
-      : 'Keep going. Tap to return to your workout.',
+    title: 'Workout in Progress',
+    body: isRestDone
+      ? 'Rest time is done. Time for your next set.'
+      : hasRestTimer
+        ? 'Rest in progress.'
+        : 'Keep going. Tap to return to your workout.',
+    data: {
+      type: 'active_workout',
+      event: isRestDone ? 'rest_done' : hasRestTimer ? 'resting' : 'active',
+    },
     android: {
-      channelId: WORKOUT_CHANNEL_ID,
-      asForegroundService: true,
+      channelId: isRestDone ? WORKOUT_REST_DONE_CHANNEL_ID : WORKOUT_CHANNEL_ID,
+      asForegroundService,
       foregroundServiceTypes: [
         AndroidForegroundServiceType.FOREGROUND_SERVICE_TYPE_SPECIAL_USE,
       ],
       ongoing: true,
-      onlyAlertOnce: true,
+      onlyAlertOnce: !isRestDone,
       smallIcon: 'ic_stat_notification',
       actions,
       pressAction: { id: 'default', launchActivity: 'default' },
@@ -77,12 +85,9 @@ export async function setupWorkoutChannel() {
     lights: false,
     vibration: false,
   })
-}
-
-export async function setupRestDoneChannel() {
   await notifee.createChannel({
-    id: REST_DONE_CHANNEL_ID,
-    name: 'Rest Timer',
+    id: WORKOUT_REST_DONE_CHANNEL_ID,
+    name: 'Workout Rest Alerts',
     importance: AndroidImportance.HIGH,
     sound: 'default',
     vibration: true,
@@ -93,40 +98,56 @@ export async function showWorkoutNotification(
   elapsedSeconds: number,
   restSecondsRemaining = 0,
   startedAt?: number | null,
+  options: WorkoutNotificationOptions = {},
 ) {
+  await setupWorkoutChannel()
+  await notifee.cancelNotification(LEGACY_REST_DONE_NOTIFICATION_ID).catch(() => {})
+
+  const restEndsAt = options.restEndsAt ??
+    (restSecondsRemaining > 0 ? Date.now() + restSecondsRemaining * 1000 : null)
+
+  if (restEndsAt && restEndsAt > Date.now() && startedAt) {
+    await scheduleRestDoneNotification(restEndsAt, startedAt)
+  } else {
+    await cancelRestDoneTrigger()
+  }
+
   await notifee.displayNotification(
-    buildWorkoutNotification(elapsedSeconds, restSecondsRemaining, startedAt),
+    buildWorkoutNotification(elapsedSeconds, restSecondsRemaining, startedAt, {
+      ...options,
+      restEndsAt,
+      asForegroundService: true,
+    }),
   )
 }
 
-export async function showRestDoneNotification(restEndsAt?: number | string | null) {
-  if (restEndsAt) {
-    const marker = String(restEndsAt)
-    if (getString(REST_DONE_NOTIFIED_AT_KEY) === marker) return
-    setString(REST_DONE_NOTIFIED_AT_KEY, marker)
-  }
+export async function scheduleRestDoneNotification(restEndsAt: number, startedAt: number) {
+  await cancelRestDoneTrigger()
+  if (restEndsAt <= Date.now()) return
 
-  await setupRestDoneChannel()
-  await notifee.displayNotification({
-    id: REST_DONE_NOTIFICATION_ID,
-    title: 'Rest Time Done',
-    body: 'Time to start your next set.',
-    android: {
-      channelId: REST_DONE_CHANNEL_ID,
-      smallIcon: 'ic_stat_notification',
-      pressAction: { id: 'default', launchActivity: 'default' },
-    },
-    ios: {
-      sound: 'default',
-      foregroundPresentationOptions: {
-        alert: true,
-        sound: true,
+  await setupWorkoutChannel()
+  await notifee.createTriggerNotification(
+    buildWorkoutNotification(0, 0, startedAt, {
+      restDone: true,
+      asForegroundService: false,
+    }),
+    {
+      type: TriggerType.TIMESTAMP,
+      timestamp: restEndsAt,
+      alarmManager: {
+        type: AlarmType.SET_AND_ALLOW_WHILE_IDLE,
       },
     },
-  })
+  )
+}
+
+export async function cancelRestDoneTrigger() {
+  await notifee.cancelTriggerNotification(WORKOUT_NOTIFICATION_ID).catch(() => {})
 }
 
 export async function cancelWorkoutNotification() {
+  await cancelRestDoneTrigger()
   await notifee.stopForegroundService()
   await notifee.cancelNotification(WORKOUT_NOTIFICATION_ID)
+  await notifee.cancelNotification(LEGACY_REST_DONE_NOTIFICATION_ID)
 }

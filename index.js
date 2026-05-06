@@ -11,7 +11,8 @@ import notifee, { EventType } from '@notifee/react-native'
 import { storage, removeKey, setString } from './src/storage/mmkv'
 import {
   buildWorkoutNotification,
-  showRestDoneNotification,
+  cancelRestDoneTrigger,
+  WORKOUT_NOTIFICATION_ID,
 } from './src/services/WorkoutNotification'
 import {
   MMKV_PENDING_WORKOUT_ACTION,
@@ -20,10 +21,40 @@ import {
 } from './src/store/sessionStore'
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+const SERVICE_IDLE_CHECK_MS = 5000
+
+function parseStoredTimestamp(value) {
+  if (!value) return null
+  const parsed = parseInt(value, 10)
+  return Number.isFinite(parsed) ? parsed : null
+}
+
+async function showRestDoneOnWorkoutNotification(startedAt, notificationId) {
+  const elapsed = Math.floor((Date.now() - startedAt) / 1000)
+  const nextNotification = buildWorkoutNotification(elapsed, 0, startedAt, {
+    restDone: true,
+  })
+  await notifee.displayNotification({
+    ...nextNotification,
+    id: notificationId ?? nextNotification.id,
+  })
+}
+
+async function showActiveWorkoutNotification(notificationId) {
+  const startedAt = parseStoredTimestamp(storage.getString(MMKV_STARTED_AT))
+  if (!startedAt) return
+
+  const elapsed = Math.floor((Date.now() - startedAt) / 1000)
+  const nextNotification = buildWorkoutNotification(elapsed, 0, startedAt)
+  await notifee.displayNotification({
+    ...nextNotification,
+    id: notificationId ?? nextNotification.id,
+  })
+}
 
 // Runs inside the Android foreground service. It keeps the notification
 // alive while the app is backgrounded. Android's native chronometer handles
-// the live timer so we do not hammer the system notification manager.
+// the live timer; this task only wakes for state transitions.
 notifee.registerForegroundService((notification) => {
   return new Promise((resolve) => {
     async function run() {
@@ -34,34 +65,20 @@ notifee.registerForegroundService((notification) => {
           return
         }
 
-        const startedAt = parseInt(startedAtStr, 10)
-        const elapsed = Math.floor((Date.now() - startedAt) / 1000)
-        const restEndsAtStr = storage.getString(MMKV_REST_ENDS_AT)
-        const restSecondsRemaining = restEndsAtStr
-          ? Math.ceil((parseInt(restEndsAtStr, 10) - Date.now()) / 1000)
-          : 0
+        const startedAt = parseStoredTimestamp(startedAtStr) ?? Date.now()
+        const restEndsAt = parseStoredTimestamp(storage.getString(MMKV_REST_ENDS_AT))
 
-        if (restEndsAtStr && restSecondsRemaining <= 0) {
+        if (restEndsAt && restEndsAt <= Date.now()) {
           removeKey(MMKV_REST_ENDS_AT)
-          await showRestDoneNotification(restEndsAtStr)
-          await notifee.displayNotification(buildWorkoutNotification(elapsed, 0, startedAt))
-          await sleep(5000)
+          await cancelRestDoneTrigger()
+          await showRestDoneOnWorkoutNotification(startedAt, notification.id)
+          await sleep(SERVICE_IDLE_CHECK_MS)
           continue
         }
 
-        const nextNotification = buildWorkoutNotification(
-          elapsed,
-          Math.max(0, restSecondsRemaining),
-          startedAt,
-        )
-        await notifee.displayNotification({
-          ...nextNotification,
-          id: notification.id ?? nextNotification.id,
-        })
-
-        const nextDelay = restSecondsRemaining > 0
-          ? Math.max(1000, Math.min(5000, restSecondsRemaining * 1000))
-          : 5000
+        const nextDelay = restEndsAt
+          ? Math.max(250, restEndsAt - Date.now())
+          : SERVICE_IDLE_CHECK_MS
         await sleep(nextDelay)
       }
     }
@@ -75,6 +92,15 @@ notifee.registerForegroundService((notification) => {
 
 // Handles notification button presses while the app is backgrounded or killed.
 notifee.onBackgroundEvent(async ({ type, detail }) => {
+  if (
+    type === EventType.DELIVERED &&
+    detail.notification?.id === WORKOUT_NOTIFICATION_ID &&
+    detail.notification?.data?.event === 'rest_done'
+  ) {
+    removeKey(MMKV_REST_ENDS_AT)
+    await cancelRestDoneTrigger()
+  }
+
   if (type === EventType.PRESS) {
     setString(MMKV_PENDING_WORKOUT_ACTION, 'open')
   }
@@ -85,6 +111,8 @@ notifee.onBackgroundEvent(async ({ type, detail }) => {
 
   if (type === EventType.ACTION_PRESS && detail.pressAction?.id === 'skip_rest') {
     removeKey(MMKV_REST_ENDS_AT)
+    await cancelRestDoneTrigger()
+    await showActiveWorkoutNotification(detail.notification?.id)
     setString(MMKV_PENDING_WORKOUT_ACTION, 'skip_rest')
   }
 })

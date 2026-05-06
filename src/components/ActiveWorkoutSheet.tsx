@@ -11,6 +11,7 @@ import {
   type NativeSyntheticEvent,
   type PanResponderGestureState,
   ScrollView,
+  StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
@@ -729,7 +730,11 @@ export default function ActiveWorkoutSheet() {
           const draftSets = existingSets.filter((set) => !set.completed)
           next[ex.workoutExerciseId] = [...completedSets, ...draftSets]
         } else if (!next[ex.workoutExerciseId]) {
-          next[ex.workoutExerciseId] = [newLocalSet(ex.weightUnit)]
+          const plannedSetCount = Math.max(1, Math.trunc(ex.plannedSetCount ?? 1))
+          next[ex.workoutExerciseId] = Array.from(
+            { length: plannedSetCount },
+            () => newLocalSet(ex.weightUnit),
+          )
         }
 
         if (next[ex.workoutExerciseId]?.length === 0) {
@@ -1703,13 +1708,13 @@ export default function ActiveWorkoutSheet() {
             </View>
             <TouchableOpacity style={styles.endButton} onPress={handleEndWorkout} activeOpacity={0.82}>
               <View style={styles.endButtonIcon}>
-                <MaterialCommunityIcons name="flag-checkered" size={18} color={theme.colors.danger} />
+                <MaterialCommunityIcons name="flag-checkered" size={18} color={theme.colors.accent} />
               </View>
               <View style={styles.endButtonTextBlock}>
                 <Text style={styles.endButtonText}>End Workout</Text>
                 <Text style={styles.endButtonSubtext}>Review and save your session</Text>
               </View>
-              <MaterialCommunityIcons name="chevron-right" size={20} color={theme.colors.danger} />
+              <MaterialCommunityIcons name="chevron-right" size={20} color={theme.colors.textMuted} />
             </TouchableOpacity>
           </View>
 
@@ -1982,17 +1987,18 @@ const stylesheet = createStyleSheet((theme) => ({
     fontFamily: theme.fontFamily.bold,
   },
   timerPill: {
+    width: 76,
+    minHeight: 32,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    justifyContent: 'center',
+    gap: 4,
     backgroundColor: theme.colors.surface,
     borderRadius: theme.radius.full,
     borderWidth: 1,
     borderColor: theme.colors.accent,
-    // paddingHorizontal: 10,
-    // paddingVertical: 5,
     paddingVertical: theme.spacing.xs,
-    paddingHorizontal: theme.spacing.sm,
+    paddingHorizontal: theme.spacing.xs,
   },
   timerDot: {
     width: 7,
@@ -2001,10 +2007,12 @@ const stylesheet = createStyleSheet((theme) => ({
     backgroundColor: theme.colors.accent,
   },
   timerText: {
+    minWidth: 44,
     color: theme.colors.accent,
     fontSize: theme.fontSize.sm,
     fontFamily: theme.fontFamily.bold,
     letterSpacing: 0.5,
+    textAlign: 'center',
   },
   headerActions: {
     flexDirection: 'row',
@@ -2012,6 +2020,7 @@ const stylesheet = createStyleSheet((theme) => ({
     gap: theme.spacing.xs,
   },
   cancelIconButton: {
+    minHeight: 32,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 2,
@@ -2048,24 +2057,24 @@ const stylesheet = createStyleSheet((theme) => ({
   workoutNameCard: {
     backgroundColor: theme.colors.surface,
     borderRadius: theme.radius.md,
-    borderWidth: 1.5,
-    borderColor: theme.colors.textMuted + '45',
-    paddingHorizontal: theme.spacing.md,
-    paddingVertical: theme.spacing.sm,
-    gap: 3,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    paddingHorizontal: theme.spacing.sm,
+    paddingVertical: theme.spacing.xs,
+    gap: 1,
   },
   workoutNameLabel: {
     color: theme.colors.textMuted,
     fontSize: theme.fontSize.xxs,
     fontFamily: theme.fontFamily.bold,
     textTransform: 'uppercase',
-    letterSpacing: 0.8,
+    letterSpacing: 0.6,
   },
   workoutNameInput: {
     color: theme.colors.text,
-    fontSize: theme.fontSize.lg,
+    fontSize: theme.fontSize.md,
     fontFamily: theme.fontFamily.extraBold,
-    minHeight: 36,
+    minHeight: 30,
     padding: 0,
   },
   // ── Exercise card ────────────────────────────────────────
@@ -2265,27 +2274,27 @@ const stylesheet = createStyleSheet((theme) => ({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: theme.spacing.sm,
+    gap: theme.spacing.xs,
     borderRadius: theme.radius.md,
-    minHeight: 48,
+    minHeight: 42,
     paddingVertical: theme.spacing.xs,
-    paddingHorizontal: theme.spacing.md,
-    backgroundColor: theme.colors.accentMuted,
+    paddingHorizontal: theme.spacing.sm,
+    backgroundColor: theme.colors.surface,
     borderWidth: 1,
-    borderColor: theme.colors.accent,
+    borderColor: theme.colors.border,
   },
   addExerciseIcon: {
-    width: 28,
-    height: 28,
+    width: 24,
+    height: 24,
     borderRadius: theme.radius.full,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: theme.colors.surface,
+    backgroundColor: theme.colors.accentMuted,
   },
   addExerciseText: {
-    color: theme.colors.accent,
-    fontSize: theme.fontSize.md,
-    fontFamily: theme.fontFamily.extraBold,
+    color: theme.colors.text,
+    fontSize: theme.fontSize.sm,
+    fontFamily: theme.fontFamily.bold,
   },
   // ── Footer ───────────────────────────────────────────────
   footer: {
@@ -2303,14 +2312,10 @@ const stylesheet = createStyleSheet((theme) => ({
     elevation: 8,
   },
   footerSummary: {
-    minHeight: 42,
+    minHeight: 34,
     flexDirection: 'row',
     alignItems: 'center',
-    borderRadius: theme.radius.md,
-    borderWidth: 1.5,
-    borderColor: theme.colors.textMuted + '55',
-    backgroundColor: theme.colors.surface2,
-    paddingHorizontal: theme.spacing.sm,
+    paddingHorizontal: theme.spacing.xs,
   },
   footerStat: {
     flex: 1,
@@ -2323,11 +2328,11 @@ const stylesheet = createStyleSheet((theme) => ({
   footerStatText: {
     color: theme.colors.textMuted,
     fontSize: theme.fontSize.xs,
-    fontFamily: theme.fontFamily.extraBold,
+    fontFamily: theme.fontFamily.semiBold,
   },
   footerStatDivider: {
     width: 1,
-    height: 18,
+    height: 14,
     backgroundColor: theme.colors.border,
   },
   validationNotice: {
@@ -2348,27 +2353,24 @@ const stylesheet = createStyleSheet((theme) => ({
     fontFamily: theme.fontFamily.semiBold,
   },
   endButton: {
-    minHeight: 58,
+    minHeight: 54,
     flexDirection: 'row',
     alignItems: 'center',
     gap: theme.spacing.sm,
-    backgroundColor: '#4A2428',
-    borderRadius: theme.radius.lg,
+    backgroundColor: theme.colors.surface2,
+    borderRadius: theme.radius.md,
     paddingHorizontal: theme.spacing.md,
     paddingVertical: theme.spacing.sm,
     borderWidth: 1,
-    borderColor: theme.colors.danger + '45',
-    shadowColor: theme.colors.danger,
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.32,
-    shadowRadius: 18,
-    elevation: 5,
+    borderColor: theme.colors.borderStrong,
   },
   endButtonIcon: {
     width: 34,
     height: 34,
     borderRadius: theme.radius.full,
-    backgroundColor: '#5A2B30',
+    backgroundColor: theme.colors.surface,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: theme.colors.border,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -2377,7 +2379,7 @@ const stylesheet = createStyleSheet((theme) => ({
     minWidth: 0,
   },
   endButtonText: {
-    color: theme.colors.danger,
+    color: theme.colors.text,
     fontSize: theme.fontSize.md,
     fontFamily: theme.fontFamily.extraBold,
   },

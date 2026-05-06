@@ -30,14 +30,12 @@ export type ProgressPrPoint = {
   methodName: string
 }
 
-export type ProgressExerciseSummary = {
-  exerciseTypeId: string
-  exerciseName: string
+type ProgressAnalyticsSummary = {
   setCount: number
   workoutCount: number
-  methodCount: number
   firstSetAt: number
   latestSetAt: number
+  latestUnit: string
   currentPrKg: number
   currentPrUnit: string
   currentPrReps: number
@@ -49,6 +47,21 @@ export type ProgressExerciseSummary = {
   estimatedOneRmDeltaKg: number
   trend: ProgressPoint[]
   prHistory: ProgressPrPoint[]
+}
+
+export type ProgressMethodSummary = ProgressAnalyticsSummary & {
+  methodId: string
+  methodName: string
+}
+
+export type ProgressExerciseSummary = {
+  exerciseTypeId: string
+  exerciseName: string
+  setCount: number
+  workoutCount: number
+  methodCount: number
+  latestSetAt: number
+  methods: ProgressMethodSummary[]
 }
 
 export type ProgressOverview = {
@@ -136,6 +149,53 @@ function buildPrHistory(rows: ProgressSetRow[]): ProgressPrPoint[] {
   return history
 }
 
+function buildAnalytics(rows: ProgressSetRow[]): ProgressAnalyticsSummary {
+  const sorted = [...rows].sort((a, b) =>
+    a.completedAt === b.completedAt
+      ? a.setId.localeCompare(b.setId)
+      : a.completedAt - b.completedAt,
+  )
+  const workoutIds = new Set(sorted.map((row) => row.workoutId))
+  const byWorkout = sorted.reduce<Record<string, ProgressSetRow[]>>((acc, row) => {
+    acc[row.workoutId] = [...(acc[row.workoutId] ?? []), row]
+    return acc
+  }, {})
+
+  const trend = Object.values(byWorkout)
+    .map(chooseBestWorkoutPoint)
+    .sort((a, b) => a.timestamp - b.timestamp)
+  const currentPrRow = [...sorted].sort((a, b) => {
+    if (a.weightKg !== b.weightKg) return b.weightKg - a.weightKg
+    return a.completedAt - b.completedAt
+  })[0]
+  const oneRmRow = [...sorted].sort((a, b) =>
+    estimateOneRmKg(b.weightKg, b.reps) - estimateOneRmKg(a.weightKg, a.reps),
+  )[0]
+  const firstPoint = trend[0]
+  const latestPoint = trend[trend.length - 1]
+
+  return {
+    setCount: sorted.length,
+    workoutCount: workoutIds.size,
+    firstSetAt: sorted[0]?.completedAt ?? Date.now(),
+    latestSetAt: sorted[sorted.length - 1]?.completedAt ?? Date.now(),
+    latestUnit: normalizeUnit(sorted[sorted.length - 1]?.weightUnit),
+    currentPrKg: currentPrRow?.weightKg ?? 0,
+    currentPrUnit: normalizeUnit(currentPrRow?.weightUnit),
+    currentPrReps: currentPrRow?.reps ?? 0,
+    currentPrMethodName: currentPrRow?.methodName ?? 'Method',
+    estimatedOneRmKg: oneRmRow ? estimateOneRmKg(oneRmRow.weightKg, oneRmRow.reps) : 0,
+    estimatedOneRmReps: oneRmRow?.reps ?? 0,
+    estimatedOneRmMethodName: oneRmRow?.methodName ?? 'Method',
+    weightDeltaKg: latestPoint && firstPoint ? latestPoint.weightKg - firstPoint.weightKg : 0,
+    estimatedOneRmDeltaKg: latestPoint && firstPoint
+      ? latestPoint.estimatedOneRmKg - firstPoint.estimatedOneRmKg
+      : 0,
+    trend,
+    prHistory: buildPrHistory(sorted),
+  }
+}
+
 export async function getProgressOverview(limit = 6): Promise<ProgressOverview> {
   await ensureProgressTables()
 
@@ -183,47 +243,30 @@ export async function getProgressOverview(limit = 6): Promise<ProgressOverview> 
         : a.completedAt - b.completedAt,
     )
     const workoutIds = new Set(sorted.map((row) => row.workoutId))
-    const methodIds = new Set(sorted.map((row) => row.methodId))
-    const byWorkout = sorted.reduce<Record<string, ProgressSetRow[]>>((acc, row) => {
-      acc[row.workoutId] = [...(acc[row.workoutId] ?? []), row]
+    const groupedMethods = sorted.reduce<Record<string, ProgressSetRow[]>>((acc, row) => {
+      acc[row.methodId] = [...(acc[row.methodId] ?? []), row]
       return acc
     }, {})
-
-    const trend = Object.values(byWorkout)
-      .map(chooseBestWorkoutPoint)
-      .sort((a, b) => a.timestamp - b.timestamp)
-
-    const currentPrRow = [...sorted].sort((a, b) => {
-      if (a.weightKg !== b.weightKg) return b.weightKg - a.weightKg
-      return a.completedAt - b.completedAt
-    })[0]
-    const oneRmRow = [...sorted].sort((a, b) =>
-      estimateOneRmKg(b.weightKg, b.reps) - estimateOneRmKg(a.weightKg, a.reps),
-    )[0]
-    const firstPoint = trend[0]
-    const latestPoint = trend[trend.length - 1]
+    const methods = Object.entries(groupedMethods)
+      .map(([methodId, methodRows]) => ({
+        methodId,
+        methodName: methodRows[0]?.methodName ?? 'Method',
+        ...buildAnalytics(methodRows),
+      }))
+      .sort((a, b) => {
+        if (a.setCount !== b.setCount) return b.setCount - a.setCount
+        if (a.workoutCount !== b.workoutCount) return b.workoutCount - a.workoutCount
+        return b.latestSetAt - a.latestSetAt
+      })
 
     return {
       exerciseTypeId,
       exerciseName: sorted[0]?.exerciseName ?? 'Exercise',
       setCount: sorted.length,
       workoutCount: workoutIds.size,
-      methodCount: methodIds.size,
-      firstSetAt: sorted[0]?.completedAt ?? Date.now(),
+      methodCount: methods.length,
       latestSetAt: sorted[sorted.length - 1]?.completedAt ?? Date.now(),
-      currentPrKg: currentPrRow?.weightKg ?? 0,
-      currentPrUnit: normalizeUnit(currentPrRow?.weightUnit),
-      currentPrReps: currentPrRow?.reps ?? 0,
-      currentPrMethodName: currentPrRow?.methodName ?? 'Method',
-      estimatedOneRmKg: oneRmRow ? estimateOneRmKg(oneRmRow.weightKg, oneRmRow.reps) : 0,
-      estimatedOneRmReps: oneRmRow?.reps ?? 0,
-      estimatedOneRmMethodName: oneRmRow?.methodName ?? 'Method',
-      weightDeltaKg: latestPoint && firstPoint ? latestPoint.weightKg - firstPoint.weightKg : 0,
-      estimatedOneRmDeltaKg: latestPoint && firstPoint
-        ? latestPoint.estimatedOneRmKg - firstPoint.estimatedOneRmKg
-        : 0,
-      trend,
-      prHistory: buildPrHistory(sorted),
+      methods,
     } satisfies ProgressExerciseSummary
   })
 

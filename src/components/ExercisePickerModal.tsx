@@ -419,7 +419,9 @@ export default function ExercisePickerModal({ visible, onClose }: Props) {
                               </View>
                               <Text style={styles.rowText}>{section.name}</Text>
                             </View>
-                            <MaterialCommunityIcons name="chevron-right" size={16} color={theme.colors.textMuted} />
+                            <View style={styles.rowChevron}>
+                              <MaterialCommunityIcons name="chevron-right" size={16} color={theme.colors.textMuted} />
+                            </View>
                           </TouchableOpacity>
                         ))
                     )}
@@ -453,7 +455,9 @@ export default function ExercisePickerModal({ visible, onClose }: Props) {
                                 </View>
                               </View>
                             </View>
-                            <MaterialCommunityIcons name="chevron-right" size={16} color={theme.colors.textMuted} />
+                            <View style={styles.rowChevron}>
+                              <MaterialCommunityIcons name="chevron-right" size={16} color={theme.colors.textMuted} />
+                            </View>
                           </TouchableOpacity>
                         ))
                     )}
@@ -482,7 +486,9 @@ export default function ExercisePickerModal({ visible, onClose }: Props) {
                                 ) : null}
                               </View>
                             </View>
-                            <MaterialCommunityIcons name="chevron-right" size={16} color={theme.colors.textMuted} />
+                            <View style={styles.rowChevron}>
+                              <MaterialCommunityIcons name="chevron-right" size={16} color={theme.colors.textMuted} />
+                            </View>
                           </TouchableOpacity>
                         ))
                     )}
@@ -664,13 +670,13 @@ const stylesheet = createStyleSheet((theme) => ({
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.62)',
     justifyContent: 'center',
-    paddingHorizontal: theme.spacing.md,
+    paddingHorizontal: theme.spacing.sm,
   },
   panel: {
     backgroundColor: theme.colors.bg,
-    borderRadius: theme.radius.lg,
-    height: '80%',
-    maxHeight: '80%',
+    borderRadius: theme.radius.md,
+    height: '82%',
+    maxHeight: '82%',
     overflow: 'hidden',
     borderWidth: 1,
     borderColor: theme.colors.border,
@@ -680,7 +686,7 @@ const stylesheet = createStyleSheet((theme) => ({
     paddingTop: theme.spacing.md,
     paddingBottom: theme.spacing.sm,
     backgroundColor: theme.colors.bg,
-    gap: theme.spacing.sm,
+    gap: theme.spacing.xs,
   },
   topRow: {
     flexDirection: 'row',
@@ -734,21 +740,21 @@ const stylesheet = createStyleSheet((theme) => ({
   },
   breadcrumbContent: {
     alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: theme.spacing.sm,
-    paddingVertical: 3,
+    gap: 3,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
   },
   breadcrumbText: {
     color: theme.colors.text,
-    fontSize: theme.fontSize.sm,
+    fontSize: theme.fontSize.xs,
     fontFamily: theme.fontFamily.bold,
-    maxWidth: 104,
+    maxWidth: 96,
   },
   breadcrumbCurrent: {
     color: theme.colors.accent,
-    fontSize: theme.fontSize.xs,
+    fontSize: 10,
     fontFamily: theme.fontFamily.extraBold,
-    maxWidth: 92,
+    maxWidth: 84,
   },
   addButton: {
     flexDirection: 'row',
@@ -787,15 +793,15 @@ const stylesheet = createStyleSheet((theme) => ({
     flex: 1,
     minWidth: 0,
     color: theme.colors.text,
-    fontSize: theme.fontSize.xl,
+    fontSize: theme.fontSize.lg,
     fontFamily: theme.fontFamily.extraBold,
   },
   sectionTitle: {
     color: theme.colors.textMuted,
-    fontSize: theme.fontSize.sm,
+    fontSize: theme.fontSize.xs,
     fontFamily: theme.fontFamily.bold,
     textTransform: 'uppercase',
-    letterSpacing: 0,
+    letterSpacing: 0.8,
   },
   scroll: {
     flex: 1,
@@ -803,14 +809,11 @@ const stylesheet = createStyleSheet((theme) => ({
   list: {
     paddingHorizontal: theme.spacing.md,
     paddingBottom: theme.spacing.md,
+    paddingTop: theme.spacing.xs,
     flexGrow: 1,
   },
   listPanel: {
-    backgroundColor: theme.colors.surface,
-    borderRadius: theme.radius.lg,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    overflow: 'hidden',
+    gap: theme.spacing.xs,
   },
   centered: {
     flex: 1,
@@ -821,11 +824,14 @@ const stylesheet = createStyleSheet((theme) => ({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    backgroundColor: theme.colors.surface,
+    borderRadius: theme.radius.md,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
     paddingHorizontal: theme.spacing.sm,
-    paddingVertical: 9,
-    borderBottomWidth: 1,
-    borderBottomColor: theme.colors.border,
-    minHeight: 54,
+    paddingVertical: theme.spacing.sm,
+    minHeight: 58,
+    gap: theme.spacing.sm,
   },
   rowLeft: {
     flex: 1,
@@ -835,10 +841,22 @@ const stylesheet = createStyleSheet((theme) => ({
     gap: theme.spacing.sm,
   },
   rowIcon: {
-    width: 32,
-    height: 32,
-    borderRadius: theme.radius.md,
+    width: 36,
+    height: 36,
+    borderRadius: theme.radius.full,
     backgroundColor: theme.colors.accentMuted,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+  },
+  rowChevron: {
+    width: 28,
+    height: 28,
+    borderRadius: theme.radius.full,
+    backgroundColor: theme.colors.surface2,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -851,7 +869,7 @@ const stylesheet = createStyleSheet((theme) => ({
     flexShrink: 1,
     color: theme.colors.text,
     fontSize: theme.fontSize.md,
-    fontFamily: theme.fontFamily.semiBold,
+    fontFamily: theme.fontFamily.extraBold,
   },
   badgeRow: {
     flexDirection: 'row',
@@ -860,8 +878,10 @@ const stylesheet = createStyleSheet((theme) => ({
   },
   badge: {
     backgroundColor: theme.colors.accentMuted,
-    borderRadius: theme.radius.sm,
-    paddingHorizontal: 6,
+    borderRadius: theme.radius.full,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    paddingHorizontal: 7,
     paddingVertical: 2,
   },
   badgeText: {
@@ -871,10 +891,10 @@ const stylesheet = createStyleSheet((theme) => ({
   },
   badgeMuted: {
     backgroundColor: theme.colors.surface2,
-    borderRadius: theme.radius.sm,
+    borderRadius: theme.radius.full,
     borderWidth: 1,
     borderColor: theme.colors.border,
-    paddingHorizontal: 6,
+    paddingHorizontal: 7,
     paddingVertical: 2,
   },
   badgeMutedText: {
@@ -889,19 +909,25 @@ const stylesheet = createStyleSheet((theme) => ({
     textAlign: 'center',
   },
   emptyState: {
-    minHeight: 220,
+    minHeight: 210,
     alignItems: 'center',
     justifyContent: 'center',
     gap: theme.spacing.sm,
     padding: theme.spacing.xl,
+    backgroundColor: theme.colors.surface,
+    borderRadius: theme.radius.md,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
   },
   emptyIcon: {
-    width: 50,
-    height: 50,
+    width: 52,
+    height: 52,
     borderRadius: theme.radius.full,
     backgroundColor: theme.colors.accentMuted,
     alignItems: 'center',
     justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: theme.colors.border,
   },
   createOverlay: {
     flex: 1,
@@ -914,12 +940,12 @@ const stylesheet = createStyleSheet((theme) => ({
     width: '100%',
     maxWidth: 390,
     maxHeight: '84%',
-    backgroundColor: theme.colors.surface,
+    backgroundColor: theme.colors.bg,
     borderRadius: theme.radius.lg,
     borderWidth: 1,
     borderColor: theme.colors.border,
-    padding: theme.spacing.lg,
-    gap: theme.spacing.md,
+    padding: theme.spacing.md,
+    gap: theme.spacing.sm,
   },
   createHeader: {
     flexDirection: 'row',
@@ -950,8 +976,8 @@ const stylesheet = createStyleSheet((theme) => ({
     borderRadius: theme.radius.md,
     borderWidth: 1,
     borderColor: theme.colors.border,
-    padding: theme.spacing.md,
-    backgroundColor: theme.colors.bg,
+    padding: theme.spacing.sm,
+    backgroundColor: theme.colors.surface,
   },
   singleMethodTextWrap: {
     flex: 1,
@@ -981,7 +1007,7 @@ const stylesheet = createStyleSheet((theme) => ({
     letterSpacing: 0,
     paddingHorizontal: theme.spacing.md,
     paddingVertical: theme.spacing.sm,
-    backgroundColor: theme.colors.bg,
+    backgroundColor: theme.colors.surface,
   },
   methodChoiceScroll: {
     maxHeight: 220,
@@ -1022,7 +1048,7 @@ const stylesheet = createStyleSheet((theme) => ({
     borderRadius: theme.radius.md,
     borderWidth: 1,
     borderColor: theme.colors.border,
-    backgroundColor: theme.colors.surface2,
+    backgroundColor: theme.colors.surface,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -1036,13 +1062,13 @@ const stylesheet = createStyleSheet((theme) => ({
     minHeight: 46,
     borderRadius: theme.radius.md,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.28)',
-    backgroundColor: theme.colors.accent,
+    borderColor: theme.colors.accent,
+    backgroundColor: theme.colors.accentMuted,
     alignItems: 'center',
     justifyContent: 'center',
   },
   primaryButtonText: {
-    color: '#FFFFFF',
+    color: theme.colors.accent,
     fontSize: theme.fontSize.md,
     fontFamily: theme.fontFamily.extraBold,
   },

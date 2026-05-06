@@ -149,7 +149,7 @@ const stylesheet = createStyleSheet((theme) => ({
     paddingBottom: theme.spacing.xs,
     backgroundColor: theme.colors.bg,
     zIndex: 2,
-    elevation: 2,
+    elevation: 0,
     overflow: 'visible',
     gap: theme.spacing.sm,
   },

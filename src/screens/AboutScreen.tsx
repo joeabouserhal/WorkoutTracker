@@ -110,13 +110,17 @@ const stylesheet = createStyleSheet((theme) => ({
     textAlign: 'center',
   },
   signature: {
-    alignSelf: 'flex-end',
+    alignSelf: 'stretch',
     color: theme.colors.textMuted,
     fontSize: theme.fontSize.md,
+    lineHeight: 24,
     fontStyle: 'italic',
     fontFamily: theme.fontFamily.light,
     letterSpacing: 0.6,
+    textAlign: 'right',
     marginTop: theme.spacing.sm,
+    paddingHorizontal: 8,
+    paddingBottom: 2,
     opacity: 0.9,
   },
   githubButton: {

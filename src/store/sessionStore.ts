@@ -24,6 +24,7 @@ export interface ExerciseEntry {
   methodId: string
   methodName: string
   weightUnit: string
+  plannedSetCount?: number
   sets: SetEntry[]
 }
 

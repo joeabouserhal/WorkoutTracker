@@ -70,7 +70,7 @@ export default function SettingsScreen({ navigation }: Props) {
   return (
     <View style={styles.container}>
       <ScreenHeader
-        title="Settings"
+        title="Workout Settings"
         onBack={() => navigation.goBack()}
         showFade={showHeaderFade}
       />
@@ -81,144 +81,139 @@ export default function SettingsScreen({ navigation }: Props) {
         onScroll={handleHeaderScroll}
         scrollEventThrottle={16}
       >
-      <TouchableOpacity
-        style={styles.cardButton}
-        onPress={() => navigation.navigate('Themes')}
-        activeOpacity={0.75}
-      >
-        <View style={styles.cardIconBadge}>
-          <MaterialCommunityIcons name="palette-outline" size={19} color={theme.colors.accent} />
-        </View>
-        <View style={styles.cardTextBlock}>
-          <Text style={styles.cardTitle}>Themes</Text>
-          <Text style={styles.cardDescription}>
-            Choose the look and feel of the app.
-          </Text>
-        </View>
-        <Text style={styles.chevron}>›</Text>
-      </TouchableOpacity>
+        <Text style={styles.sectionSubtitle}>Default Units</Text>
 
-      <Text style={styles.sectionSubtitle}>Default Units</Text>
-
-      <View style={styles.unitsCard}>
-        <View style={styles.settingCardHeader}>
-          <View style={styles.cardIconBadge}>
-            <MaterialCommunityIcons name="weight-kilogram" size={19} color={theme.colors.accent} />
+        <View style={styles.unitsCard}>
+          <View style={styles.settingCardRow}>
+            <View style={styles.settingCardHeader}>
+              <View style={styles.cardIconBadge}>
+                <MaterialCommunityIcons name="weight-kilogram" size={18} color={theme.colors.accent} />
+              </View>
+              <Text style={styles.unitLabel}>Weight Unit</Text>
+            </View>
+            <View style={styles.unitButtonsRow}>
+              <TouchableOpacity
+                style={[
+                  styles.unitButton,
+                  weightUnit === 'kg' && styles.unitButtonActive,
+                ]}
+                onPress={() => handleWeightUnitChange('kg')}
+                activeOpacity={0.78}
+              >
+                <Text
+                  style={[
+                    styles.unitButtonText,
+                    weightUnit === 'kg' && styles.unitButtonTextActive,
+                  ]}
+                >
+                  kg
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.unitButton,
+                  weightUnit === 'lb' && styles.unitButtonActive,
+                ]}
+                onPress={() => handleWeightUnitChange('lb')}
+                activeOpacity={0.78}
+              >
+                <Text
+                  style={[
+                    styles.unitButtonText,
+                    weightUnit === 'lb' && styles.unitButtonTextActive,
+                  ]}
+                >
+                  lb
+                </Text>
+              </TouchableOpacity>
+            </View>
           </View>
-          <Text style={styles.unitLabel}>Weight Unit</Text>
         </View>
-        <View style={styles.unitButtonsRow}>
-          <TouchableOpacity
-            style={[
-              styles.unitButton,
-              weightUnit === 'kg' && styles.unitButtonActive,
-            ]}
-            onPress={() => handleWeightUnitChange('kg')}
-          >
-            <Text
-              style={[
-                styles.unitButtonText,
-                weightUnit === 'kg' && styles.unitButtonTextActive,
-              ]}
-            >
-              kg
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[
-              styles.unitButton,
-              weightUnit === 'lb' && styles.unitButtonActive,
-            ]}
-            onPress={() => handleWeightUnitChange('lb')}
-          >
-            <Text
-              style={[
-                styles.unitButtonText,
-                weightUnit === 'lb' && styles.unitButtonTextActive,
-              ]}
-            >
-              lb
-            </Text>
-          </TouchableOpacity>
-        </View>
-      </View>
 
-      <View style={styles.unitsCard}>
-        <View style={styles.settingCardHeader}>
-          <View style={styles.cardIconBadge}>
-            <MaterialCommunityIcons name="human-male-height" size={19} color={theme.colors.accent} />
+        <View style={styles.unitsCard}>
+          <View style={styles.settingCardRow}>
+            <View style={styles.settingCardHeader}>
+              <View style={styles.cardIconBadge}>
+                <MaterialCommunityIcons name="human-male-height" size={18} color={theme.colors.accent} />
+              </View>
+              <Text style={styles.unitLabel}>Height Unit</Text>
+            </View>
+            <View style={styles.unitButtonsRow}>
+              <TouchableOpacity
+                style={[
+                  styles.unitButton,
+                  heightUnit === 'cm' && styles.unitButtonActive,
+                ]}
+                onPress={() => handleHeightUnitChange('cm')}
+                activeOpacity={0.78}
+              >
+                <Text
+                  style={[
+                    styles.unitButtonText,
+                    heightUnit === 'cm' && styles.unitButtonTextActive,
+                  ]}
+                >
+                  cm
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.unitButton,
+                  heightUnit === 'ft' && styles.unitButtonActive,
+                ]}
+                onPress={() => handleHeightUnitChange('ft')}
+                activeOpacity={0.78}
+              >
+                <Text
+                  style={[
+                    styles.unitButtonText,
+                    heightUnit === 'ft' && styles.unitButtonTextActive,
+                  ]}
+                >
+                  ft
+                </Text>
+              </TouchableOpacity>
+            </View>
           </View>
-          <Text style={styles.unitLabel}>Height Unit</Text>
         </View>
-        <View style={styles.unitButtonsRow}>
-          <TouchableOpacity
-            style={[
-              styles.unitButton,
-              heightUnit === 'cm' && styles.unitButtonActive,
-            ]}
-            onPress={() => handleHeightUnitChange('cm')}
-          >
-            <Text
-              style={[
-                styles.unitButtonText,
-                heightUnit === 'cm' && styles.unitButtonTextActive,
-              ]}
-            >
-              cm
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[
-              styles.unitButton,
-              heightUnit === 'ft' && styles.unitButtonActive,
-            ]}
-            onPress={() => handleHeightUnitChange('ft')}
-          >
-            <Text
-              style={[
-                styles.unitButtonText,
-                heightUnit === 'ft' && styles.unitButtonTextActive,
-              ]}
-            >
-              ft
-            </Text>
-          </TouchableOpacity>
-        </View>
-      </View>
 
-      <Text style={styles.sectionSubtitle}>Workout Defaults</Text>
+        <Text style={styles.sectionSubtitle}>Workout Defaults</Text>
 
-      <View style={styles.unitsCard}>
-        <View style={styles.settingCardHeader}>
-          <View style={styles.cardIconBadge}>
-            <MaterialCommunityIcons name="timer-sand" size={19} color={theme.colors.accent} />
+        <View style={styles.unitsCard}>
+          <View style={styles.settingCardRow}>
+            <View style={styles.settingCardHeader}>
+              <View style={styles.cardIconBadge}>
+                <MaterialCommunityIcons name="timer-sand" size={18} color={theme.colors.accent} />
+              </View>
+              <Text style={styles.unitLabel}>Rest Timer</Text>
+            </View>
+            <View style={styles.timerControlRow}>
+              <TouchableOpacity
+                style={[
+                  styles.timerAdjustButton,
+                  restTimerSeconds <= 10 && styles.timerAdjustButtonDisabled,
+                ]}
+                onPress={() => handleRestTimerChange(-10)}
+                disabled={restTimerSeconds <= 10}
+                activeOpacity={0.78}
+              >
+                <Text style={styles.timerAdjustText}>-10s</Text>
+              </TouchableOpacity>
+              <Text style={styles.timerValue}>{formatRestTimer(restTimerSeconds)}</Text>
+              <TouchableOpacity
+                style={[
+                  styles.timerAdjustButton,
+                  restTimerSeconds >= 600 && styles.timerAdjustButtonDisabled,
+                ]}
+                onPress={() => handleRestTimerChange(10)}
+                disabled={restTimerSeconds >= 600}
+                activeOpacity={0.78}
+              >
+                <Text style={styles.timerAdjustText}>+10s</Text>
+              </TouchableOpacity>
+            </View>
           </View>
-          <Text style={styles.unitLabel}>Rest Timer</Text>
         </View>
-        <View style={styles.timerControlRow}>
-          <TouchableOpacity
-            style={[
-              styles.timerAdjustButton,
-              restTimerSeconds <= 10 && styles.timerAdjustButtonDisabled,
-            ]}
-            onPress={() => handleRestTimerChange(-10)}
-            disabled={restTimerSeconds <= 10}
-          >
-            <Text style={styles.timerAdjustText}>-10s</Text>
-          </TouchableOpacity>
-          <Text style={styles.timerValue}>{formatRestTimer(restTimerSeconds)}</Text>
-          <TouchableOpacity
-            style={[
-              styles.timerAdjustButton,
-              restTimerSeconds >= 600 && styles.timerAdjustButtonDisabled,
-            ]}
-            onPress={() => handleRestTimerChange(10)}
-            disabled={restTimerSeconds >= 600}
-          >
-            <Text style={styles.timerAdjustText}>+10s</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
       </ScrollView>
     </View>
   )
@@ -234,67 +229,45 @@ const stylesheet = createStyleSheet((theme) => ({
   },
   content: {
     paddingHorizontal: theme.spacing.md,
-    paddingTop: theme.spacing.md,
+    paddingTop: theme.spacing.sm,
     paddingBottom: theme.spacing.xl,
   },
   sectionSubtitle: {
     color: theme.colors.textMuted,
-    fontSize: theme.fontSize.sm,
+    fontSize: theme.fontSize.xs,
     fontFamily: theme.fontFamily.semiBold,
     textTransform: 'uppercase',
-    letterSpacing: 1,
-    marginTop: theme.spacing.lg,
-    marginBottom: theme.spacing.md,
-  },
-  cardButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: theme.colors.surface,
-    borderRadius: theme.radius.md,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    paddingHorizontal: theme.spacing.md,
-    paddingVertical: theme.spacing.sm,
-    gap: theme.spacing.sm,
+    letterSpacing: 0.8,
+    marginTop: theme.spacing.md,
+    marginBottom: theme.spacing.xs,
   },
   cardIconBadge: {
-    width: 38,
-    height: 38,
+    width: 34,
+    height: 34,
     borderRadius: theme.radius.full,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: theme.colors.accentMuted,
-  },
-  cardTextBlock: {
-    flex: 1,
-    minWidth: 0,
-  },
-  cardTitle: {
-    color: theme.colors.text,
-    fontSize: theme.fontSize.md,
-    fontFamily: theme.fontFamily.extraBold,
-    marginBottom: 2,
-  },
-  cardDescription: {
-    color: theme.colors.textMuted,
-    fontSize: theme.fontSize.sm,
-  },
-  chevron: {
-    color: theme.colors.accent,
-    fontSize: theme.fontSize.xl,
-    fontFamily: theme.fontFamily.bold,
   },
   unitsCard: {
     backgroundColor: theme.colors.surface,
     borderRadius: theme.radius.md,
     borderWidth: 1,
     borderColor: theme.colors.border,
-    padding: theme.spacing.sm,
-    marginBottom: theme.spacing.sm,
-    gap: theme.spacing.md,
+    paddingHorizontal: theme.spacing.sm,
+    paddingVertical: theme.spacing.xs,
+    marginBottom: theme.spacing.xs,
+  },
+  settingCardRow: {
+    minHeight: 48,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: theme.spacing.sm,
   },
   settingCardHeader: {
+    flex: 1,
+    minWidth: 0,
     flexDirection: 'row',
     alignItems: 'center',
     gap: theme.spacing.sm,
@@ -302,24 +275,25 @@ const stylesheet = createStyleSheet((theme) => ({
   unitLabel: {
     flex: 1,
     color: theme.colors.text,
-    fontSize: theme.fontSize.md,
+    fontSize: theme.fontSize.sm,
     fontFamily: theme.fontFamily.extraBold,
   },
   unitButtonsRow: {
+    width: 132,
     flexDirection: 'row',
-    gap: theme.spacing.sm,
+    gap: theme.spacing.xs,
   },
   timerControlRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: theme.spacing.sm,
+    gap: theme.spacing.xs,
   },
   timerAdjustButton: {
-    flex: 1,
-    paddingVertical: theme.spacing.sm,
-    paddingHorizontal: theme.spacing.md,
+    minWidth: 48,
+    paddingVertical: theme.spacing.xs,
+    paddingHorizontal: theme.spacing.sm,
     borderRadius: theme.radius.md,
-    backgroundColor: theme.colors.surface,
+    backgroundColor: theme.colors.surface2,
     borderWidth: 1,
     borderColor: theme.colors.border,
     alignItems: 'center',
@@ -329,36 +303,42 @@ const stylesheet = createStyleSheet((theme) => ({
   },
   timerAdjustText: {
     color: theme.colors.text,
-    fontSize: theme.fontSize.md,
+    fontSize: theme.fontSize.xs,
     fontFamily: theme.fontFamily.semiBold,
   },
   timerValue: {
-    minWidth: 72,
+    minWidth: 58,
     color: theme.colors.accent,
-    fontSize: theme.fontSize.lg,
+    fontSize: theme.fontSize.sm,
     fontFamily: theme.fontFamily.bold,
     textAlign: 'center',
+    backgroundColor: theme.colors.accentMuted,
+    borderRadius: theme.radius.md,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    paddingVertical: theme.spacing.xs,
+    paddingHorizontal: theme.spacing.xs,
   },
   unitButton: {
     flex: 1,
-    paddingVertical: theme.spacing.sm,
-    paddingHorizontal: theme.spacing.md,
+    paddingVertical: theme.spacing.xs,
+    paddingHorizontal: theme.spacing.sm,
     borderRadius: theme.radius.md,
-    backgroundColor: theme.colors.surface,
+    backgroundColor: theme.colors.surface2,
     borderWidth: 1,
     borderColor: theme.colors.border,
     alignItems: 'center',
   },
   unitButtonActive: {
-    backgroundColor: theme.colors.accent,
-    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.accentMuted,
+    borderColor: theme.colors.accent,
   },
   unitButtonText: {
     color: theme.colors.text,
-    fontSize: theme.fontSize.md,
+    fontSize: theme.fontSize.sm,
     fontFamily: theme.fontFamily.semiBold,
   },
   unitButtonTextActive: {
-    color: '#FFFFFF',
+    color: theme.colors.accent,
   },
 }))

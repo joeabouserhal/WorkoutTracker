@@ -159,7 +159,7 @@ export default function ProfileScreen({ navigation }: Props) {
         <View style={styles.settingsTextBlock}>
           <Text style={styles.settingsButtonTitle}>Edit Profile</Text>
           <Text style={styles.settingsButtonDescription}>
-            Update your personal information and preferences.
+            Update your personal information.
           </Text>
         </View>
         <Text style={styles.settingsChevron}>›</Text>
@@ -174,9 +174,26 @@ export default function ProfileScreen({ navigation }: Props) {
           <MaterialCommunityIcons name="cog-outline" size={19} color={theme.colors.accent} />
         </View>
         <View style={styles.settingsTextBlock}>
-          <Text style={styles.settingsButtonTitle}>Open settings</Text>
+          <Text style={styles.settingsButtonTitle}>Workout settings</Text>
           <Text style={styles.settingsButtonDescription}>
-            Manage themes and future preferences.
+            Manage default units and rest timers.
+          </Text>
+        </View>
+        <Text style={styles.settingsChevron}>›</Text>
+      </TouchableOpacity>
+
+      <TouchableOpacity
+        style={styles.settingsButton}
+        onPress={() => navigation.navigate('Themes')}
+        activeOpacity={0.75}
+      >
+        <View style={styles.settingsIconBadge}>
+          <MaterialCommunityIcons name="palette-outline" size={19} color={theme.colors.accent} />
+        </View>
+        <View style={styles.settingsTextBlock}>
+          <Text style={styles.settingsButtonTitle}>Themes</Text>
+          <Text style={styles.settingsButtonDescription}>
+            Choose the look and feel of the app.
           </Text>
         </View>
         <Text style={styles.settingsChevron}>›</Text>

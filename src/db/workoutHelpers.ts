@@ -277,6 +277,7 @@ export type ActiveWorkoutSession = {
     methodId: string
     methodName: string
     weightUnit: string
+    plannedSetCount?: number
     sets: Array<{
       id: string
       setType: string
@@ -1341,6 +1342,292 @@ export async function getActiveWorkoutSession(
     id: workout.id,
     name: workout.name,
     startedAt: workout.startedAt,
+    exercises,
+  }
+}
+
+async function ensureTemplateTables() {
+  await ensureLibraryTables()
+  await ensureExerciseTables()
+  await db.$client.execute(`CREATE TABLE IF NOT EXISTS workout_templates (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    is_favorite INTEGER NOT NULL DEFAULT 0,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+  )`)
+  await db.$client.execute(`CREATE TABLE IF NOT EXISTS workout_template_exercises (
+    id TEXT PRIMARY KEY,
+    template_id TEXT NOT NULL,
+    exercise_type_id TEXT NOT NULL,
+    method_id TEXT NOT NULL,
+    set_count INTEGER NOT NULL DEFAULT 3,
+    order_index INTEGER NOT NULL DEFAULT 0
+  )`)
+}
+
+export type WorkoutTemplateSummary = {
+  id: string
+  name: string
+  isFavorite: number
+  createdAt: number
+  updatedAt: number
+  exerciseCount: number
+  totalSetCount: number
+}
+
+export type WorkoutTemplateExercise = {
+  id: string
+  templateId: string
+  exerciseTypeId: string
+  exerciseTypeName: string
+  methodLocked: number
+  methodId: string
+  methodName: string
+  setCount: number
+  orderIndex: number
+}
+
+export type WorkoutTemplateDetail = WorkoutTemplateSummary & {
+  exercises: WorkoutTemplateExercise[]
+}
+
+function genTemplateId(prefix: string): string {
+  return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
+}
+
+export async function createWorkoutTemplate(name: string): Promise<string> {
+  const trimmed = name.trim()
+  if (!trimmed) throw new Error('Template name is required')
+  await ensureTemplateTables()
+  const id = genTemplateId('template')
+  const now = Date.now()
+  await db.$client.execute(
+    'INSERT INTO workout_templates (id, name, created_at, updated_at) VALUES (?, ?, ?, ?)',
+    [id, trimmed, now, now],
+  )
+  return id
+}
+
+export async function getWorkoutTemplates(): Promise<WorkoutTemplateSummary[]> {
+  await ensureTemplateTables()
+  const result = await db.$client.execute(
+    `SELECT
+       t.id,
+       t.name,
+       t.is_favorite as isFavorite,
+       t.created_at as createdAt,
+       t.updated_at as updatedAt,
+       COUNT(te.id) as exerciseCount,
+       COALESCE(SUM(te.set_count), 0) as totalSetCount
+     FROM workout_templates t
+     LEFT JOIN workout_template_exercises te ON te.template_id = t.id
+     GROUP BY t.id
+     ORDER BY t.is_favorite DESC, t.updated_at DESC`,
+  )
+  return result.rows as WorkoutTemplateSummary[]
+}
+
+export async function getFavoriteWorkoutTemplates(): Promise<WorkoutTemplateSummary[]> {
+  await ensureTemplateTables()
+  const result = await db.$client.execute(
+    `SELECT
+       t.id,
+       t.name,
+       t.is_favorite as isFavorite,
+       t.created_at as createdAt,
+       t.updated_at as updatedAt,
+       COUNT(te.id) as exerciseCount,
+       COALESCE(SUM(te.set_count), 0) as totalSetCount
+     FROM workout_templates t
+     LEFT JOIN workout_template_exercises te ON te.template_id = t.id
+     WHERE t.is_favorite = 1
+     GROUP BY t.id
+     ORDER BY t.updated_at DESC
+     LIMIT 6`,
+  )
+  return result.rows as WorkoutTemplateSummary[]
+}
+
+export async function getWorkoutTemplateDetail(
+  templateId: string,
+): Promise<WorkoutTemplateDetail | null> {
+  await ensureTemplateTables()
+  const summary = (await db.$client.execute(
+    `SELECT
+       t.id,
+       t.name,
+       t.is_favorite as isFavorite,
+       t.created_at as createdAt,
+       t.updated_at as updatedAt,
+       COUNT(te.id) as exerciseCount,
+       COALESCE(SUM(te.set_count), 0) as totalSetCount
+     FROM workout_templates t
+     LEFT JOIN workout_template_exercises te ON te.template_id = t.id
+     WHERE t.id = ?
+     GROUP BY t.id`,
+    [templateId],
+  )).rows[0] as WorkoutTemplateSummary | undefined
+  if (!summary) return null
+
+  const exercises = (await db.$client.execute(
+    `SELECT
+       te.id,
+       te.template_id as templateId,
+       et.id as exerciseTypeId,
+       et.name as exerciseTypeName,
+       et.method_locked as methodLocked,
+       m.id as methodId,
+       m.name as methodName,
+       te.set_count as setCount,
+       te.order_index as orderIndex
+     FROM workout_template_exercises te
+     JOIN exercise_types et ON et.id = te.exercise_type_id
+     JOIN methods m ON m.id = te.method_id
+     WHERE te.template_id = ?
+     ORDER BY te.order_index ASC, te.id ASC`,
+    [templateId],
+  )).rows as WorkoutTemplateExercise[]
+
+  return { ...summary, exercises }
+}
+
+export async function setWorkoutTemplateFavorite(
+  templateId: string,
+  favorite: boolean,
+): Promise<void> {
+  await ensureTemplateTables()
+  if (favorite) {
+    const countRow = (await db.$client.execute(
+      'SELECT COUNT(*) as count FROM workout_templates WHERE is_favorite = 1 AND id != ?',
+      [templateId],
+    )).rows[0] as { count?: number } | undefined
+    const favoriteCount = Number(countRow?.count ?? 0)
+    if (favoriteCount >= 6) {
+      throw new Error('You can favorite up to 6 templates.')
+    }
+  }
+  await db.$client.execute(
+    'UPDATE workout_templates SET is_favorite = ?, updated_at = ? WHERE id = ?',
+    [favorite ? 1 : 0, Date.now(), templateId],
+  )
+}
+
+export async function deleteWorkoutTemplate(templateId: string): Promise<void> {
+  await ensureTemplateTables()
+  await db.$client.execute('DELETE FROM workout_template_exercises WHERE template_id = ?', [templateId])
+  await db.$client.execute('DELETE FROM workout_templates WHERE id = ?', [templateId])
+}
+
+export async function addExerciseToWorkoutTemplate(params: {
+  templateId: string
+  exerciseTypeId: string
+  methodId: string
+  setCount: number
+}): Promise<void> {
+  await ensureTemplateTables()
+  const setCount = Math.max(1, Math.min(12, Math.trunc(params.setCount)))
+  const orderRow = (await db.$client.execute(
+    'SELECT COALESCE(MAX(order_index), -1) + 1 as nextOrder FROM workout_template_exercises WHERE template_id = ?',
+    [params.templateId],
+  )).rows[0] as { nextOrder?: number } | undefined
+  const nextOrder = Number(orderRow?.nextOrder ?? 0)
+  const id = genTemplateId('template_exercise')
+  await db.$client.execute(
+    `INSERT INTO workout_template_exercises (
+      id,
+      template_id,
+      exercise_type_id,
+      method_id,
+      set_count,
+      order_index
+    ) VALUES (?, ?, ?, ?, ?, ?)`,
+    [id, params.templateId, params.exerciseTypeId, params.methodId, setCount, nextOrder],
+  )
+  await db.$client.execute(
+    'UPDATE workout_templates SET updated_at = ? WHERE id = ?',
+    [Date.now(), params.templateId],
+  )
+}
+
+export async function updateWorkoutTemplateExerciseSetCount(
+  templateExerciseId: string,
+  setCount: number,
+): Promise<void> {
+  await ensureTemplateTables()
+  const safeSetCount = Math.max(1, Math.min(12, Math.trunc(setCount)))
+  await db.$client.execute(
+    `UPDATE workout_template_exercises
+     SET set_count = ?
+     WHERE id = ?`,
+    [safeSetCount, templateExerciseId],
+  )
+  await db.$client.execute(
+    `UPDATE workout_templates
+     SET updated_at = ?
+     WHERE id = (
+       SELECT template_id FROM workout_template_exercises WHERE id = ?
+     )`,
+    [Date.now(), templateExerciseId],
+  )
+}
+
+export async function removeExerciseFromWorkoutTemplate(
+  templateExerciseId: string,
+): Promise<void> {
+  await ensureTemplateTables()
+  const row = (await db.$client.execute(
+    'SELECT template_id as templateId FROM workout_template_exercises WHERE id = ?',
+    [templateExerciseId],
+  )).rows[0] as { templateId?: string } | undefined
+  await db.$client.execute('DELETE FROM workout_template_exercises WHERE id = ?', [templateExerciseId])
+  if (row?.templateId) {
+    await db.$client.execute(
+      'UPDATE workout_templates SET updated_at = ? WHERE id = ?',
+      [Date.now(), row.templateId],
+    )
+  }
+}
+
+export async function createWorkoutFromTemplate(
+  templateId: string,
+): Promise<ActiveWorkoutSession> {
+  const template = await getWorkoutTemplateDetail(templateId)
+  if (!template) throw new Error('Template not found')
+  if (template.exercises.length === 0) {
+    throw new Error('Add exercises before starting this template.')
+  }
+
+  const workoutId = await createWorkout()
+  await updateWorkoutName(workoutId, template.name)
+  const startedAt = Date.now()
+  const exercises: ActiveWorkoutSession['exercises'] = []
+
+  for (const [index, exercise] of template.exercises.entries()) {
+    const workoutExerciseId = await addExerciseToWorkout({
+      workoutId,
+      exerciseTypeId: exercise.exerciseTypeId,
+      methodId: exercise.methodId,
+      weightUnit: 'kg',
+      orderIndex: index,
+    })
+    exercises.push({
+      workoutExerciseId,
+      exerciseTypeId: exercise.exerciseTypeId,
+      exerciseTypeName: exercise.exerciseTypeName,
+      methodLocked: exercise.methodLocked,
+      methodId: exercise.methodId,
+      methodName: exercise.methodName,
+      weightUnit: 'kg',
+      plannedSetCount: exercise.setCount,
+      sets: [],
+    })
+  }
+
+  return {
+    id: workoutId,
+    name: template.name,
+    startedAt,
     exercises,
   }
 }

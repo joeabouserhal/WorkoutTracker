@@ -87,6 +87,7 @@ const SHEET_SWIPE_CLOSE_DISTANCE = 48
 const SHEET_SWIPE_CLOSE_VELOCITY = 0.48
 const WORKOUT_EXERCISE_DEFAULT_HEIGHT = 178
 const WORKOUT_EXERCISE_GAP = 8
+const ACTIVE_WORKOUT_DRAFT_SAVE_DELAY_MS = 250
 const PR_CONFETTI_COLORS = [PR_GOLD, '#F7D774', '#FFFFFF', '#75C7E6', '#8FE3B0']
 const PR_CONFETTI = Array.from({ length: 22 }, (_, index) => {
   const column = index % 11
@@ -301,6 +302,35 @@ function readActiveWorkoutDraft(workoutId: string): {
   }
 }
 
+function writeActiveWorkoutDraft(
+  workoutId: string,
+  localSets: Record<string, LocalSet[]>,
+  exercises: ExerciseEntry[],
+) {
+  setString(MMKV_LOCAL_SETS, JSON.stringify({
+    workoutId,
+    localSets,
+    exerciseUnits: Object.fromEntries(
+      exercises.map((exercise) => [exercise.workoutExerciseId, exercise.weightUnit]),
+    ),
+  }))
+}
+
+function areLocalSetsEqual(a: LocalSet, b: LocalSet) {
+  return a.id === b.id &&
+    a.weightKg === b.weightKg &&
+    a.weightInput === b.weightInput &&
+    a.weightInputUnit === b.weightInputUnit &&
+    a.reps === b.reps &&
+    a.completed === b.completed &&
+    a.persistedSetId === b.persistedSetId
+}
+
+function areLocalSetArraysEqual(a: LocalSet[], b: LocalSet[]) {
+  if (a.length !== b.length) return false
+  return a.every((set, index) => areLocalSetsEqual(set, b[index]))
+}
+
 function formatElapsed(seconds: number): string {
   const h = Math.floor(seconds / 3600)
   const m = Math.floor((seconds % 3600) / 60)
@@ -363,32 +393,31 @@ export default function ActiveWorkoutSheet() {
   const exerciseLayoutRef = useRef<Record<string, { y: number; height: number }>>({})
   const exercisePanResponderRef = useRef<Record<string, ReturnType<typeof PanResponder.create>>>({})
   const localSetsDraftHydratedForWorkoutRef = useRef<string | null>(null)
+  const localSetsRef = useRef(localSets)
   const focusedSetKeyRef = useRef<string | null>(null)
   const notificationRestEndsAtRef = useRef<number | null>(null)
   const sheetScrollAtTopRef = useRef(true)
   const sheetScrollAtTop = useSharedValue(true)
 
-  const {
-    activeWorkoutId,
-    startedAt,
-    exercises,
-    isResting,
-    restSecondsRemaining,
-    restEndsAt,
-    isWorkoutSheetOpen,
-    endWorkoutRequestId,
-    closeWorkoutSheet,
-    endWorkout,
-    openWorkoutSheet,
-    removeExercise,
-    reorderExercises,
-    updateExerciseWeightUnit,
-    addSet,
-    removeSet,
-    startRest,
-    tickRest,
-    clearRest,
-  } = useSessionStore()
+  const activeWorkoutId = useSessionStore((state) => state.activeWorkoutId)
+  const startedAt = useSessionStore((state) => state.startedAt)
+  const exercises = useSessionStore((state) => state.exercises)
+  const isResting = useSessionStore((state) => state.isResting)
+  const restSecondsRemaining = useSessionStore((state) => state.restSecondsRemaining)
+  const restEndsAt = useSessionStore((state) => state.restEndsAt)
+  const isWorkoutSheetOpen = useSessionStore((state) => state.isWorkoutSheetOpen)
+  const endWorkoutRequestId = useSessionStore((state) => state.endWorkoutRequestId)
+  const closeWorkoutSheet = useSessionStore((state) => state.closeWorkoutSheet)
+  const endWorkout = useSessionStore((state) => state.endWorkout)
+  const openWorkoutSheet = useSessionStore((state) => state.openWorkoutSheet)
+  const removeExercise = useSessionStore((state) => state.removeExercise)
+  const reorderExercises = useSessionStore((state) => state.reorderExercises)
+  const updateExerciseWeightUnit = useSessionStore((state) => state.updateExerciseWeightUnit)
+  const addSet = useSessionStore((state) => state.addSet)
+  const removeSet = useSessionStore((state) => state.removeSet)
+  const startRest = useSessionStore((state) => state.startRest)
+  const tickRest = useSessionStore((state) => state.tickRest)
+  const clearRest = useSessionStore((state) => state.clearRest)
   const exercisesRef = useRef(exercises)
 
   const dismissSetKeyboard = useCallback(() => {
@@ -396,15 +425,25 @@ export default function ActiveWorkoutSheet() {
     focusedSetKeyRef.current = null
   }, [])
 
+  const exerciseWeightUnitById = useMemo(() => (
+    exercises.reduce<Record<string, string>>((acc, exercise) => {
+      acc[exercise.workoutExerciseId] = exercise.weightUnit
+      return acc
+    }, {})
+  ), [exercises])
+
   const footerStats = useMemo(() => {
-    const sets = Object.values(localSets).flat()
-    const completedSets = sets.filter((set) => set.completed).length
-    const volumeKg = sets.reduce((total, set) => {
-      if (!set.completed) return total
-      const weightKg = parseWeightInput(set.weightKg) ?? 0
-      const reps = parseRepsInput(set.reps)
-      return total + weightKg * reps
-    }, 0)
+    let completedSets = 0
+    let volumeKg = 0
+    for (const sets of Object.values(localSets)) {
+      for (const set of sets) {
+        if (!set.completed) continue
+        completedSets += 1
+        const weightKg = parseWeightInput(set.weightKg) ?? 0
+        const reps = parseRepsInput(set.reps)
+        volumeKg += weightKg * reps
+      }
+    }
     return {
       exercises: exercises.length,
       completedSets,
@@ -415,6 +454,10 @@ export default function ActiveWorkoutSheet() {
   useEffect(() => {
     exercisesRef.current = exercises
   }, [exercises])
+
+  useEffect(() => {
+    localSetsRef.current = localSets
+  }, [localSets])
 
   const maybeRunAutoBackup = useCallback(async () => {
     if (!getAutoBackupAfterWorkoutEnabled()) return
@@ -774,19 +817,18 @@ export default function ActiveWorkoutSheet() {
       return
     }
 
-    setString(MMKV_LOCAL_SETS, JSON.stringify({
-      workoutId: activeWorkoutId,
-      localSets,
-      exerciseUnits: Object.fromEntries(
-        exercises.map((exercise) => [exercise.workoutExerciseId, exercise.weightUnit]),
-      ),
-    }))
+    const timeout = setTimeout(() => {
+      writeActiveWorkoutDraft(activeWorkoutId, localSets, exercises)
+    }, ACTIVE_WORKOUT_DRAFT_SAVE_DELAY_MS)
+    return () => clearTimeout(timeout)
   }, [activeWorkoutId, exercises, localSets])
 
   // Sync new exercises into local set state (one empty set each)
   useEffect(() => {
     setLocalSets((prev) => {
       const next = { ...prev }
+      let didChange = false
+      const exerciseIds = new Set(exercises.map((exercise) => exercise.workoutExerciseId))
       for (const ex of exercises) {
         const existingSets = next[ex.workoutExerciseId] ?? []
         const restoredCompletedSets = ex.sets.map((set) =>
@@ -803,26 +845,33 @@ export default function ActiveWorkoutSheet() {
             draftSetsByPersistedId.get(set.persistedSetId) ?? set,
           )
           const draftSets = existingSets.filter((set) => !set.completed)
-          next[ex.workoutExerciseId] = [...completedSets, ...draftSets]
+          const mergedSets = [...completedSets, ...draftSets]
+          if (!areLocalSetArraysEqual(existingSets, mergedSets)) {
+            next[ex.workoutExerciseId] = mergedSets
+            didChange = true
+          }
         } else if (!next[ex.workoutExerciseId]) {
           const plannedSetCount = Math.max(1, Math.trunc(ex.plannedSetCount ?? 1))
           next[ex.workoutExerciseId] = Array.from(
             { length: plannedSetCount },
             () => newLocalSet(ex.weightUnit),
           )
+          didChange = true
         }
 
         if (next[ex.workoutExerciseId]?.length === 0) {
           next[ex.workoutExerciseId] = [newLocalSet(ex.weightUnit)]
+          didChange = true
         }
 
       }
       for (const key of Object.keys(next)) {
-        if (!exercises.find((ex) => ex.workoutExerciseId === key)) {
+        if (!exerciseIds.has(key)) {
           delete next[key]
+          didChange = true
         }
       }
-      return next
+      return didChange ? next : prev
     })
   }, [exercises])
 
@@ -888,6 +937,7 @@ export default function ActiveWorkoutSheet() {
     const appStateSub = AppState.addEventListener('change', (state) => {
       if (state !== 'active') {
         dismissSetKeyboard()
+        writeActiveWorkoutDraft(activeWorkoutId, localSetsRef.current, exercisesRef.current)
         return
       }
       if (state === 'active') {
@@ -965,36 +1015,7 @@ export default function ActiveWorkoutSheet() {
     if (activeWorkoutId) openWorkoutSheet()
   }
 
-  const sheetSwipePanHandlers = useMemo(() =>
-    PanResponder.create({
-      onMoveShouldSetPanResponderCapture: (_event, gestureState) => {
-        if (draggingExerciseId) return false
-        if (!sheetScrollAtTopRef.current) return false
-        if (gestureState.dy <= SHEET_SWIPE_CAPTURE_DISTANCE) return false
-        return Math.abs(gestureState.dx) < 72 ||
-          gestureState.dy > Math.abs(gestureState.dx) * 0.55
-      },
-      onPanResponderTerminationRequest: () => false,
-      onPanResponderRelease: (_event, gestureState) => {
-        if (!sheetScrollAtTopRef.current) return
-        if (
-          gestureState.dy > SHEET_SWIPE_CLOSE_DISTANCE ||
-          gestureState.vy > SHEET_SWIPE_CLOSE_VELOCITY
-        ) {
-          handleCloseSheet()
-        }
-      },
-      onPanResponderTerminate: (_event, gestureState) => {
-        if (!sheetScrollAtTopRef.current) return
-        if (
-          gestureState.dy > SHEET_SWIPE_CLOSE_DISTANCE + 18 ||
-          gestureState.vy > SHEET_SWIPE_CLOSE_VELOCITY + 0.2
-        ) {
-          handleCloseSheet()
-        }
-      },
-    }).panHandlers,
-  [draggingExerciseId, handleCloseSheet])
+
 
   function handleScroll(event: NativeSyntheticEvent<NativeScrollEvent>) {
     const offsetY = event.nativeEvent.contentOffset.y
@@ -1092,7 +1113,7 @@ export default function ActiveWorkoutSheet() {
 
   function addLocalSet(weId: string) {
     dismissSetKeyboard()
-    const weightUnit = exercises.find((ex) => ex.workoutExerciseId === weId)?.weightUnit ?? 'kg'
+    const weightUnit = exerciseWeightUnitById[weId] ?? 'kg'
     const previousCompletedSet = [...(localSets[weId] ?? [])]
       .reverse()
       .find((set) => set.completed && parseWeightInput(set.weightKg) !== null)
@@ -1142,7 +1163,7 @@ export default function ActiveWorkoutSheet() {
   }
 
   function updateSetField(weId: string, setId: string, field: 'weight' | 'reps', value: string) {
-    const weightUnit = exercises.find((ex) => ex.workoutExerciseId === weId)?.weightUnit ?? 'kg'
+    const weightUnit = exerciseWeightUnitById[weId] ?? 'kg'
     const nextValue = field === 'reps' ? sanitizeRepsInput(value) : value
     const errorKey = getFieldErrorKey(weId, setId, field)
     setLocalSets((prev) => ({
@@ -1396,7 +1417,6 @@ export default function ActiveWorkoutSheet() {
         <GestureDetector gesture={swipeDownToCloseGesture}>
         <View
           style={[styles.root, { paddingTop: insets.top }]}
-          {...sheetSwipePanHandlers}
         >
           {/* Fixed header */}
           <View style={styles.header}>

@@ -9,7 +9,6 @@ import {
   type LayoutChangeEvent,
   type NativeScrollEvent,
   type NativeSyntheticEvent,
-  type PanResponderGestureState,
   ScrollView,
   StyleSheet,
   Text,
@@ -19,7 +18,13 @@ import {
 } from 'react-native'
 import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler'
 import ReanimatedSwipeable from 'react-native-gesture-handler/ReanimatedSwipeable'
-import { runOnJS, useSharedValue } from 'react-native-reanimated'
+import Reanimated, {
+  runOnJS,
+  type SharedValue,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from 'react-native-reanimated'
 import notifee, { EventType } from '@notifee/react-native'
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons'
 import { createStyleSheet, useStyles } from 'react-native-unistyles'
@@ -28,6 +33,7 @@ import { getString, removeKey, setString } from '@/storage/mmkv'
 import {
   MMKV_LOCAL_SETS,
   MMKV_PENDING_WORKOUT_ACTION,
+  type ExerciseEntry,
   useSessionStore,
 } from '@/store/sessionStore'
 import {
@@ -65,12 +71,18 @@ type LocalSet = {
   persistedSetId?: string
 }
 
+type WorkoutExercisePositions = Record<string, number>
+type WorkoutExerciseHeights = Record<string, number>
+type WorkoutExerciseLayouts = Record<string, { y: number; height: number }>
+
 const LB_PER_KG = 2.20462
 const PR_GOLD = '#D9A441'
 const SHEET_TOP_SWIPE_TOLERANCE = 10
 const SHEET_SWIPE_CAPTURE_DISTANCE = 6
 const SHEET_SWIPE_CLOSE_DISTANCE = 48
 const SHEET_SWIPE_CLOSE_VELOCITY = 0.48
+const WORKOUT_EXERCISE_DEFAULT_HEIGHT = 178
+const WORKOUT_EXERCISE_GAP = 8
 const PR_CONFETTI_COLORS = [PR_GOLD, '#F7D774', '#FFFFFF', '#75C7E6', '#8FE3B0']
 const PR_CONFETTI = Array.from({ length: 22 }, (_, index) => {
   const column = index % 11
@@ -86,6 +98,66 @@ const PR_CONFETTI = Array.from({ length: 22 }, (_, index) => {
     delay: index * 16,
   }
 })
+
+function buildWorkoutExercisePositions(exercises: ExerciseEntry[]): WorkoutExercisePositions {
+  return exercises.reduce<WorkoutExercisePositions>((positions, exercise, index) => {
+    positions[exercise.workoutExerciseId] = index
+    return positions
+  }, {})
+}
+
+function clampWorkoutExerciseIndex(value: number, min: number, max: number) {
+  'worklet'
+  return Math.max(min, Math.min(max, value))
+}
+
+function getWorkoutExerciseHeight(heights: WorkoutExerciseHeights, exerciseId: string) {
+  'worklet'
+  const height = heights[exerciseId]
+  return typeof height === 'number' && height > 0
+    ? height
+    : WORKOUT_EXERCISE_DEFAULT_HEIGHT
+}
+
+function getWorkoutExerciseTopForIndex(
+  targetIndex: number,
+  positions: WorkoutExercisePositions,
+  heights: WorkoutExerciseHeights,
+  exerciseIds: string[],
+) {
+  'worklet'
+  let top = 0
+  for (let i = 0; i < exerciseIds.length; i += 1) {
+    const exerciseId = exerciseIds[i]
+    const position = positions[exerciseId] ?? i
+    if (position < targetIndex) {
+      top += getWorkoutExerciseHeight(heights, exerciseId) + WORKOUT_EXERCISE_GAP
+    }
+  }
+  return top
+}
+
+function getWorkoutExerciseTargetIndex(
+  draggedExerciseId: string,
+  draggedCenter: number,
+  positions: WorkoutExercisePositions,
+  heights: WorkoutExerciseHeights,
+  exerciseIds: string[],
+) {
+  'worklet'
+  let targetIndex = 0
+  for (let i = 0; i < exerciseIds.length; i += 1) {
+    const exerciseId = exerciseIds[i]
+    if (exerciseId === draggedExerciseId) continue
+    const position = positions[exerciseId] ?? i
+    const height = getWorkoutExerciseHeight(heights, exerciseId)
+    const top = getWorkoutExerciseTopForIndex(position, positions, heights, exerciseIds)
+    if (draggedCenter > top + (height / 2)) {
+      targetIndex += 1
+    }
+  }
+  return clampWorkoutExerciseIndex(targetIndex, 0, exerciseIds.length - 1)
+}
 
 function formatConvertedWeight(value: number): string {
   return Number.parseFloat(value.toFixed(2)).toString()
@@ -285,17 +357,7 @@ export default function ActiveWorkoutSheet() {
   const scrollHeightRef = useRef(0)
   const setLayoutRef = useRef<Record<string, { y: number; height: number }>>({})
   const exerciseLayoutRef = useRef<Record<string, { y: number; height: number }>>({})
-  const exerciseDragRef = useRef<{
-    id: string
-    startIndex: number
-    startY: number
-    height: number
-    targetIndex: number
-    initialOrder: string[]
-  } | null>(null)
   const exercisePanResponderRef = useRef<Record<string, ReturnType<typeof PanResponder.create>>>({})
-  const exerciseShiftValuesRef = useRef<Record<string, Animated.Value>>({})
-  const exerciseDragTranslateY = useRef(new Animated.Value(0)).current
   const localSetsDraftHydratedForWorkoutRef = useRef<string | null>(null)
   const focusedSetKeyRef = useRef<string | null>(null)
   const notificationRestEndsAtRef = useRef<number | null>(null)
@@ -630,12 +692,10 @@ export default function ActiveWorkoutSheet() {
     scrollOffsetRef.current = 0
     sheetScrollAtTopRef.current = true
     exerciseLayoutRef.current = {}
-    exerciseDragRef.current = null
-    exerciseShiftValuesRef.current = {}
+    exercisePanResponderRef.current = {}
     sheetScrollAtTop.value = true
     setDraggingExerciseId(null)
-    exerciseDragTranslateY.setValue(0)
-  }, [activeWorkoutId, exerciseDragTranslateY, sheetScrollAtTop])
+  }, [activeWorkoutId, sheetScrollAtTop])
 
   useEffect(() => {
     let cancelled = false
@@ -947,33 +1007,9 @@ export default function ActiveWorkoutSheet() {
     }
   }
 
-  function handleExerciseLayout(weId: string, event: LayoutChangeEvent) {
-    exerciseLayoutRef.current[weId] = {
-      y: event.nativeEvent.layout.y,
-      height: event.nativeEvent.layout.height,
-    }
-  }
-
-  function getExerciseShiftValue(weId: string) {
-    if (!exerciseShiftValuesRef.current[weId]) {
-      exerciseShiftValuesRef.current[weId] = new Animated.Value(0)
-    }
-    return exerciseShiftValuesRef.current[weId]
-  }
-
-  function animateExerciseShift(weId: string, toValue: number) {
-    Animated.timing(getExerciseShiftValue(weId), {
-      toValue,
-      duration: 115,
-      useNativeDriver: true,
-    }).start()
-  }
-
-  function resetExerciseShifts(order: string[]) {
-    for (const id of order) {
-      getExerciseShiftValue(id).setValue(0)
-    }
-  }
+  const handleExerciseLayoutsChange = useCallback((layouts: WorkoutExerciseLayouts) => {
+    exerciseLayoutRef.current = layouts
+  }, [])
 
   const scrollSetIntoView = useCallback((key: string, delay = 40) => {
     setTimeout(() => {
@@ -1277,76 +1313,18 @@ export default function ActiveWorkoutSheet() {
     })
   }
 
-  function beginExerciseDrag(weId: string) {
-    const layout = exerciseLayoutRef.current[weId]
-    const currentExercises = exercisesRef.current
-    const startIndex = currentExercises.findIndex((exercise) => exercise.workoutExerciseId === weId)
-    if (!layout || startIndex < 0 || currentExercises.length < 2) return
-    Keyboard.dismiss()
-    closeDialog()
-    exerciseDragRef.current = {
-      id: weId,
-      startIndex,
-      startY: layout.y,
-      height: layout.height,
-      targetIndex: startIndex,
-      initialOrder: currentExercises.map((exercise) => exercise.workoutExerciseId),
+  const handleExerciseDragStateChange = useCallback((weId: string | null) => {
+    if (weId) {
+      Keyboard.dismiss()
+      closeDialog()
     }
-    resetExerciseShifts(currentExercises.map((exercise) => exercise.workoutExerciseId))
     setDraggingExerciseId(weId)
-    exerciseDragTranslateY.setValue(0)
-  }
+  }, [closeDialog])
 
-  function updateExerciseDrag(gestureState: PanResponderGestureState) {
-    const dragState = exerciseDragRef.current
-    if (!dragState) return
-
-    const draggedCenter = dragState.startY + gestureState.dy + (dragState.height / 2)
-    const nextIndex = dragState.initialOrder.reduce((index, id) => {
-      if (id === dragState.id) return index
-      const layout = exerciseLayoutRef.current[id]
-      if (!layout) return index
-      return draggedCenter > layout.y + (layout.height / 2) ? index + 1 : index
-    }, 0)
-
-    if (nextIndex !== dragState.targetIndex) {
-      dragState.targetIndex = nextIndex
-      for (const [index, id] of dragState.initialOrder.entries()) {
-        if (id === dragState.id) continue
-        let shift = 0
-        if (
-          nextIndex > dragState.startIndex &&
-          index > dragState.startIndex &&
-          index <= nextIndex
-        ) {
-          shift = -dragState.height
-        } else if (
-          nextIndex < dragState.startIndex &&
-          index >= nextIndex &&
-          index < dragState.startIndex
-        ) {
-          shift = dragState.height
-        }
-        animateExerciseShift(id, shift)
-      }
-    }
-
-    exerciseDragTranslateY.setValue(gestureState.dy)
-  }
-
-  function finishExerciseDrag() {
-    const dragState = exerciseDragRef.current
-    exerciseDragRef.current = null
-    setDraggingExerciseId(null)
-    exerciseDragTranslateY.setValue(0)
-    if (!dragState) return
-
-    resetExerciseShifts(dragState.initialOrder)
-    const finalOrder = [...dragState.initialOrder]
-    const [movedId] = finalOrder.splice(dragState.startIndex, 1)
-    finalOrder.splice(dragState.targetIndex, 0, movedId)
-    const didChangeOrder = finalOrder.some((id, index) => id !== dragState.initialOrder[index])
-    if (!didChangeOrder) return
+  const persistExerciseOrder = useCallback((finalOrder: string[]) => {
+    const currentOrder = exercisesRef.current.map((exercise) => exercise.workoutExerciseId)
+    const didChangeOrder = finalOrder.some((id, index) => id !== currentOrder[index])
+    if (!didChangeOrder || finalOrder.length !== currentOrder.length) return
 
     const byId = new Map(exercisesRef.current.map((exercise) => [exercise.workoutExerciseId, exercise]))
     exercisesRef.current = finalOrder.flatMap((id) => {
@@ -1357,40 +1335,14 @@ export default function ActiveWorkoutSheet() {
     updateWorkoutExerciseOrder(finalOrder).catch((e) => {
       console.error('Could not persist exercise order', e)
       const byInitialId = new Map(exercisesRef.current.map((exercise) => [exercise.workoutExerciseId, exercise]))
-      exercisesRef.current = dragState.initialOrder.flatMap((id) => {
+      exercisesRef.current = currentOrder.flatMap((id) => {
         const exercise = byInitialId.get(id)
         return exercise ? [exercise] : []
       })
-      reorderExercises(dragState.initialOrder)
+      reorderExercises(currentOrder)
       showErrorDialog('Could not rearrange exercises.')
     })
-  }
-
-  function getExerciseDragPanHandlers(weId: string) {
-    if (!exercisePanResponderRef.current[weId]) {
-      exercisePanResponderRef.current[weId] = PanResponder.create({
-        onStartShouldSetPanResponder: () => true,
-        onMoveShouldSetPanResponder: () => true,
-        onPanResponderGrant: () => beginExerciseDrag(weId),
-        onPanResponderMove: (_event, gestureState) => updateExerciseDrag(gestureState),
-        onPanResponderRelease: () => finishExerciseDrag(),
-        onPanResponderTerminate: () => finishExerciseDrag(),
-      })
-    }
-    return exercisePanResponderRef.current[weId].panHandlers
-  }
-
-  function getExerciseDragStyle(weId: string) {
-    if (!draggingExerciseId) return null
-    if (draggingExerciseId !== weId) {
-      return {
-        transform: [{ translateY: getExerciseShiftValue(weId) }],
-      }
-    }
-    return {
-      transform: [{ translateY: exerciseDragTranslateY }],
-    }
-  }
+  }, [reorderExercises, showErrorDialog])
 
   function renderDeleteAction(onPress: () => void) {
     return (
@@ -1495,167 +1447,141 @@ export default function ActiveWorkoutSheet() {
               <Text style={styles.emptyHint}>Add an exercise to get started</Text>
             )}
 
-            {exercises.map((ex) => {
-              const sets = localSets[ex.workoutExerciseId] ?? []
-              const showMethod = !(ex.methodLocked || methodLockedByExerciseType[ex.exerciseTypeId])
-              return (
-                <Animated.View
-                  key={ex.workoutExerciseId}
-                  style={[
-                    styles.exerciseCard,
-                    draggingExerciseId === ex.workoutExerciseId && styles.exerciseCardDragging,
-                    getExerciseDragStyle(ex.workoutExerciseId),
-                  ]}
-                  onLayout={(event) => handleExerciseLayout(ex.workoutExerciseId, event)}
-                >
-                  {/* Exercise header row — swipe left to delete whole exercise */}
-                  <ReanimatedSwipeable
-                    renderRightActions={() => renderDeleteAction(() => handleDeleteExercise(ex.workoutExerciseId))}
-                    overshootRight={false}
-                  >
-                    <View style={styles.exerciseHeader}>
-                      <Text style={styles.exerciseName} numberOfLines={1}>
-                        {ex.exerciseTypeName}
-                        {showMethod ? (
-                          <Text style={styles.exerciseMethod}>{' - '}{ex.methodName}</Text>
-                        ) : null}
-                      </Text>
-                      <View
-                        style={[
-                          styles.reorderButton,
-                          exercises.length < 2 && styles.reorderButtonDisabled,
-                        ]}
-                        {...getExerciseDragPanHandlers(ex.workoutExerciseId)}
-                      >
-                        <MaterialCommunityIcons
-                          name="drag"
-                          size={19}
-                          color={exercises.length < 2 ? theme.colors.textMuted : theme.colors.text}
-                        />
+            {exercises.length > 0 ? (
+              <SortableActiveWorkoutExerciseList
+                exercises={exercises}
+                draggingExerciseId={draggingExerciseId}
+                methodLockedByExerciseType={methodLockedByExerciseType}
+                onDeleteExercise={handleDeleteExercise}
+                onDragStateChange={handleExerciseDragStateChange}
+                onExerciseLayoutsChange={handleExerciseLayoutsChange}
+                onReorder={persistExerciseOrder}
+                renderExerciseBody={(ex) => {
+                  const sets = localSets[ex.workoutExerciseId] ?? []
+                  return (
+                    <>
+                      {/* Column labels */}
+                      <View style={styles.setLabelRow}>
+                        <Text style={[styles.setLabel, styles.setNumCol]}>SET</Text>
+                        <Text style={[styles.setLabel, styles.weightCol]}>WEIGHT</Text>
+                        <Text style={[styles.setLabel, styles.repsCol]}>REPS</Text>
+                        <View style={styles.checkCol} />
                       </View>
-                    </View>
-                  </ReanimatedSwipeable>
 
-                  {/* Column labels */}
-                  <View style={styles.setLabelRow}>
-                    <Text style={[styles.setLabel, styles.setNumCol]}>SET</Text>
-                    <Text style={[styles.setLabel, styles.weightCol]}>WEIGHT</Text>
-                    <Text style={[styles.setLabel, styles.repsCol]}>REPS</Text>
-                    <View style={styles.checkCol} />
-                  </View>
-
-                  {/* Set rows — swipe left to delete set */}
-                  {sets.map((s, i) => {
-                    const setRestKey = getRestSetKey(ex.workoutExerciseId, s.id)
-                    const setLayoutKey = getSetLayoutKey(ex.workoutExerciseId, s.id)
-                    return (
-                      <React.Fragment key={s.id}>
-                        <View
-                          onLayout={(event) =>
-                            handleSetRowLayout(ex.workoutExerciseId, setLayoutKey, event)
-                          }
-                        >
-                          <ReanimatedSwipeable
-                            renderRightActions={() => renderDeleteAction(() => removeLocalSet(ex.workoutExerciseId, s.id))}
-                            childrenContainerStyle={styles.swipeableSetContent}
-                            dragOffsetFromRightEdge={3}
-                            overshootRight={false}
-                          >
+                      {/* Set rows — swipe left to delete set */}
+                      {sets.map((s, i) => {
+                        const setRestKey = getRestSetKey(ex.workoutExerciseId, s.id)
+                        const setLayoutKey = getSetLayoutKey(ex.workoutExerciseId, s.id)
+                        return (
+                          <React.Fragment key={s.id}>
                             <View
-                              style={[styles.setRow, s.completed && styles.setRowCompleted]}
+                              onLayout={(event) =>
+                                handleSetRowLayout(ex.workoutExerciseId, setLayoutKey, event)
+                              }
                             >
-                              <Text style={[styles.setNum, styles.setNumCol]}>{i + 1}</Text>
-
-                              <View
-                                style={[
-                                  styles.inputWrap,
-                                  styles.weightCol,
-                                  hasFieldError(ex.workoutExerciseId, s.id, 'weight') &&
-                                    styles.inputWrapError,
-                                ]}
+                              <ReanimatedSwipeable
+                                renderRightActions={() => renderDeleteAction(() => removeLocalSet(ex.workoutExerciseId, s.id))}
+                                childrenContainerStyle={styles.swipeableSetContent}
+                                dragOffsetFromRightEdge={3}
+                                overshootRight={false}
                               >
-                                <TextInput
-                                  style={styles.input}
-                                  value={getDisplayWeight(s, ex.weightUnit)}
-                                  onChangeText={(v) => updateSetField(ex.workoutExerciseId, s.id, 'weight', v)}
-                                  keyboardType="decimal-pad"
-                                  placeholder="0"
-                                  placeholderTextColor={theme.colors.textMuted}
-                                  returnKeyType="done"
-                                  onFocus={() => handleSetInputFocus(setLayoutKey)}
-                                />
-                                <TouchableOpacity
-                                  style={styles.inputUnitButton}
-                                  onPress={() => showWeightUnitPicker(ex.workoutExerciseId, ex.weightUnit)}
-                                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                                <View
+                                  style={[styles.setRow, s.completed && styles.setRowCompleted]}
                                 >
-                                  <Text style={styles.inputUnit}>{ex.weightUnit}</Text>
+                                  <Text style={[styles.setNum, styles.setNumCol]}>{i + 1}</Text>
+
+                                  <View
+                                    style={[
+                                      styles.inputWrap,
+                                      styles.weightCol,
+                                      hasFieldError(ex.workoutExerciseId, s.id, 'weight') &&
+                                        styles.inputWrapError,
+                                    ]}
+                                  >
+                                    <TextInput
+                                      style={styles.input}
+                                      value={getDisplayWeight(s, ex.weightUnit)}
+                                      onChangeText={(v) => updateSetField(ex.workoutExerciseId, s.id, 'weight', v)}
+                                      keyboardType="decimal-pad"
+                                      placeholder="0"
+                                      placeholderTextColor={theme.colors.textMuted}
+                                      returnKeyType="done"
+                                      onFocus={() => handleSetInputFocus(setLayoutKey)}
+                                    />
+                                    <TouchableOpacity
+                                      style={styles.inputUnitButton}
+                                      onPress={() => showWeightUnitPicker(ex.workoutExerciseId, ex.weightUnit)}
+                                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                                    >
+                                      <Text style={styles.inputUnit}>{ex.weightUnit}</Text>
+                                    </TouchableOpacity>
+                                  </View>
+
+                                  <View
+                                    style={[
+                                      styles.inputWrap,
+                                      styles.repsCol,
+                                      hasFieldError(ex.workoutExerciseId, s.id, 'reps') &&
+                                        styles.inputWrapError,
+                                    ]}
+                                  >
+                                    <TextInput
+                                      style={styles.input}
+                                      value={s.reps}
+                                      onChangeText={(v) => updateSetField(ex.workoutExerciseId, s.id, 'reps', v)}
+                                      keyboardType="number-pad"
+                                      placeholder="0"
+                                      placeholderTextColor={theme.colors.textMuted}
+                                      returnKeyType="done"
+                                      onFocus={() => handleSetInputFocus(setLayoutKey)}
+                                    />
+                                    <View style={styles.inputUnitButton}>
+                                      <Text style={styles.inputUnit}>reps</Text>
+                                    </View>
+                                  </View>
+
+                                  <TouchableOpacity
+                                    style={styles.checkCol}
+                                    onPress={() => toggleSetCompleted(ex.workoutExerciseId, s.id)}
+                                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                                  >
+                                    <MaterialCommunityIcons
+                                      name={s.completed ? 'check-circle' : 'check-circle-outline'}
+                                      size={22}
+                                      color={s.completed ? theme.colors.accent : theme.colors.textMuted}
+                                    />
+                                  </TouchableOpacity>
+                                </View>
+                              </ReanimatedSwipeable>
+                            </View>
+                            {isResting && restSetKey === setRestKey && (
+                              <View style={styles.restTimerRow}>
+                                <MaterialCommunityIcons name="timer-sand" size={14} color={theme.colors.accent} />
+                                <Text style={styles.restTimerText}>
+                                  Rest timer started - {formatRestTimer(restSecondsRemaining)}
+                                </Text>
+                                <TouchableOpacity style={styles.skipRestButton} onPress={skipRestTimer}>
+                                  <Text style={styles.skipRestText}>Skip</Text>
                                 </TouchableOpacity>
                               </View>
+                            )}
+                          </React.Fragment>
+                        )
+                      })}
 
-                              <View
-                                style={[
-                                  styles.inputWrap,
-                                  styles.repsCol,
-                                  hasFieldError(ex.workoutExerciseId, s.id, 'reps') &&
-                                    styles.inputWrapError,
-                                ]}
-                              >
-                                <TextInput
-                                  style={styles.input}
-                                  value={s.reps}
-                                  onChangeText={(v) => updateSetField(ex.workoutExerciseId, s.id, 'reps', v)}
-                                  keyboardType="number-pad"
-                                  placeholder="0"
-                                  placeholderTextColor={theme.colors.textMuted}
-                                  returnKeyType="done"
-                                  onFocus={() => handleSetInputFocus(setLayoutKey)}
-                                />
-                                <View style={styles.inputUnitButton}>
-                                  <Text style={styles.inputUnit}>reps</Text>
-                                </View>
-                              </View>
-
-                              <TouchableOpacity
-                                style={styles.checkCol}
-                                onPress={() => toggleSetCompleted(ex.workoutExerciseId, s.id)}
-                                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                              >
-                                <MaterialCommunityIcons
-                                  name={s.completed ? 'check-circle' : 'check-circle-outline'}
-                                  size={22}
-                                  color={s.completed ? theme.colors.accent : theme.colors.textMuted}
-                                />
-                              </TouchableOpacity>
-                            </View>
-                          </ReanimatedSwipeable>
-                        </View>
-                        {isResting && restSetKey === setRestKey && (
-                          <View style={styles.restTimerRow}>
-                            <MaterialCommunityIcons name="timer-sand" size={14} color={theme.colors.accent} />
-                            <Text style={styles.restTimerText}>
-                              Rest timer started - {formatRestTimer(restSecondsRemaining)}
-                            </Text>
-                            <TouchableOpacity style={styles.skipRestButton} onPress={skipRestTimer}>
-                              <Text style={styles.skipRestText}>Skip</Text>
-                            </TouchableOpacity>
-                          </View>
-                        )}
-                      </React.Fragment>
-                    )
-                  })}
-
-                  {/* Add Set button */}
-                  <TouchableOpacity
-                    style={styles.addSetBtn}
-                    onPress={() => addLocalSet(ex.workoutExerciseId)}
-                  >
-                    <MaterialCommunityIcons name="plus" size={14} color={theme.colors.textMuted} />
-                    <Text style={styles.addSetText}>Add Set</Text>
-                  </TouchableOpacity>
-                </Animated.View>
-              )
-            })}
+                      {/* Add Set button */}
+                      <TouchableOpacity
+                        style={styles.addSetBtn}
+                        onPress={() => addLocalSet(ex.workoutExerciseId)}
+                      >
+                        <MaterialCommunityIcons name="plus" size={14} color={theme.colors.textMuted} />
+                        <Text style={styles.addSetText}>Add Set</Text>
+                      </TouchableOpacity>
+                    </>
+                  )
+                }}
+              />
+            ) : null}
 
             {/* Add Exercise button — below exercises */}
             <TouchableOpacity
@@ -1950,6 +1876,325 @@ export default function ActiveWorkoutSheet() {
   )
 }
 
+function SortableActiveWorkoutExerciseList({
+  exercises,
+  draggingExerciseId,
+  methodLockedByExerciseType,
+  onDeleteExercise,
+  onDragStateChange,
+  onExerciseLayoutsChange,
+  onReorder,
+  renderExerciseBody,
+}: {
+  exercises: ExerciseEntry[]
+  draggingExerciseId: string | null
+  methodLockedByExerciseType: Record<string, boolean>
+  onDeleteExercise: (workoutExerciseId: string) => void
+  onDragStateChange: (workoutExerciseId: string | null) => void
+  onExerciseLayoutsChange: (layouts: WorkoutExerciseLayouts) => void
+  onReorder: (workoutExerciseIds: string[]) => void
+  renderExerciseBody: (exercise: ExerciseEntry) => React.ReactNode
+}) {
+  const { styles } = useStyles(stylesheet)
+  const exerciseIds = useMemo(
+    () => exercises.map((exercise) => exercise.workoutExerciseId),
+    [exercises],
+  )
+  const exerciseKey = exerciseIds.join('|')
+  const positions = useSharedValue<WorkoutExercisePositions>(buildWorkoutExercisePositions(exercises))
+  const heights = useSharedValue<WorkoutExerciseHeights>({})
+  const activeExerciseId = useSharedValue<string | null>(null)
+  const [measuredHeights, setMeasuredHeights] = useState<WorkoutExerciseHeights>({})
+  const [listY, setListY] = useState(0)
+
+  useEffect(() => {
+    positions.value = buildWorkoutExercisePositions(exercises)
+    activeExerciseId.value = null
+  }, [activeExerciseId, exerciseKey, exercises, positions])
+
+  useEffect(() => {
+    heights.value = measuredHeights
+  }, [heights, measuredHeights])
+
+  useEffect(() => {
+    let nextY = listY
+    const layouts: WorkoutExerciseLayouts = {}
+    for (const exercise of exercises) {
+      const height = measuredHeights[exercise.workoutExerciseId] ?? WORKOUT_EXERCISE_DEFAULT_HEIGHT
+      layouts[exercise.workoutExerciseId] = { y: nextY, height }
+      nextY += height + WORKOUT_EXERCISE_GAP
+    }
+    onExerciseLayoutsChange(layouts)
+  }, [exerciseKey, exercises, listY, measuredHeights, onExerciseLayoutsChange])
+
+  const listHeight = useMemo(
+    () =>
+      exercises.reduce((total, exercise, index) => {
+        const height = measuredHeights[exercise.workoutExerciseId] ?? WORKOUT_EXERCISE_DEFAULT_HEIGHT
+        return total + height + (index < exercises.length - 1 ? WORKOUT_EXERCISE_GAP : 0)
+      }, 0),
+    [exercises, measuredHeights],
+  )
+
+  const listStyle = useMemo(
+    () => [
+      styles.sortableWorkoutExerciseList,
+      { height: listHeight },
+    ],
+    [listHeight, styles.sortableWorkoutExerciseList],
+  )
+
+  const handleListLayout = useCallback((event: LayoutChangeEvent) => {
+    setListY(event.nativeEvent.layout.y)
+  }, [])
+
+  const handleExerciseMeasure = useCallback((workoutExerciseId: string, height: number) => {
+    if (!Number.isFinite(height) || height <= 0) return
+    heights.value = {
+      ...heights.value,
+      [workoutExerciseId]: height,
+    }
+    setMeasuredHeights((prev) => {
+      const current = prev[workoutExerciseId]
+      if (typeof current === 'number' && Math.abs(current - height) < 1) return prev
+      return {
+        ...prev,
+        [workoutExerciseId]: height,
+      }
+    })
+  }, [heights])
+
+  return (
+    <View style={listStyle} onLayout={handleListLayout}>
+      {exercises.map((exercise, index) => {
+        const showMethod = !(exercise.methodLocked || methodLockedByExerciseType[exercise.exerciseTypeId])
+        return (
+          <SortableActiveWorkoutExerciseRow
+            key={exercise.workoutExerciseId}
+            exercise={exercise}
+            index={index}
+            exerciseCount={exercises.length}
+            exerciseIds={exerciseIds}
+            activeExerciseId={activeExerciseId}
+            draggingExerciseId={draggingExerciseId}
+            heights={heights}
+            positions={positions}
+            showMethod={showMethod}
+            onDeleteExercise={onDeleteExercise}
+            onDragStateChange={onDragStateChange}
+            onMeasure={handleExerciseMeasure}
+            onReorder={onReorder}
+          >
+            {renderExerciseBody(exercise)}
+          </SortableActiveWorkoutExerciseRow>
+        )
+      })}
+    </View>
+  )
+}
+
+function SortableActiveWorkoutExerciseRow({
+  children,
+  exercise,
+  index,
+  exerciseCount,
+  exerciseIds,
+  activeExerciseId,
+  draggingExerciseId,
+  heights,
+  positions,
+  showMethod,
+  onDeleteExercise,
+  onDragStateChange,
+  onMeasure,
+  onReorder,
+}: {
+  children: React.ReactNode
+  exercise: ExerciseEntry
+  index: number
+  exerciseCount: number
+  exerciseIds: string[]
+  activeExerciseId: SharedValue<string | null>
+  draggingExerciseId: string | null
+  heights: SharedValue<WorkoutExerciseHeights>
+  positions: SharedValue<WorkoutExercisePositions>
+  showMethod: boolean
+  onDeleteExercise: (workoutExerciseId: string) => void
+  onDragStateChange: (workoutExerciseId: string | null) => void
+  onMeasure: (workoutExerciseId: string, height: number) => void
+  onReorder: (workoutExerciseIds: string[]) => void
+}) {
+  const { styles, theme } = useStyles(stylesheet)
+  const workoutExerciseId = exercise.workoutExerciseId
+  const top = useSharedValue(index * (WORKOUT_EXERCISE_DEFAULT_HEIGHT + WORKOUT_EXERCISE_GAP))
+  const startTop = useSharedValue(index * (WORKOUT_EXERCISE_DEFAULT_HEIGHT + WORKOUT_EXERCISE_GAP))
+  const didEndDrag = useSharedValue(false)
+
+  const dragGesture = useMemo(
+    () =>
+      Gesture.Pan()
+        .enabled(exerciseCount > 1)
+        .activateAfterLongPress(80)
+        .minDistance(1)
+        .failOffsetX([-18, 18])
+        .onStart(() => {
+          didEndDrag.value = false
+          activeExerciseId.value = workoutExerciseId
+          const currentIndex = positions.value[workoutExerciseId] ?? index
+          startTop.value = getWorkoutExerciseTopForIndex(
+            currentIndex,
+            positions.value,
+            heights.value,
+            exerciseIds,
+          )
+          top.value = startTop.value
+          runOnJS(onDragStateChange)(workoutExerciseId)
+        })
+        .onUpdate((event) => {
+          const nextTop = startTop.value + event.translationY
+          const currentIndex = positions.value[workoutExerciseId] ?? index
+          const draggedHeight = getWorkoutExerciseHeight(heights.value, workoutExerciseId)
+          const targetIndex = getWorkoutExerciseTargetIndex(
+            workoutExerciseId,
+            nextTop + (draggedHeight / 2),
+            positions.value,
+            heights.value,
+            exerciseIds,
+          )
+
+          top.value = nextTop
+
+          if (targetIndex === currentIndex) return
+
+          const nextPositions = { ...positions.value }
+          for (let i = 0; i < exerciseIds.length; i += 1) {
+            const exerciseId = exerciseIds[i]
+            if (exerciseId === workoutExerciseId) continue
+            const position = positions.value[exerciseId] ?? i
+            if (targetIndex > currentIndex && position > currentIndex && position <= targetIndex) {
+              nextPositions[exerciseId] = position - 1
+            } else if (targetIndex < currentIndex && position >= targetIndex && position < currentIndex) {
+              nextPositions[exerciseId] = position + 1
+            }
+          }
+          nextPositions[workoutExerciseId] = targetIndex
+          positions.value = nextPositions
+        })
+        .onEnd(() => {
+          didEndDrag.value = true
+          const landedPositions = positions.value
+          const orderedExerciseIds = [...exerciseIds].sort(
+            (firstId, secondId) => landedPositions[firstId] - landedPositions[secondId],
+          )
+          const finalTop = getWorkoutExerciseTopForIndex(
+            landedPositions[workoutExerciseId] ?? index,
+            landedPositions,
+            heights.value,
+            exerciseIds,
+          )
+          top.value = withTiming(finalTop, { duration: 120 }, (finished) => {
+            if (!finished) return
+            activeExerciseId.value = null
+            runOnJS(onDragStateChange)(null)
+            runOnJS(onReorder)(orderedExerciseIds)
+          })
+        })
+        .onFinalize(() => {
+          if (!didEndDrag.value) {
+            const currentTop = getWorkoutExerciseTopForIndex(
+              positions.value[workoutExerciseId] ?? index,
+              positions.value,
+              heights.value,
+              exerciseIds,
+            )
+            top.value = withTiming(currentTop, { duration: 120 })
+            activeExerciseId.value = null
+            runOnJS(onDragStateChange)(null)
+          }
+        }),
+    [
+      activeExerciseId,
+      didEndDrag,
+      exerciseCount,
+      exerciseIds,
+      heights,
+      index,
+      onDragStateChange,
+      onReorder,
+      positions,
+      startTop,
+      top,
+      workoutExerciseId,
+    ],
+  )
+
+  const animatedRowStyle = useAnimatedStyle(() => {
+    const isActive = activeExerciseId.value === workoutExerciseId
+    const position = positions.value[workoutExerciseId] ?? index
+    const nextTop = getWorkoutExerciseTopForIndex(
+      position,
+      positions.value,
+      heights.value,
+      exerciseIds,
+    )
+
+    return {
+      top: isActive ? top.value : withTiming(nextTop, { duration: 120 }),
+      zIndex: isActive ? 10 : 1,
+      elevation: isActive ? 8 : 0,
+    }
+  }, [exerciseIds, index, workoutExerciseId])
+
+  const handleLayout = useCallback((event: LayoutChangeEvent) => {
+    onMeasure(workoutExerciseId, event.nativeEvent.layout.height)
+  }, [onMeasure, workoutExerciseId])
+
+  return (
+    <Reanimated.View style={[styles.sortableWorkoutExerciseRow, animatedRowStyle]}>
+      <View
+        style={[
+          styles.exerciseCard,
+          draggingExerciseId === workoutExerciseId && styles.exerciseCardDragging,
+        ]}
+        onLayout={handleLayout}
+      >
+        <ReanimatedSwipeable
+          renderRightActions={() => (
+            <TouchableOpacity style={styles.deleteAction} onPress={() => onDeleteExercise(workoutExerciseId)}>
+              <MaterialCommunityIcons name="trash-can-outline" size={22} color="#fff" />
+            </TouchableOpacity>
+          )}
+          overshootRight={false}
+        >
+          <View style={styles.exerciseHeader}>
+            <Text style={styles.exerciseName} numberOfLines={1}>
+              {exercise.exerciseTypeName}
+              {showMethod ? (
+                <Text style={styles.exerciseMethod}>{' - '}{exercise.methodName}</Text>
+              ) : null}
+            </Text>
+            <GestureDetector gesture={dragGesture}>
+              <View
+                style={[
+                  styles.reorderButton,
+                  exerciseCount < 2 && styles.reorderButtonDisabled,
+                ]}
+              >
+                <MaterialCommunityIcons
+                  name="drag"
+                  size={19}
+                  color={exerciseCount < 2 ? theme.colors.textMuted : theme.colors.text}
+                />
+              </View>
+            </GestureDetector>
+          </View>
+        </ReanimatedSwipeable>
+        {children}
+      </View>
+    </Reanimated.View>
+  )
+}
+
 const stylesheet = createStyleSheet((theme) => ({
   gestureRoot: {
     flex: 1,
@@ -2076,6 +2321,15 @@ const stylesheet = createStyleSheet((theme) => ({
     fontFamily: theme.fontFamily.extraBold,
     minHeight: 30,
     padding: 0,
+  },
+  sortableWorkoutExerciseList: {
+    position: 'relative',
+    width: '100%',
+  },
+  sortableWorkoutExerciseRow: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
   },
   // ── Exercise card ────────────────────────────────────────
   exerciseCard: {

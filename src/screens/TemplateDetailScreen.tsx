@@ -277,6 +277,7 @@ export default function TemplateDetailScreen({ navigation, route }: Props) {
         exercises: session.exercises,
         openSheet: true,
       })
+      navigation.navigate('Home')
     } catch (e) {
       console.error('Could not start template', e)
       setMessage('Add exercises to this template before starting it.')

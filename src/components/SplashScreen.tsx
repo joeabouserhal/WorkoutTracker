@@ -83,7 +83,7 @@ export default function SplashScreen({ ready, onFinished }: Props) {
       pointerEvents="auto"
       style={[styles.container, { opacity: overlayOpacity }]}
     >
-      <StatusBar backgroundColor={SPLASH_BACKGROUND} barStyle="dark-content" />
+      <StatusBar backgroundColor={SPLASH_BACKGROUND} barStyle="light-content" />
       <View style={styles.center}>
         <Animated.View
           style={[

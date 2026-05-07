@@ -58,6 +58,10 @@ import {
   formatRestTimer,
   getDefaultRestSeconds,
 } from '@/services/restTimerSettings'
+import {
+  backupToGoogleDrive,
+  getAutoBackupAfterWorkoutEnabled,
+} from '@/services/backupService'
 import ExercisePickerModal from './ExercisePickerModal'
 import { type ThemedDialogAction } from './ui/ThemedDialog'
 
@@ -412,6 +416,16 @@ export default function ActiveWorkoutSheet() {
     exercisesRef.current = exercises
   }, [exercises])
 
+  const maybeRunAutoBackup = useCallback(async () => {
+    if (!getAutoBackupAfterWorkoutEnabled()) return
+
+    try {
+      await backupToGoogleDrive()
+    } catch (e) {
+      console.error('Auto backup after workout failed', e)
+    }
+  }, [])
+
   const doEndWorkout = useCallback(async () => {
     let achievements: WorkoutWeightPrAchievement[] = []
     if (activeWorkoutId) {
@@ -422,6 +436,7 @@ export default function ActiveWorkoutSheet() {
           achievement.previousWeightKg !== null &&
           achievement.hasPriorExerciseHistory,
         )
+      await maybeRunAutoBackup()
     }
     if (achievements.length > 0) {
       await cancelWorkoutNotification()
@@ -429,7 +444,7 @@ export default function ActiveWorkoutSheet() {
       return
     }
     endWorkout()
-  }, [activeWorkoutId, endWorkout, workoutName])
+  }, [activeWorkoutId, endWorkout, maybeRunAutoBackup, workoutName])
 
   const dismissPrCelebration = useCallback(() => {
     setPrCelebration([])

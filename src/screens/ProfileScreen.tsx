@@ -146,6 +146,25 @@ export default function ProfileScreen({ navigation }: Props) {
         </View>
       </View>
 
+      <Text style={styles.sectionTitle}>Backup</Text>
+
+      <TouchableOpacity
+        style={styles.settingsButton}
+        onPress={() => navigation.navigate('Backup')}
+        activeOpacity={0.75}
+      >
+        <View style={styles.settingsIconBadge}>
+          <MaterialCommunityIcons name="cloud-sync-outline" size={19} color={theme.colors.accent} />
+        </View>
+        <View style={styles.settingsTextBlock}>
+          <Text style={styles.settingsButtonTitle}>Backup</Text>
+          <Text style={styles.settingsButtonDescription}>
+            Back up and restore your data with Google Drive.
+          </Text>
+        </View>
+        <Text style={styles.settingsChevron}>›</Text>
+      </TouchableOpacity>
+
       <Text style={styles.sectionTitle}>Settings</Text>
 
       <TouchableOpacity

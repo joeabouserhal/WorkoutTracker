@@ -13,6 +13,7 @@ import {
 } from 'react-native'
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons'
 import { createStyleSheet, useStyles } from 'react-native-unistyles'
+import { useDataRefreshStore } from '@/store/dataRefreshStore'
 import { useSessionStore } from '@/store/sessionStore'
 import {
   addExerciseToWorkout,
@@ -44,6 +45,7 @@ export default function ExercisePickerModal({ visible, onClose, onPick }: Props)
   const activeWorkoutId = useSessionStore((s) => s.activeWorkoutId)
   const exercises = useSessionStore((s) => s.exercises)
   const addExercise = useSessionStore((s) => s.addExercise)
+  const dataVersion = useDataRefreshStore((state) => state.version)
 
   const [step, setStep] = useState<Step>('sections')
   const [loading, setLoading] = useState(false)
@@ -62,12 +64,12 @@ export default function ExercisePickerModal({ visible, onClose, onPick }: Props)
   const [selectedMethodId, setSelectedMethodId] = useState<string | null>(null)
   const [allMethodList, setAllMethodList] = useState<MethodRow[]>([])
 
-  // Load sections once on mount
   useEffect(() => {
+    if (!visible) return
     getSections()
       .then(setSectionList)
       .catch(() => setSectionList([]))
-  }, [])
+  }, [dataVersion, visible])
 
   const resetStep = useCallback(() => {
     setStep('sections')

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ActivityIndicator,
   BackHandler,
@@ -17,6 +17,7 @@ import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityI
 import { createStyleSheet, useStyles } from 'react-native-unistyles'
 import ScreenHeader, { ScreenHeaderButton, useHeaderFade } from '@/components/ui/ScreenHeader'
 import ThemedDialog, { type ThemedDialogAction } from '@/components/ui/ThemedDialog'
+import { useDataRefreshStore } from '@/store/dataRefreshStore'
 import {
   createCustomExerciseType,
   createCustomMethod,
@@ -66,6 +67,8 @@ function hasPrValue(value: number | null | undefined): value is number {
 export default function LibraryScreen() {
   const { styles, theme } = useStyles(stylesheet)
   const { showHeaderFade, handleHeaderScroll } = useHeaderFade()
+  const dataVersion = useDataRefreshStore((state) => state.version)
+  const handledDataVersionRef = useRef(dataVersion)
   const [step, setStep] = useState<Step>('sections')
   const [loading, setLoading] = useState(true)
   const [sectionList, setSectionList] = useState<SectionRow[]>([])
@@ -266,7 +269,7 @@ export default function LibraryScreen() {
     setSingleMethodOnly(false)
   }
 
-  async function refreshCurrentStep() {
+  const refreshCurrentStep = useCallback(async () => {
     if (step === 'sections') {
       await loadSections()
       return
@@ -296,7 +299,21 @@ export default function LibraryScreen() {
       }
       await loadMethods()
     }
-  }
+  }, [loadMethods, loadSections, selectedExerciseType, selectedSection, step])
+
+  useEffect(() => {
+    if (handledDataVersionRef.current === dataVersion) return
+    handledDataVersionRef.current = dataVersion
+    setStep('sections')
+    setSelectedSection(null)
+    setSelectedExerciseType(null)
+    setExerciseTypeList([])
+    setMethodList([])
+    setExercisePrSummaries({})
+    setMethodPrSummaries({})
+    setShowRestoreDefaults(false)
+    loadSections().catch(console.error)
+  }, [dataVersion, loadSections])
 
   async function refreshMethodsForSelectedExercise() {
     if (!selectedExerciseType) return

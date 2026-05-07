@@ -35,9 +35,10 @@ type CreateMode = 'section' | 'exercise' | 'method'
 interface Props {
   visible: boolean
   onClose: () => void
+  onPick?: (params: { exerciseTypeId: string; methodId: string }) => void | Promise<void>
 }
 
-export default function ExercisePickerModal({ visible, onClose }: Props) {
+export default function ExercisePickerModal({ visible, onClose, onPick }: Props) {
   const { styles, theme } = useStyles(stylesheet)
 
   const activeWorkoutId = useSessionStore((s) => s.activeWorkoutId)
@@ -246,6 +247,32 @@ export default function ExercisePickerModal({ visible, onClose }: Props) {
   }
 
   async function confirmAdd(et: ExerciseTypeRow, methodId: string, methodName: string) {
+    if (onPick) {
+      if (!et.id || !methodId) {
+        Alert.alert('Error', 'This exercise has incomplete data. Please select it again.')
+        handleClose()
+        return
+      }
+      setAdding(true)
+      setLoading(true)
+      try {
+        await onPick({
+          exerciseTypeId: et.id,
+          methodId,
+        })
+        resetStep()
+        onClose()
+      } catch (e) {
+        console.error('Could not pick exercise', e)
+        Alert.alert('Error', 'Could not add exercise.')
+        handleClose()
+      } finally {
+        setAdding(false)
+        setLoading(false)
+      }
+      return
+    }
+
     if (!activeWorkoutId) {
       Alert.alert('Start a workout first')
       handleClose()

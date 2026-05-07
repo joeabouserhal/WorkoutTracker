@@ -11,12 +11,10 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons'
 import { createStyleSheet, useStyles } from 'react-native-unistyles'
 import ScreenHeader, { useHeaderFade } from '@/components/ui/ScreenHeader'
-import TemplatePreviewModal from '@/components/TemplatePreviewModal'
 import { WorkoutDetailModal, WorkoutSummaryCard } from '@/components/WorkoutHistory'
 import { getProfile } from '@/db/profileHelpers'
 import {
   createWorkout,
-  createWorkoutFromTemplate,
   getFavoriteWorkoutTemplates,
   getRecentCompletedWorkouts,
   getWorkoutDetail,
@@ -46,7 +44,6 @@ export default function HomeScreen() {
   const [name, setName] = useState<string>('')
   const [recentWorkouts, setRecentWorkouts] = useState<WorkoutSummary[]>([])
   const [favoriteTemplates, setFavoriteTemplates] = useState<WorkoutTemplateSummary[]>([])
-  const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null)
   const [selectedWorkoutId, setSelectedWorkoutId] = useState<string | null>(null)
   const [selectedWorkout, setSelectedWorkout] = useState<WorkoutDetail | null>(null)
   const [workoutDetailLoading, setWorkoutDetailLoading] = useState(false)
@@ -56,7 +53,6 @@ export default function HomeScreen() {
   const [loading, setLoading] = useState(true)
   const { showHeaderFade, handleHeaderScroll } = useHeaderFade()
   const startWorkout = useSessionStore((s) => s.startWorkout)
-  const restoreWorkoutSession = useSessionStore((s) => s.restoreWorkoutSession)
   const activeWorkoutId = useSessionStore((s) => s.activeWorkoutId)
   const previousActiveWorkoutIdRef = useRef<string | null>(activeWorkoutId)
 
@@ -120,26 +116,6 @@ export default function HomeScreen() {
 
   function handleTemplatesPress() {
     navigation.navigate('Templates')
-  }
-
-  async function handleStartTemplate(templateId: string) {
-    if (activeWorkoutId) {
-      Alert.alert('Workout already active', 'Finish or cancel it before starting a template.')
-      return
-    }
-    try {
-      const session = await createWorkoutFromTemplate(templateId)
-      setSelectedTemplateId(null)
-      restoreWorkoutSession({
-        workoutId: session.id,
-        startedAt: session.startedAt,
-        exercises: session.exercises,
-        openSheet: true,
-      })
-    } catch (e) {
-      Alert.alert('Template unavailable', 'Add exercises to this template before starting it.')
-      console.error(e)
-    }
   }
 
   function toggleWorkoutPreview(workoutId: string) {
@@ -240,6 +216,19 @@ export default function HomeScreen() {
       }, []),
     [recentWorkouts],
   )
+  const favoriteTemplateRows = useMemo(
+    () =>
+      favoriteTemplates.reduce<WorkoutTemplateSummary[][]>((rows, template, index) => {
+        if (index % 2 === 0) {
+          rows.push([template])
+        } else {
+          rows[rows.length - 1].push(template)
+        }
+
+        return rows
+      }, []),
+    [favoriteTemplates],
+  )
 
   return (
     <View style={styles.container}>
@@ -325,26 +314,31 @@ export default function HomeScreen() {
               <Text style={styles.favoriteTemplatesTitle}>Favorite Templates</Text>
               <Text style={styles.sectionHint}>{favoriteTemplates.length}/6</Text>
             </View>
-            <View style={styles.favoriteTemplateList}>
-              {favoriteTemplates.map((template) => (
-                <TouchableOpacity
-                  key={template.id}
-                  style={styles.favoriteTemplateCard}
-                  onPress={() => setSelectedTemplateId(template.id)}
-                  activeOpacity={0.78}
-                >
-                  <View style={styles.favoriteTemplateIcon}>
-                    <MaterialCommunityIcons name="star" size={15} color={theme.colors.accent} />
-                  </View>
-                  <View style={styles.favoriteTemplateTextBlock}>
-                    <Text style={styles.favoriteTemplateName} numberOfLines={1}>
-                      {template.name}
-                    </Text>
-                    <Text style={styles.favoriteTemplateMeta}>
-                      {template.exerciseCount} exercises - {template.totalSetCount} sets
-                    </Text>
-                  </View>
-                </TouchableOpacity>
+            <View style={styles.favoriteTemplateGrid}>
+              {favoriteTemplateRows.map((row) => (
+                <View key={row.map((template) => template.id).join('-')} style={styles.favoriteTemplateRow}>
+                  {row.map((template) => (
+                    <TouchableOpacity
+                      key={template.id}
+                      style={styles.favoriteTemplateCard}
+                      onPress={() => navigation.navigate('TemplateDetail', { templateId: template.id })}
+                      activeOpacity={0.78}
+                    >
+                      <View style={styles.favoriteTemplateIcon}>
+                        <MaterialCommunityIcons name="star" size={14} color={theme.colors.accent} />
+                      </View>
+                      <View style={styles.favoriteTemplateTextBlock}>
+                        <Text style={styles.favoriteTemplateName} numberOfLines={1}>
+                          {template.name}
+                        </Text>
+                        <Text style={styles.favoriteTemplateMeta} numberOfLines={1}>
+                          {template.exerciseCount} exercises - {template.totalSetCount} sets
+                        </Text>
+                      </View>
+                    </TouchableOpacity>
+                  ))}
+                  {row.length === 1 ? <View style={styles.favoriteTemplatePlaceholder} /> : null}
+                </View>
               ))}
             </View>
           </View>
@@ -393,13 +387,6 @@ export default function HomeScreen() {
         onDeleted={handleWorkoutDeleted}
         onRename={handleWorkoutRenamed}
         onUpdated={handleWorkoutUpdated}
-      />
-      <TemplatePreviewModal
-        visible={Boolean(selectedTemplateId)}
-        templateId={selectedTemplateId}
-        onClose={() => setSelectedTemplateId(null)}
-        onStart={handleStartTemplate}
-        startDisabled={isWorkoutActive}
       />
     </View>
   )
@@ -526,34 +513,44 @@ const stylesheet = createStyleSheet((theme) => ({
     fontSize: theme.fontSize.md,
     fontFamily: theme.fontFamily.extraBold,
   },
-  favoriteTemplateList: {
+  favoriteTemplateGrid: {
+    gap: theme.spacing.xs,
+  },
+  favoriteTemplateRow: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    columnGap: theme.spacing.xs,
-    rowGap: theme.spacing.xs,
+    gap: theme.spacing.xs,
   },
   favoriteTemplateCard: {
-    flexBasis: '48.8%',
-    flexGrow: 1,
-    minHeight: 66,
-    gap: 3,
+    flex: 1,
+    minWidth: 0,
+    minHeight: 64,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: theme.spacing.sm,
     backgroundColor: theme.colors.surface,
     borderRadius: theme.radius.md,
     borderWidth: 1,
     borderColor: theme.colors.border,
-    paddingHorizontal: theme.spacing.xs,
+    paddingHorizontal: theme.spacing.sm,
     paddingVertical: theme.spacing.xs,
+    justifyContent: 'flex-start',
+  },
+  favoriteTemplatePlaceholder: {
+    flex: 1,
+    minWidth: 0,
   },
   favoriteTemplateIcon: {
-    width: 24,
-    height: 24,
+    width: 23,
+    height: 23,
     borderRadius: theme.radius.full,
     backgroundColor: theme.colors.accentMuted,
     alignItems: 'center',
     justifyContent: 'center',
   },
   favoriteTemplateTextBlock: {
+    flex: 1,
     minWidth: 0,
+    gap: 1,
   },
   favoriteTemplateName: {
     color: theme.colors.text,
@@ -562,7 +559,7 @@ const stylesheet = createStyleSheet((theme) => ({
   },
   favoriteTemplateMeta: {
     color: theme.colors.textMuted,
-    fontSize: theme.fontSize.xxs,
+    fontSize: theme.fontSize.xs,
     fontFamily: theme.fontFamily.semiBold,
   },
   sectionHeader: {

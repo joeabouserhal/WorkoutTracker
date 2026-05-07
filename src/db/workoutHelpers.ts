@@ -1409,6 +1409,16 @@ export async function createWorkoutTemplate(name: string): Promise<string> {
   return id
 }
 
+export async function updateWorkoutTemplateName(templateId: string, name: string): Promise<void> {
+  const trimmed = name.trim()
+  if (!trimmed) throw new Error('Template name is required')
+  await ensureTemplateTables()
+  await db.$client.execute(
+    'UPDATE workout_templates SET name = ?, updated_at = ? WHERE id = ?',
+    [trimmed, Date.now(), templateId],
+  )
+}
+
 export async function getWorkoutTemplates(): Promise<WorkoutTemplateSummary[]> {
   await ensureTemplateTables()
   const result = await db.$client.execute(
@@ -1587,6 +1597,38 @@ export async function removeExerciseFromWorkoutTemplate(
       [Date.now(), row.templateId],
     )
   }
+}
+
+export async function replaceWorkoutTemplateExercises(
+  templateId: string,
+  exercises: WorkoutTemplateExercise[],
+): Promise<void> {
+  await ensureTemplateTables()
+  await db.$client.execute('DELETE FROM workout_template_exercises WHERE template_id = ?', [templateId])
+  for (const [index, exercise] of exercises.entries()) {
+    await db.$client.execute(
+      `INSERT INTO workout_template_exercises (
+        id,
+        template_id,
+        exercise_type_id,
+        method_id,
+        set_count,
+        order_index
+      ) VALUES (?, ?, ?, ?, ?, ?)`,
+      [
+        exercise.id,
+        templateId,
+        exercise.exerciseTypeId,
+        exercise.methodId,
+        Math.max(1, Math.min(12, Math.trunc(exercise.setCount))),
+        index,
+      ],
+    )
+  }
+  await db.$client.execute(
+    'UPDATE workout_templates SET updated_at = ? WHERE id = ?',
+    [Date.now(), templateId],
+  )
 }
 
 export async function createWorkoutFromTemplate(

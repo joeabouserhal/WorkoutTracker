@@ -15,6 +15,7 @@ import { createStyleSheet, useStyles } from 'react-native-unistyles'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import HomeScreen from '../screens/HomeScreen'
 import TemplatesScreen from '../screens/TemplatesScreen'
+import TemplateDetailScreen from '../screens/TemplateDetailScreen'
 import CalendarScreen from '../screens/CalendarScreen'
 import ProgressScreen from '../screens/ProgressScreen'
 import LibraryScreen from '../screens/LibraryScreen'
@@ -33,6 +34,7 @@ const Tab = createBottomTabNavigator()
 export type HomeStackParamList = {
   Home: undefined
   Templates: undefined
+  TemplateDetail: { templateId: string; initialEdit?: boolean }
 }
 const HomeStack = createNativeStackNavigator<HomeStackParamList>()
 const CalendarStack = createNativeStackNavigator()
@@ -56,6 +58,7 @@ function HomeStackScreen() {
     <HomeStack.Navigator screenOptions={{ headerShown: false }}>
       <HomeStack.Screen name="Home" component={HomeScreen} />
       <HomeStack.Screen name="Templates" component={TemplatesScreen} />
+      <HomeStack.Screen name="TemplateDetail" component={TemplateDetailScreen} />
     </HomeStack.Navigator>
   )
 }

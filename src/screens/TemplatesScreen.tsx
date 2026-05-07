@@ -14,15 +14,12 @@ import ReanimatedSwipeable from 'react-native-gesture-handler/ReanimatedSwipeabl
 import type { NativeStackScreenProps } from '@react-navigation/native-stack'
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons'
 import { createStyleSheet, useStyles } from 'react-native-unistyles'
-import TemplatePreviewModal from '@/components/TemplatePreviewModal'
 import ScreenHeader, { useHeaderFade } from '@/components/ui/ScreenHeader'
 import ThemedDialog from '@/components/ui/ThemedDialog'
 import {
-  addExerciseToWorkoutTemplate,
   createCustomExerciseType,
   createCustomMethod,
   createCustomSection,
-  createWorkoutFromTemplate,
   createWorkoutTemplate,
   deleteWorkoutTemplate,
   getExerciseTypesBySection,
@@ -30,18 +27,13 @@ import {
   getMethods,
   getMethodsForExerciseType,
   getSections,
-  getWorkoutTemplateDetail,
   getWorkoutTemplates,
-  removeExerciseFromWorkoutTemplate,
   setWorkoutTemplateFavorite,
-  updateWorkoutTemplateExerciseSetCount,
   type ExerciseTypeRow,
   type MethodRow,
   type SectionRow,
-  type WorkoutTemplateDetail,
   type WorkoutTemplateSummary,
 } from '@/db/workoutHelpers'
-import { useSessionStore } from '@/store/sessionStore'
 import type { HomeStackParamList } from '../navigation/TabNavigator'
 
 type Props = NativeStackScreenProps<HomeStackParamList, 'Templates'>
@@ -52,18 +44,12 @@ export default function TemplatesScreen({ navigation }: Props) {
   const { styles, theme } = useStyles(stylesheet)
   const { showHeaderFade, handleHeaderScroll } = useHeaderFade()
   const [templates, setTemplates] = useState<WorkoutTemplateSummary[]>([])
-  const [templateDetails, setTemplateDetails] = useState<Record<string, WorkoutTemplateDetail | null>>({})
-  const [expandedTemplateIds, setExpandedTemplateIds] = useState<Record<string, boolean>>({})
   const [loading, setLoading] = useState(true)
   const [createVisible, setCreateVisible] = useState(false)
   const [templateName, setTemplateName] = useState('')
   const [createError, setCreateError] = useState('')
-  const [pickerTemplateId, setPickerTemplateId] = useState<string | null>(null)
-  const [previewTemplateId, setPreviewTemplateId] = useState<string | null>(null)
   const [deleteTemplateTarget, setDeleteTemplateTarget] = useState<WorkoutTemplateSummary | null>(null)
   const [message, setMessage] = useState('')
-  const activeWorkoutId = useSessionStore((s) => s.activeWorkoutId)
-  const restoreWorkoutSession = useSessionStore((s) => s.restoreWorkoutSession)
 
   const loadTemplates = useCallback(async () => {
     setLoading(true)
@@ -83,16 +69,6 @@ export default function TemplatesScreen({ navigation }: Props) {
     }, [loadTemplates]),
   )
 
-  async function loadTemplateDetail(templateId: string) {
-    const detail = await getWorkoutTemplateDetail(templateId)
-    setTemplateDetails((prev) => ({ ...prev, [templateId]: detail }))
-    return detail
-  }
-
-  async function refreshTemplate(templateId: string) {
-    await Promise.all([loadTemplates(), loadTemplateDetail(templateId)])
-  }
-
   async function submitTemplate() {
     const trimmed = templateName.trim()
     if (!trimmed) {
@@ -104,8 +80,7 @@ export default function TemplatesScreen({ navigation }: Props) {
       setCreateVisible(false)
       setTemplateName('')
       setCreateError('')
-      setExpandedTemplateIds((prev) => ({ ...prev, [templateId]: true }))
-      await refreshTemplate(templateId)
+      navigation.navigate('TemplateDetail', { templateId, initialEdit: true })
     } catch (e) {
       console.error('Could not create template', e)
       setCreateError('Could not create this template.')
@@ -123,96 +98,6 @@ export default function TemplatesScreen({ navigation }: Props) {
     }
   }
 
-  async function toggleTemplate(templateId: string) {
-    const expanded = !expandedTemplateIds[templateId]
-    setExpandedTemplateIds((prev) => ({ ...prev, [templateId]: expanded }))
-    if (expanded && templateDetails[templateId] === undefined) {
-      try {
-        await loadTemplateDetail(templateId)
-      } catch (e) {
-        console.error('Could not load template detail', e)
-        setTemplateDetails((prev) => ({ ...prev, [templateId]: null }))
-      }
-    }
-  }
-
-  async function updateSetCount(templateId: string, templateExerciseId: string, setCount: number) {
-    const safeSetCount = Math.max(1, Math.min(12, Math.trunc(setCount)))
-    const currentDetail = templateDetails[templateId]
-    const currentExercise = currentDetail?.exercises.find((exercise) => exercise.id === templateExerciseId)
-    if (!currentExercise || currentExercise.setCount === safeSetCount) return
-
-    const setDelta = safeSetCount - currentExercise.setCount
-    setTemplateDetails((prev) => {
-      const detail = prev[templateId]
-      if (!detail) return prev
-      return {
-        ...prev,
-        [templateId]: {
-          ...detail,
-          totalSetCount: Math.max(0, detail.totalSetCount + setDelta),
-          exercises: detail.exercises.map((exercise) =>
-            exercise.id === templateExerciseId
-              ? { ...exercise, setCount: safeSetCount }
-              : exercise,
-          ),
-        },
-      }
-    })
-    setTemplates((prev) =>
-      prev.map((template) =>
-        template.id === templateId
-          ? { ...template, totalSetCount: Math.max(0, template.totalSetCount + setDelta) }
-          : template,
-      ),
-    )
-
-    updateWorkoutTemplateExerciseSetCount(templateExerciseId, safeSetCount)
-      .catch((e) => {
-        console.error('Could not update template set count', e)
-        refreshTemplate(templateId).catch(console.error)
-      })
-  }
-
-  async function removeTemplateExercise(templateId: string, templateExerciseId: string) {
-    await removeExerciseFromWorkoutTemplate(templateExerciseId)
-    await refreshTemplate(templateId)
-  }
-
-  async function startTemplate(templateId: string) {
-    if (activeWorkoutId) {
-      setMessage('Finish or cancel the current workout before starting a template.')
-      return
-    }
-    try {
-      const session = await createWorkoutFromTemplate(templateId)
-      setPreviewTemplateId(null)
-      restoreWorkoutSession({
-        workoutId: session.id,
-        startedAt: session.startedAt,
-        exercises: session.exercises,
-        openSheet: true,
-      })
-    } catch (e) {
-      console.error('Could not start template', e)
-      setMessage('Add exercises to this template before starting it.')
-    }
-  }
-
-  async function handleExercisePicked(params: {
-    templateId: string
-    exerciseTypeId: string
-    methodId: string
-  }) {
-    await addExerciseToWorkoutTemplate({
-      ...params,
-      setCount: 3,
-    })
-    setPickerTemplateId(null)
-    setExpandedTemplateIds((prev) => ({ ...prev, [params.templateId]: true }))
-    await refreshTemplate(params.templateId)
-  }
-
   function requestDeleteTemplate(template: WorkoutTemplateSummary) {
     setDeleteTemplateTarget(template)
   }
@@ -223,17 +108,6 @@ export default function TemplatesScreen({ navigation }: Props) {
     setDeleteTemplateTarget(null)
     try {
       await deleteWorkoutTemplate(template.id)
-      setExpandedTemplateIds((prev) => {
-        const next = { ...prev }
-        delete next[template.id]
-        return next
-      })
-      setTemplateDetails((prev) => {
-        const next = { ...prev }
-        delete next[template.id]
-        return next
-      })
-      if (previewTemplateId === template.id) setPreviewTemplateId(null)
       await loadTemplates()
     } catch (e) {
       console.error('Could not delete template', e)
@@ -305,10 +179,7 @@ export default function TemplatesScreen({ navigation }: Props) {
           </View>
         ) : (
           <View style={styles.templateList}>
-            {templates.map((template) => {
-              const expanded = Boolean(expandedTemplateIds[template.id])
-              const detail = templateDetails[template.id]
-              return (
+            {templates.map((template) => (
                 <ReanimatedSwipeable
                   key={template.id}
                   renderRightActions={() => renderDeleteAction(() => requestDeleteTemplate(template))}
@@ -318,7 +189,7 @@ export default function TemplatesScreen({ navigation }: Props) {
                     <View style={styles.templateTopRow}>
                       <TouchableOpacity
                         style={styles.templateMain}
-                        onPress={() => setPreviewTemplateId(template.id)}
+                        onPress={() => navigation.navigate('TemplateDetail', { templateId: template.id })}
                         activeOpacity={0.78}
                       >
                         <View style={styles.templateIcon}>
@@ -344,89 +215,19 @@ export default function TemplatesScreen({ navigation }: Props) {
                       </TouchableOpacity>
                       <TouchableOpacity
                         style={styles.iconButton}
-                        onPress={() => toggleTemplate(template.id)}
+                        onPress={() => navigation.navigate('TemplateDetail', { templateId: template.id })}
                         activeOpacity={0.78}
                       >
                         <MaterialCommunityIcons
-                          name={expanded ? 'chevron-up' : 'chevron-down'}
+                          name="chevron-right"
                           size={19}
                           color={theme.colors.textMuted}
                         />
                       </TouchableOpacity>
                     </View>
-
-                    {expanded ? (
-                      <View style={styles.templateDetail}>
-                      {detail === undefined ? (
-                        <ActivityIndicator color={theme.colors.accent} />
-                      ) : detail?.exercises.length ? (
-                        detail.exercises.map((exercise) => (
-                          <View key={exercise.id} style={styles.exerciseRow}>
-                            <View style={styles.exerciseTextBlock}>
-                              <Text style={styles.exerciseName} numberOfLines={1}>
-                                {exercise.exerciseTypeName}
-                                {!exercise.methodLocked ? (
-                                  <Text style={styles.exerciseMethod}> - {exercise.methodName}</Text>
-                                ) : null}
-                              </Text>
-                              <Text style={styles.exerciseMeta}>{exercise.setCount} planned sets</Text>
-                            </View>
-                            <View style={styles.setStepper}>
-                              <TouchableOpacity
-                                style={styles.stepperButton}
-                                onPress={() => updateSetCount(template.id, exercise.id, exercise.setCount - 1)}
-                                disabled={exercise.setCount <= 1}
-                              >
-                                <MaterialCommunityIcons name="minus" size={15} color={theme.colors.textMuted} />
-                              </TouchableOpacity>
-                              <Text style={styles.setCount}>{exercise.setCount}</Text>
-                              <TouchableOpacity
-                                style={styles.stepperButton}
-                                onPress={() => updateSetCount(template.id, exercise.id, exercise.setCount + 1)}
-                                disabled={exercise.setCount >= 12}
-                              >
-                                <MaterialCommunityIcons name="plus" size={15} color={theme.colors.textMuted} />
-                              </TouchableOpacity>
-                            </View>
-                            <TouchableOpacity
-                              style={styles.removeButton}
-                              onPress={() => removeTemplateExercise(template.id, exercise.id)}
-                            >
-                              <MaterialCommunityIcons name="trash-can-outline" size={17} color={theme.colors.textMuted} />
-                            </TouchableOpacity>
-                          </View>
-                        ))
-                      ) : (
-                        <Text style={styles.emptyDetailText}>Add exercises to build this template.</Text>
-                      )}
-
-                      <View style={styles.templateActions}>
-                        <TouchableOpacity
-                          style={styles.secondaryAction}
-                          onPress={() => setPickerTemplateId(template.id)}
-                          activeOpacity={0.78}
-                        >
-                          <MaterialCommunityIcons name="plus" size={16} color={theme.colors.accent} />
-                          <Text style={styles.secondaryActionText}>Add Exercise</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                          style={[
-                            styles.primaryAction,
-                            template.exerciseCount === 0 && styles.primaryActionDisabled,
-                          ]}
-                          onPress={() => setPreviewTemplateId(template.id)}
-                          disabled={template.exerciseCount === 0}
-                          activeOpacity={0.78}
-                        >
-                          <Text style={styles.primaryActionText}>Start</Text>
-                        </TouchableOpacity>
-                      </View>
-                      </View>
-                    ) : null}
                   </View>
                 </ReanimatedSwipeable>
-              )
-            })}
+            ))}
           </View>
         )}
       </ScrollView>
@@ -440,19 +241,6 @@ export default function TemplatesScreen({ navigation }: Props) {
         onSubmit={submitTemplate}
       />
 
-      <TemplateExercisePickerModal
-        visible={Boolean(pickerTemplateId)}
-        templateId={pickerTemplateId}
-        onClose={() => setPickerTemplateId(null)}
-        onSelect={handleExercisePicked}
-      />
-      <TemplatePreviewModal
-        visible={Boolean(previewTemplateId)}
-        templateId={previewTemplateId}
-        onClose={() => setPreviewTemplateId(null)}
-        onStart={startTemplate}
-        startDisabled={Boolean(activeWorkoutId)}
-      />
       <ThemedDialog
         visible={Boolean(deleteTemplateTarget)}
         title="Delete Template"
@@ -522,7 +310,7 @@ function TemplateCreateModal({
   )
 }
 
-function TemplateExercisePickerModal({
+export function TemplateExercisePickerModal({
   visible,
   templateId,
   onClose,

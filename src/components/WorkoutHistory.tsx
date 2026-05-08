@@ -1,23 +1,19 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useState } from 'react';
 import {
   Modal,
-  StatusBar,
   Text,
   TextInput,
   TouchableOpacity,
   View,
   type NativeScrollEvent,
   type NativeSyntheticEvent,
-} from 'react-native'
-import {
-  KeyboardAwareScrollView,
-  KeyboardProvider,
-} from 'react-native-keyboard-controller'
-import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons'
-import { createStyleSheet, useStyles } from 'react-native-unistyles'
-import ScreenHeader, { useHeaderFade } from '@/components/ui/ScreenHeader'
-import ThemedDialog from '@/components/ui/ThemedDialog'
+} from 'react-native';
+import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
+import { createStyleSheet, useStyles } from 'react-native-unistyles';
+import ScreenHeader, { useHeaderFade } from '@/components/ui/ScreenHeader';
+import ThemedDialog from '@/components/ui/ThemedDialog';
 import {
   deleteWorkout,
   getWorkoutDetail,
@@ -25,64 +21,70 @@ import {
   type CompletedWorkoutSetUpdate,
   type WorkoutDetail,
   type WorkoutSummary,
-} from '@/db/workoutHelpers'
+} from '@/db/workoutHelpers';
 
-const LB_PER_KG = 2.20462
-const PR_GOLD = '#D9A441'
+const LB_PER_KG = 2.20462;
+const PR_GOLD = '#D9A441';
 
 function formatDuration(startedAt: number, endedAt: number) {
-  const minutes = Math.max(1, Math.round((endedAt - startedAt) / 60000))
-  const hours = Math.floor(minutes / 60)
-  const mins = minutes % 60
-  if (hours > 0) return `${hours}h ${mins}m`
-  return `${minutes}m`
+  const minutes = Math.max(1, Math.round((endedAt - startedAt) / 60000));
+  const hours = Math.floor(minutes / 60);
+  const mins = minutes % 60;
+  if (hours > 0) return `${hours}h ${mins}m`;
+  return `${minutes}m`;
 }
 
 function formatCompactNumber(value: number) {
-  return Number.parseFloat(value.toFixed(2)).toString()
+  return Number.parseFloat(value.toFixed(2)).toString();
 }
 
 function formatDetailSubtitle(workout: WorkoutDetail) {
-  const startedAt = new Date(workout.startedAt)
+  const startedAt = new Date(workout.startedAt);
   const date = startedAt.toLocaleDateString([], {
     weekday: 'long',
     month: 'long',
     day: 'numeric',
-  })
+  });
   const time = startedAt.toLocaleTimeString([], {
     hour: 'numeric',
     minute: '2-digit',
-  })
-  return `${date} - ${time} - ${formatDuration(workout.startedAt, workout.endedAt)}`
+  });
+  return `${date} - ${time} - ${formatDuration(
+    workout.startedAt,
+    workout.endedAt,
+  )}`;
 }
 
 function roundWeightKg(value: number) {
-  return Number.parseFloat(value.toFixed(6))
+  return Number.parseFloat(value.toFixed(6));
 }
 
 function formatSetWeight(weightKg: number, unit: string) {
   if (unit === 'lb') {
-    return `${formatCompactNumber(weightKg * LB_PER_KG)} lb`
+    return `${formatCompactNumber(weightKg * LB_PER_KG)} lb`;
   }
-  return `${formatCompactNumber(weightKg)} kg`
+  return `${formatCompactNumber(weightKg)} kg`;
 }
 
 function formatDateInput(timestamp: number) {
-  const date = new Date(timestamp)
-  const year = date.getFullYear()
-  const month = `${date.getMonth() + 1}`.padStart(2, '0')
-  const day = `${date.getDate()}`.padStart(2, '0')
-  return `${year}-${month}-${day}`
+  const date = new Date(timestamp);
+  const year = date.getFullYear();
+  const month = `${date.getMonth() + 1}`.padStart(2, '0');
+  const day = `${date.getDate()}`.padStart(2, '0');
+  return `${year}-${month}-${day}`;
 }
 
-function parseDateInput(value: string, originalTimestamp: number): number | null {
-  const match = value.trim().match(/^(\d{4})-(\d{2})-(\d{2})$/)
-  if (!match) return null
+function parseDateInput(
+  value: string,
+  originalTimestamp: number,
+): number | null {
+  const match = value.trim().match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return null;
 
-  const original = new Date(originalTimestamp)
-  const year = Number(match[1])
-  const month = Number(match[2]) - 1
-  const day = Number(match[3])
+  const original = new Date(originalTimestamp);
+  const year = Number(match[1]);
+  const month = Number(match[2]) - 1;
+  const day = Number(match[3]);
   const next = new Date(
     year,
     month,
@@ -91,93 +93,98 @@ function parseDateInput(value: string, originalTimestamp: number): number | null
     original.getMinutes(),
     original.getSeconds(),
     original.getMilliseconds(),
-  )
+  );
 
   if (
     next.getFullYear() !== year ||
     next.getMonth() !== month ||
     next.getDate() !== day
   ) {
-    return null
+    return null;
   }
 
-  return next.getTime()
+  return next.getTime();
 }
 
 function displayWeightValue(weightKg: number, unit: string) {
   return unit === 'lb'
     ? formatCompactNumber(weightKg * LB_PER_KG)
-    : formatCompactNumber(weightKg)
+    : formatCompactNumber(weightKg);
 }
 
 function weightInputToKg(value: string, unit: string) {
-  const parsed = Number(value)
-  if (!Number.isFinite(parsed)) return null
-  return roundWeightKg(unit === 'lb' ? parsed / LB_PER_KG : parsed)
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return null;
+  return roundWeightKg(unit === 'lb' ? parsed / LB_PER_KG : parsed);
 }
 
 type EditableSet = {
-  id: string
-  weightText: string
-  weightUnit: string
-  weightKg: number | null
-  repsText: string
-}
+  id: string;
+  weightText: string;
+  weightUnit: string;
+  weightKg: number | null;
+  repsText: string;
+};
 
-function buildEditableSets(workout: WorkoutDetail | null): Record<string, EditableSet> {
-  const sets: Record<string, EditableSet> = {}
-  workout?.exercises.forEach((exercise) => {
-    exercise.sets.forEach((set) => {
+function buildEditableSets(
+  workout: WorkoutDetail | null,
+): Record<string, EditableSet> {
+  const sets: Record<string, EditableSet> = {};
+  workout?.exercises.forEach(exercise => {
+    exercise.sets.forEach(set => {
       sets[set.id] = {
         id: set.id,
         weightText: displayWeightValue(set.weightKg, set.weightUnit),
         weightUnit: set.weightUnit === 'lb' ? 'lb' : 'kg',
         weightKg: set.weightKg,
         repsText: `${set.reps}`,
-      }
-    })
-  })
-  return sets
+      };
+    });
+  });
+  return sets;
 }
 
 function getExerciseEditUnit(
   exercise: WorkoutDetail['exercises'][number],
   editableSets: Record<string, EditableSet>,
 ) {
-  const firstSet = exercise.sets[0]
-  if (!firstSet) return 'kg'
-  return editableSets[firstSet.id]?.weightUnit ?? firstSet.weightUnit
+  const firstSet = exercise.sets[0];
+  if (!firstSet) return 'kg';
+  return editableSets[firstSet.id]?.weightUnit ?? firstSet.weightUnit;
 }
 
 function getExerciseSetSummaries(exercise: WorkoutDetail['exercises'][number]) {
   if (exercise.sets.length === 0) {
-    return [{
-      key: 'empty',
-      label: 'No sets',
-      hasWeightPr: false,
-      hasCurrentWeightPr: false,
-    }]
+    return [
+      {
+        key: 'empty',
+        label: 'No sets',
+        hasWeightPr: false,
+        hasCurrentWeightPr: false,
+      },
+    ];
   }
 
   const groupedSets = exercise.sets.reduce<
     Array<{
-      key: string
-      weight: string
-      reps: number
-      count: number
-      hasWeightPr: boolean
-      hasCurrentWeightPr: boolean
+      key: string;
+      weight: string;
+      reps: number;
+      count: number;
+      hasWeightPr: boolean;
+      hasCurrentWeightPr: boolean;
     }>
   >((groups, set) => {
-    const weight = formatSetWeight(set.weightKg, set.weightUnit)
-    const key = `${weight}-${set.reps}`
-    const existingGroup = groups.find((group) => group.key === key)
+    const weight = formatSetWeight(set.weightKg, set.weightUnit);
+    const key = `${weight}-${set.reps}`;
+    const existingGroup = groups.find(group => group.key === key);
 
     if (existingGroup) {
-      existingGroup.count += 1
-      existingGroup.hasWeightPr = existingGroup.hasWeightPr || Boolean(set.isWeightPr)
+      existingGroup.count += 1;
+      existingGroup.hasWeightPr =
+        existingGroup.hasWeightPr || Boolean(set.isWeightPr);
       existingGroup.hasCurrentWeightPr =
-        existingGroup.hasCurrentWeightPr || Boolean(set.isCurrentWeightPr)
+        existingGroup.hasCurrentWeightPr || Boolean(set.isCurrentWeightPr);
     } else {
       groups.push({
         key,
@@ -186,21 +193,21 @@ function getExerciseSetSummaries(exercise: WorkoutDetail['exercises'][number]) {
         count: 1,
         hasWeightPr: Boolean(set.isWeightPr),
         hasCurrentWeightPr: Boolean(set.isCurrentWeightPr),
-      })
+      });
     }
 
-    return groups
-  }, [])
+    return groups;
+  }, []);
 
-  return groupedSets.map((group) => {
-    const setLabel = group.count === 1 ? '1 set' : `${group.count} sets`
+  return groupedSets.map(group => {
+    const setLabel = group.count === 1 ? '1 set' : `${group.count} sets`;
     return {
       key: group.key,
       label: `${setLabel} of ${group.weight} x ${group.reps}`,
       hasWeightPr: group.hasWeightPr,
       hasCurrentWeightPr: group.hasCurrentWeightPr,
-    }
-  })
+    };
+  });
 }
 
 export function WorkoutSummaryCard({
@@ -212,17 +219,17 @@ export function WorkoutSummaryCard({
   onOpen,
   onToggle,
 }: {
-  workout: WorkoutSummary
-  title?: string
-  expanded: boolean
-  preview: WorkoutDetail | null | undefined
-  previewLoading: boolean
-  onOpen: () => void
-  onToggle: () => void
+  workout: WorkoutSummary;
+  title?: string;
+  expanded: boolean;
+  preview: WorkoutDetail | null | undefined;
+  previewLoading: boolean;
+  onOpen: () => void;
+  onToggle: () => void;
 }) {
-  const { styles, theme } = useStyles(stylesheet)
-  const hasCurrentPr = (workout.currentWeightPrCount ?? 0) > 0
-  const prColor = hasCurrentPr ? PR_GOLD : theme.colors.accent
+  const { styles, theme } = useStyles(stylesheet);
+  const hasCurrentPr = (workout.currentWeightPrCount ?? 0) > 0;
+  const prColor = hasCurrentPr ? PR_GOLD : theme.colors.accent;
 
   return (
     <View style={styles.workoutCard}>
@@ -236,12 +243,24 @@ export function WorkoutSummaryCard({
             {title ?? workout.name ?? 'Workout'}
           </Text>
           <Text style={styles.workoutMeta}>
-            {formatDuration(workout.startedAt, workout.endedAt)} - {workout.exerciseCount} exercises - {workout.setCount} sets
+            {formatDuration(workout.startedAt, workout.endedAt)} -{' '}
+            {workout.exerciseCount} exercises - {workout.setCount} sets
           </Text>
           {workout.weightPrCount > 0 ? (
-            <View style={[styles.prBadge, hasCurrentPr && styles.currentPrBadge]}>
-              <MaterialCommunityIcons name="trophy-outline" size={13} color={prColor} />
-              <Text style={[styles.prBadgeText, hasCurrentPr && styles.currentPrBadgeText]}>
+            <View
+              style={[styles.prBadge, hasCurrentPr && styles.currentPrBadge]}
+            >
+              <MaterialCommunityIcons
+                name="trophy-outline"
+                size={13}
+                color={prColor}
+              />
+              <Text
+                style={[
+                  styles.prBadgeText,
+                  hasCurrentPr && styles.currentPrBadgeText,
+                ]}
+              >
                 {workout.weightPrCount} PR
               </Text>
             </View>
@@ -260,30 +279,27 @@ export function WorkoutSummaryCard({
         </TouchableOpacity>
       </View>
       {expanded ? (
-        <WorkoutQuickPreview
-          workout={preview}
-          loading={previewLoading}
-        />
+        <WorkoutQuickPreview workout={preview} loading={previewLoading} />
       ) : null}
     </View>
-  )
+  );
 }
 
 function WorkoutQuickPreview({
   workout,
   loading,
 }: {
-  workout: WorkoutDetail | null | undefined
-  loading: boolean
+  workout: WorkoutDetail | null | undefined;
+  loading: boolean;
 }) {
-  const { styles } = useStyles(stylesheet)
+  const { styles } = useStyles(stylesheet);
 
   if (loading) {
     return (
       <View style={styles.quickPreview}>
         <Text style={styles.quickPreviewText}>Loading exercises...</Text>
       </View>
-    )
+    );
   }
 
   if (!workout) {
@@ -291,7 +307,7 @@ function WorkoutQuickPreview({
       <View style={styles.quickPreview}>
         <Text style={styles.quickPreviewText}>Exercises unavailable.</Text>
       </View>
-    )
+    );
   }
 
   return (
@@ -299,30 +315,34 @@ function WorkoutQuickPreview({
       {workout.exercises.length === 0 ? (
         <Text style={styles.quickPreviewText}>No exercises saved.</Text>
       ) : (
-        workout.exercises.map((exercise) => (
+        workout.exercises.map(exercise => (
           <View key={exercise.id} style={styles.quickExerciseRow}>
             <Text style={styles.quickExerciseName} numberOfLines={1}>
               {exercise.exerciseName}
               {exercise.methodName ? (
-                <Text style={styles.quickExerciseMethod}> - {exercise.methodName}</Text>
+                <Text style={styles.quickExerciseMethod}>
+                  {' '}
+                  - {exercise.methodName}
+                </Text>
               ) : null}
             </Text>
             <View style={styles.quickExerciseRightBlock}>
               <View style={styles.quickSetList}>
-                {getExerciseSetSummaries(exercise).map((summary) => (
+                {getExerciseSetSummaries(exercise).map(summary => (
                   <View key={summary.key} style={styles.quickSetRow}>
                     <Text style={styles.quickExerciseSets} numberOfLines={1}>
                       {summary.label}
                     </Text>
                     <View style={styles.quickPrDotSlot}>
-                    {summary.hasWeightPr ? (
-                      <View
-                        style={[
-                          styles.quickPrDot,
-                          summary.hasCurrentWeightPr && styles.quickCurrentPrDot,
-                        ]}
-                      />
-                    ) : null}
+                      {summary.hasWeightPr ? (
+                        <View
+                          style={[
+                            styles.quickPrDot,
+                            summary.hasCurrentWeightPr &&
+                              styles.quickCurrentPrDot,
+                          ]}
+                        />
+                      ) : null}
                     </View>
                   </View>
                 ))}
@@ -332,7 +352,7 @@ function WorkoutQuickPreview({
         ))
       )}
     </View>
-  )
+  );
 }
 
 export function WorkoutDetailModal({
@@ -343,153 +363,162 @@ export function WorkoutDetailModal({
   onDeleted,
   onUpdated,
 }: {
-  workoutId: string | null
-  workout: WorkoutDetail | null
-  loading: boolean
-  onClose: () => void
-  onDeleted?: (workoutId: string) => void
-  onRename?: (workoutId: string, name: string) => void
-  onUpdated?: (workoutId: string, workout: WorkoutDetail) => void
+  workoutId: string | null;
+  workout: WorkoutDetail | null;
+  loading: boolean;
+  onClose: () => void;
+  onDeleted?: (workoutId: string) => void;
+  onRename?: (workoutId: string, name: string) => void;
+  onUpdated?: (workoutId: string, workout: WorkoutDetail) => void;
 }) {
-  const { styles, theme } = useStyles(stylesheet)
-  const insets = useSafeAreaInsets()
-  const { showHeaderFade, handleHeaderScroll } = useHeaderFade()
-  const [name, setName] = useState('')
-  const [dateText, setDateText] = useState('')
-  const [editableSets, setEditableSets] = useState<Record<string, EditableSet>>({})
-  const [editing, setEditing] = useState(false)
-  const [saving, setSaving] = useState(false)
-  const [showDefaultUnits, setShowDefaultUnits] = useState<Record<string, boolean>>({})
-  const [showDeleteDialog, setShowDeleteDialog] = useState(false)
-  const [deleting, setDeleting] = useState(false)
-  const [editError, setEditError] = useState<string | null>(null)
+  const { styles, theme } = useStyles(stylesheet);
+  const insets = useSafeAreaInsets();
+  const { showHeaderFade, handleHeaderScroll } = useHeaderFade();
+  const [name, setName] = useState('');
+  const [dateText, setDateText] = useState('');
+  const [editableSets, setEditableSets] = useState<Record<string, EditableSet>>(
+    {},
+  );
+  const [editing, setEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [showDefaultUnits, setShowDefaultUnits] = useState<
+    Record<string, boolean>
+  >({});
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
 
   useEffect(() => {
-    setName(workout?.name || '')
-    setDateText(workout ? formatDateInput(workout.startedAt) : '')
-    setEditableSets(buildEditableSets(workout))
-    setEditing(false)
-    setSaving(false)
-    setEditError(null)
-    setShowDefaultUnits({})
-  }, [workout])
+    setName(workout?.name || '');
+    setDateText(workout ? formatDateInput(workout.startedAt) : '');
+    setEditableSets(buildEditableSets(workout));
+    setEditing(false);
+    setSaving(false);
+    setEditError(null);
+    setShowDefaultUnits({});
+  }, [workout]);
 
   function handleDetailScroll(event: NativeSyntheticEvent<NativeScrollEvent>) {
-    handleHeaderScroll(event)
+    handleHeaderScroll(event);
   }
 
-  if (!workoutId) return null
-  const detailWorkoutId = workoutId
+  if (!workoutId) return null;
+  const detailWorkoutId = workoutId;
 
   function resetEdits() {
-    setName(workout?.name || '')
-    setDateText(workout ? formatDateInput(workout.startedAt) : '')
-    setEditableSets(buildEditableSets(workout))
-    setEditError(null)
-    setEditing(false)
+    setName(workout?.name || '');
+    setDateText(workout ? formatDateInput(workout.startedAt) : '');
+    setEditableSets(buildEditableSets(workout));
+    setEditError(null);
+    setEditing(false);
   }
 
   function updateEditableSet(setId: string, patch: Partial<EditableSet>) {
-    setEditableSets((prev) => ({
+    setEditableSets(prev => ({
       ...prev,
       [setId]: {
         ...prev[setId],
         ...patch,
       },
-    }))
+    }));
   }
 
-  function toggleEditableExerciseUnit(exercise: WorkoutDetail['exercises'][number]) {
-    setEditableSets((prev) => {
-      const currentUnit = getExerciseEditUnit(exercise, prev)
-      const nextUnit = currentUnit === 'lb' ? 'kg' : 'lb'
-      const next = { ...prev }
+  function toggleEditableExerciseUnit(
+    exercise: WorkoutDetail['exercises'][number],
+  ) {
+    setEditableSets(prev => {
+      const currentUnit = getExerciseEditUnit(exercise, prev);
+      const nextUnit = currentUnit === 'lb' ? 'kg' : 'lb';
+      const next = { ...prev };
 
       for (const set of exercise.sets) {
-        const current = next[set.id]
-        if (!current) continue
-        const currentWeightKg = current.weightKg ??
-          weightInputToKg(current.weightText, current.weightUnit)
+        const current = next[set.id];
+        if (!current) continue;
+        const currentWeightKg =
+          current.weightKg ??
+          weightInputToKg(current.weightText, current.weightUnit);
         next[set.id] = {
           ...current,
           weightUnit: nextUnit,
-          weightText: currentWeightKg === null
-            ? current.weightText
-            : displayWeightValue(currentWeightKg, nextUnit),
+          weightText:
+            currentWeightKg === null
+              ? current.weightText
+              : displayWeightValue(currentWeightKg, nextUnit),
           weightKg: currentWeightKg,
-        }
+        };
       }
 
-      return next
-    })
+      return next;
+    });
   }
 
   async function saveWorkoutEdits() {
-    if (!workout || saving) return
+    if (!workout || saving) return;
 
-    const startedAt = parseDateInput(dateText, workout.startedAt)
+    const startedAt = parseDateInput(dateText, workout.startedAt);
     if (startedAt === null) {
-      setEditError('Use a valid date in YYYY-MM-DD format.')
-      return
+      setEditError('Use a valid date in YYYY-MM-DD format.');
+      return;
     }
 
-    const setUpdates: CompletedWorkoutSetUpdate[] = []
+    const setUpdates: CompletedWorkoutSetUpdate[] = [];
     for (const exercise of workout.exercises) {
       for (const set of exercise.sets) {
-        const editSet = editableSets[set.id]
-        if (!editSet) continue
-        const weightKg = editSet.weightKg ??
-          weightInputToKg(editSet.weightText, editSet.weightUnit)
-        const reps = Number(editSet.repsText)
+        const editSet = editableSets[set.id];
+        if (!editSet) continue;
+        const weightKg =
+          editSet.weightKg ??
+          weightInputToKg(editSet.weightText, editSet.weightUnit);
+        const reps = Number(editSet.repsText);
         if (weightKg === null || weightKg <= 0) {
-          setEditError('Every set needs a weight greater than 0.')
-          return
+          setEditError('Every set needs a weight greater than 0.');
+          return;
         }
         if (!Number.isInteger(reps) || reps <= 0) {
-          setEditError('Every set needs whole-number reps greater than 0.')
-          return
+          setEditError('Every set needs whole-number reps greater than 0.');
+          return;
         }
         setUpdates.push({
           id: set.id,
           weightKg,
           weightUnit: editSet.weightUnit === 'lb' ? 'lb' : 'kg',
           reps,
-        })
+        });
       }
     }
 
-    setSaving(true)
-    setEditError(null)
+    setSaving(true);
+    setEditError(null);
     try {
       await updateCompletedWorkout({
         workoutId: detailWorkoutId,
         name,
         startedAt,
         sets: setUpdates,
-      })
-      const updated = await getWorkoutDetail(detailWorkoutId)
+      });
+      const updated = await getWorkoutDetail(detailWorkoutId);
       if (updated) {
-        onUpdated?.(detailWorkoutId, updated)
+        onUpdated?.(detailWorkoutId, updated);
       }
-      setEditing(false)
+      setEditing(false);
     } catch (e) {
-      console.error('Failed to update workout', e)
-      setEditError('Could not save workout changes.')
+      console.error('Failed to update workout', e);
+      setEditError('Could not save workout changes.');
     } finally {
-      setSaving(false)
+      setSaving(false);
     }
   }
 
   function confirmDelete() {
-    if (deleting) return
-    setDeleting(true)
+    if (deleting) return;
+    setDeleting(true);
     deleteWorkout(detailWorkoutId)
       .then(() => {
-        setShowDeleteDialog(false)
-        onDeleted?.(detailWorkoutId)
+        setShowDeleteDialog(false);
+        onDeleted?.(detailWorkoutId);
       })
-      .catch((e) => console.error('Failed to delete workout', e))
-      .finally(() => setDeleting(false))
+      .catch(e => console.error('Failed to delete workout', e))
+      .finally(() => setDeleting(false));
   }
 
   return (
@@ -501,86 +530,96 @@ export function WorkoutDetailModal({
       statusBarTranslucent
       navigationBarTranslucent
     >
-      <StatusBar translucent backgroundColor={theme.colors.bg} barStyle="light-content" />
-      <KeyboardProvider statusBarTranslucent navigationBarTranslucent>
-        <View style={styles.detailRoot}>
-          <ScreenHeader
-            title={name.trim() || workout?.name || 'Workout'}
-            showFade={showHeaderFade}
-            onBack={onClose}
-            afterTitle={
-              <Text style={styles.detailHeaderSubtitle} numberOfLines={1}>
-                {workout ? formatDetailSubtitle(workout) : 'Loading workout...'}
-              </Text>
-            }
-            rightContent={
-              <View style={styles.headerActionRow}>
-                {editing ? (
-                  <>
+      <View style={styles.detailRoot}>
+        <ScreenHeader
+          title={name.trim() || workout?.name || 'Workout'}
+          showFade={showHeaderFade}
+          onBack={onClose}
+          afterTitle={
+            <Text style={styles.detailHeaderSubtitle} numberOfLines={1}>
+              {workout ? formatDetailSubtitle(workout) : 'Loading workout...'}
+            </Text>
+          }
+          rightContent={
+            <View style={styles.headerActionRow}>
+              {editing ? (
+                <>
+                  <TouchableOpacity
+                    style={styles.viewButton}
+                    onPress={resetEdits}
+                    disabled={saving}
+                  >
+                    <Text style={styles.viewButtonText}>Cancel</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.saveEditButton}
+                    onPress={saveWorkoutEdits}
+                    disabled={saving}
+                  >
+                    <MaterialCommunityIcons
+                      name="check"
+                      size={17}
+                      color="#FFFFFF"
+                    />
+                    <Text style={styles.saveEditButtonText}>
+                      {saving ? 'Saving' : 'Save'}
+                    </Text>
+                  </TouchableOpacity>
+                </>
+              ) : (
+                <>
+                  <TouchableOpacity
+                    style={styles.viewButton}
+                    onPress={() => setEditing(true)}
+                    disabled={loading || !workout}
+                  >
+                    <MaterialCommunityIcons
+                      name="pencil-outline"
+                      size={17}
+                      color={theme.colors.text}
+                    />
+                    <Text style={styles.viewButtonText}>Edit</Text>
+                  </TouchableOpacity>
+                  {onDeleted ? (
                     <TouchableOpacity
-                      style={styles.viewButton}
-                      onPress={resetEdits}
-                      disabled={saving}
+                      style={styles.deleteButton}
+                      onPress={() => setShowDeleteDialog(true)}
+                      disabled={loading || deleting}
                     >
-                      <Text style={styles.viewButtonText}>Cancel</Text>
+                      <MaterialCommunityIcons
+                        name="trash-can-outline"
+                        size={17}
+                        color={theme.colors.danger}
+                      />
+                      <Text style={styles.deleteButtonText}>Delete</Text>
                     </TouchableOpacity>
-                    <TouchableOpacity
-                      style={styles.saveEditButton}
-                      onPress={saveWorkoutEdits}
-                      disabled={saving}
-                    >
-                      <MaterialCommunityIcons name="check" size={17} color="#FFFFFF" />
-                      <Text style={styles.saveEditButtonText}>
-                        {saving ? 'Saving' : 'Save'}
-                      </Text>
-                    </TouchableOpacity>
-                  </>
-                ) : (
-                  <>
-                    <TouchableOpacity
-                      style={styles.viewButton}
-                      onPress={() => setEditing(true)}
-                      disabled={loading || !workout}
-                    >
-                      <MaterialCommunityIcons name="pencil-outline" size={17} color={theme.colors.text} />
-                      <Text style={styles.viewButtonText}>Edit</Text>
-                    </TouchableOpacity>
-                    {onDeleted ? (
-                      <TouchableOpacity
-                        style={styles.deleteButton}
-                        onPress={() => setShowDeleteDialog(true)}
-                        disabled={loading || deleting}
-                      >
-                        <MaterialCommunityIcons name="trash-can-outline" size={17} color={theme.colors.danger} />
-                        <Text style={styles.deleteButtonText}>Delete</Text>
-                      </TouchableOpacity>
-                    ) : null}
-                  </>
-                )}
-              </View>
-            }
-          />
-
-          {loading || !workout ? (
-            <View style={styles.detailLoading}>
-              <Text style={styles.emptyText}>Loading workout...</Text>
+                  ) : null}
+                </>
+              )}
             </View>
-          ) : (
-            <KeyboardAwareScrollView
-              bottomOffset={theme.spacing.lg}
-              disableScrollOnKeyboardHide
-              style={styles.detailScroll}
-              contentContainerStyle={[
-                styles.detailContent,
-                {
-                  paddingBottom: insets.bottom + theme.spacing.xl,
-                },
-              ]}
-              keyboardShouldPersistTaps="handled"
-              keyboardDismissMode="interactive"
-              onScroll={handleDetailScroll}
-              scrollEventThrottle={16}
-            >
+          }
+        />
+
+        {loading || !workout ? (
+          <View style={styles.detailLoading}>
+            <Text style={styles.emptyText}>Loading workout...</Text>
+          </View>
+        ) : (
+          <KeyboardAwareScrollView
+            bottomOffset={theme.spacing.lg}
+            disableScrollOnKeyboardHide
+            style={styles.detailScroll}
+            contentContainerStyle={[
+              styles.detailContent,
+              {
+                paddingBottom: insets.bottom + theme.spacing.xl,
+              },
+            ]}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="interactive"
+            onScroll={handleDetailScroll}
+            scrollEventThrottle={16}
+          >
             {editing ? (
               <View style={styles.renameCard}>
                 <Text style={styles.renameLabel}>Workout Name</Text>
@@ -611,7 +650,11 @@ export function WorkoutDetailModal({
 
             {editError ? (
               <View style={styles.editErrorCard}>
-                <MaterialCommunityIcons name="alert-circle-outline" size={17} color={theme.colors.danger} />
+                <MaterialCommunityIcons
+                  name="alert-circle-outline"
+                  size={17}
+                  color={theme.colors.danger}
+                />
                 <Text style={styles.editErrorText}>{editError}</Text>
               </View>
             ) : null}
@@ -626,19 +669,21 @@ export function WorkoutDetailModal({
                 <Text style={styles.summaryLabel}>Sets</Text>
               </View>
               <View style={styles.summaryItem}>
-                <Text style={styles.summaryValue}>{Math.round(workout.volume)}</Text>
+                <Text style={styles.summaryValue}>
+                  {Math.round(workout.volume)}
+                </Text>
                 <Text style={styles.summaryLabel}>kg volume</Text>
               </View>
             </View>
 
-            {workout.exercises.map((exercise) => {
+            {workout.exercises.map(exercise => {
               const hasUnitMismatch = exercise.sets.some(
-                (set) => set.weightUnit !== exercise.defaultWeightUnit,
-              )
-              const editUnit = getExerciseEditUnit(exercise, editableSets)
+                set => set.weightUnit !== exercise.defaultWeightUnit,
+              );
+              const editUnit = getExerciseEditUnit(exercise, editableSets);
               const displayUnit = showDefaultUnits[exercise.id]
                 ? exercise.defaultWeightUnit
-                : null
+                : null;
 
               return (
                 <View key={exercise.id} style={styles.exerciseCard}>
@@ -646,28 +691,39 @@ export function WorkoutDetailModal({
                     <View style={styles.exerciseTitleBlock}>
                       <Text style={styles.exerciseTitle}>
                         {exercise.exerciseName}
-                        <Text style={styles.exerciseMethod}> - {exercise.methodName}</Text>
+                        <Text style={styles.exerciseMethod}>
+                          {' '}
+                          - {exercise.methodName}
+                        </Text>
                       </Text>
                       {exercise.hasWeightPr ? (
                         <View style={styles.badgeRow}>
                           <View
                             style={[
                               styles.prBadge,
-                              exercise.hasCurrentWeightPr && styles.currentPrBadge,
+                              exercise.hasCurrentWeightPr &&
+                                styles.currentPrBadge,
                             ]}
                           >
                             <MaterialCommunityIcons
                               name="trophy-outline"
                               size={13}
-                              color={exercise.hasCurrentWeightPr ? PR_GOLD : theme.colors.accent}
+                              color={
+                                exercise.hasCurrentWeightPr
+                                  ? PR_GOLD
+                                  : theme.colors.accent
+                              }
                             />
                             <Text
                               style={[
                                 styles.prBadgeText,
-                                exercise.hasCurrentWeightPr && styles.currentPrBadgeText,
+                                exercise.hasCurrentWeightPr &&
+                                  styles.currentPrBadgeText,
                               ]}
                             >
-                              {exercise.hasCurrentWeightPr ? 'Current PR' : 'PR'}
+                              {exercise.hasCurrentWeightPr
+                                ? 'Current PR'
+                                : 'PR'}
                             </Text>
                           </View>
                         </View>
@@ -677,7 +733,7 @@ export function WorkoutDetailModal({
                       <TouchableOpacity
                         style={styles.unitToggleButton}
                         onPress={() =>
-                          setShowDefaultUnits((prev) => ({
+                          setShowDefaultUnits(prev => ({
                             ...prev,
                             [exercise.id]: !prev[exercise.id],
                           }))
@@ -696,29 +752,50 @@ export function WorkoutDetailModal({
                   ) : (
                     <View style={styles.setTable}>
                       <View style={styles.setTableHeader}>
-                        <Text style={[styles.setHeaderText, styles.setIndexCol]}>Set</Text>
-                        <Text style={[styles.setHeaderText, styles.setWeightCol]}>Weight</Text>
-                        <Text style={[styles.setHeaderText, styles.setRepsCol]}>Reps</Text>
-                        <Text style={[styles.setHeaderText, styles.setVolumeCol]}>Volume</Text>
+                        <Text
+                          style={[styles.setHeaderText, styles.setIndexCol]}
+                        >
+                          Set
+                        </Text>
+                        <Text
+                          style={[styles.setHeaderText, styles.setWeightCol]}
+                        >
+                          Weight
+                        </Text>
+                        <Text style={[styles.setHeaderText, styles.setRepsCol]}>
+                          Reps
+                        </Text>
+                        <Text
+                          style={[styles.setHeaderText, styles.setVolumeCol]}
+                        >
+                          Volume
+                        </Text>
                       </View>
                       {exercise.sets.map((set, index) => {
-                        const editSet = editableSets[set.id]
+                        const editSet = editableSets[set.id];
                         return (
-                          <View
-                            key={set.id}
-                            style={styles.setRow}
-                          >
-                            <Text style={[styles.setIndex, styles.setIndexCol]}>{index + 1}</Text>
+                          <View key={set.id} style={styles.setRow}>
+                            <Text style={[styles.setIndex, styles.setIndexCol]}>
+                              {index + 1}
+                            </Text>
                             {editing && editSet ? (
                               <>
-                                <View style={[styles.editWeightGroup, styles.setWeightCol]}>
+                                <View
+                                  style={[
+                                    styles.editWeightGroup,
+                                    styles.setWeightCol,
+                                  ]}
+                                >
                                   <TextInput
                                     style={styles.editSetInput}
                                     value={editSet.weightText}
-                                    onChangeText={(value) =>
+                                    onChangeText={value =>
                                       updateEditableSet(set.id, {
                                         weightText: value,
-                                        weightKg: weightInputToKg(value, editSet.weightUnit),
+                                        weightKg: weightInputToKg(
+                                          value,
+                                          editSet.weightUnit,
+                                        ),
                                       })
                                     }
                                     keyboardType="decimal-pad"
@@ -726,15 +803,23 @@ export function WorkoutDetailModal({
                                   />
                                   <TouchableOpacity
                                     style={styles.editUnitButton}
-                                    onPress={() => toggleEditableExerciseUnit(exercise)}
+                                    onPress={() =>
+                                      toggleEditableExerciseUnit(exercise)
+                                    }
                                   >
-                                    <Text style={styles.editUnitText}>{editUnit}</Text>
+                                    <Text style={styles.editUnitText}>
+                                      {editUnit}
+                                    </Text>
                                   </TouchableOpacity>
                                 </View>
                                 <TextInput
-                                  style={[styles.editSetInput, styles.editRepsInput, styles.setRepsCol]}
+                                  style={[
+                                    styles.editSetInput,
+                                    styles.editRepsInput,
+                                    styles.setRepsCol,
+                                  ]}
                                   value={editSet.repsText}
-                                  onChangeText={(value) =>
+                                  onChangeText={value =>
                                     updateEditableSet(set.id, {
                                       repsText: value.replace(/[^0-9]/g, ''),
                                     })
@@ -745,37 +830,58 @@ export function WorkoutDetailModal({
                               </>
                             ) : (
                               <>
-                                <View style={[styles.valueWithPrCol, styles.setWeightCol]}>
+                                <View
+                                  style={[
+                                    styles.valueWithPrCol,
+                                    styles.setWeightCol,
+                                  ]}
+                                >
                                   <Text style={styles.setValue}>
-                                    {formatSetWeight(set.weightKg, displayUnit ?? set.weightUnit)}
+                                    {formatSetWeight(
+                                      set.weightKg,
+                                      displayUnit ?? set.weightUnit,
+                                    )}
                                   </Text>
                                   {set.isWeightPr ? (
-                                    <InlineWeightPrPill current={set.isCurrentWeightPr} />
+                                    <InlineWeightPrPill
+                                      current={set.isCurrentWeightPr}
+                                    />
                                   ) : null}
                                 </View>
-                                <Text style={[styles.setValue, styles.setRepsCol]}>{set.reps}</Text>
+                                <Text
+                                  style={[styles.setValue, styles.setRepsCol]}
+                                >
+                                  {set.reps}
+                                </Text>
                               </>
                             )}
-                            <Text style={[styles.setVolume, styles.setVolumeCol]}>
+                            <Text
+                              style={[styles.setVolume, styles.setVolumeCol]}
+                            >
                               {Math.round(
                                 editing && editSet
-                                  ? (editSet.weightKg ?? weightInputToKg(editSet.weightText, editSet.weightUnit) ?? set.weightKg) *
-                                    (Number(editSet.repsText) || set.reps)
+                                  ? (editSet.weightKg ??
+                                      weightInputToKg(
+                                        editSet.weightText,
+                                        editSet.weightUnit,
+                                      ) ??
+                                      set.weightKg) *
+                                      (Number(editSet.repsText) || set.reps)
                                   : set.volume,
-                              )} kg
+                              )}{' '}
+                              kg
                             </Text>
                           </View>
-                        )
+                        );
                       })}
                     </View>
                   )}
                 </View>
-              )
+              );
             })}
-            </KeyboardAwareScrollView>
-          )}
-        </View>
-      </KeyboardProvider>
+          </KeyboardAwareScrollView>
+        )}
+      </View>
       <ThemedDialog
         visible={showDeleteDialog}
         title="Delete Workout"
@@ -790,31 +896,23 @@ export function WorkoutDetailModal({
         ]}
       />
     </Modal>
-  )
+  );
 }
 
 function InlineWeightPrPill({ current }: { current: boolean }) {
-  const { styles } = useStyles(stylesheet)
+  const { styles } = useStyles(stylesheet);
   return (
-    <View
-      style={[
-        styles.inlinePrPill,
-        current && styles.currentInlinePrPill,
-      ]}
-    >
+    <View style={[styles.inlinePrPill, current && styles.currentInlinePrPill]}>
       <Text
-        style={[
-          styles.inlinePrText,
-          current && styles.currentInlinePrText,
-        ]}
+        style={[styles.inlinePrText, current && styles.currentInlinePrText]}
       >
         {current ? 'Current PR' : 'PR'}
       </Text>
     </View>
-  )
+  );
 }
 
-const stylesheet = createStyleSheet((theme) => ({
+const stylesheet = createStyleSheet(theme => ({
   workoutCard: {
     backgroundColor: theme.colors.surface,
     borderRadius: theme.radius.md,
@@ -1296,4 +1394,4 @@ const stylesheet = createStyleSheet((theme) => ({
   currentInlinePrText: {
     color: PR_GOLD,
   },
-}))
+}));

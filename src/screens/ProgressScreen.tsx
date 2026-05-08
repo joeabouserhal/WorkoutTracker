@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from 'react'
+import React, { useCallback, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -9,8 +9,8 @@ import {
   TextInput,
   TouchableOpacity,
   View,
-} from 'react-native'
-import { useFocusEffect } from '@react-navigation/native'
+} from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 import {
   Canvas,
   Circle,
@@ -21,129 +21,136 @@ import {
   Rect,
   Skia,
   vec,
-} from '@shopify/react-native-skia'
-import { createStyleSheet, useStyles } from 'react-native-unistyles'
-import ThemedDialog from '@/components/ui/ThemedDialog'
-import ScreenHeader, { useHeaderFade } from '@/components/ui/ScreenHeader'
-import { getBodyWeightLogs, logBodyWeight, type WeightLog } from '@/db/bodyWeightHelpers'
-import { getProfile } from '@/db/profileHelpers'
+} from '@shopify/react-native-skia';
+import { createStyleSheet, useStyles } from 'react-native-unistyles';
+import ThemedDialog from '@/components/ui/ThemedDialog';
+import ScreenHeader, { useHeaderFade } from '@/components/ui/ScreenHeader';
+import {
+  getBodyWeightLogs,
+  logBodyWeight,
+  type WeightLog,
+} from '@/db/bodyWeightHelpers';
+import { getProfile } from '@/db/profileHelpers';
 import {
   getProgressOverview,
   type ProgressExerciseSummary,
   type ProgressPoint,
-} from '@/db/progressHelpers'
+} from '@/db/progressHelpers';
 
-const CHART_HEIGHT = 148
-const PAD = { top: 14, right: 16, bottom: 38, left: 52 }
-const LB_PER_KG = 2.20462
-const EXERCISE_SELECTOR_HEIGHT = 64
-const METHOD_SELECTOR_HEIGHT = 44
+const CHART_HEIGHT = 148;
+const PAD = { top: 14, right: 16, bottom: 38, left: 52 };
+const LB_PER_KG = 2.20462;
+const EXERCISE_SELECTOR_HEIGHT = 64;
+const METHOD_SELECTOR_HEIGHT = 44;
 
-type WeightUnit = 'kg' | 'lb'
+type WeightUnit = 'kg' | 'lb';
 
 function formatShortDate(ts: number): string {
-  const d = new Date(ts)
-  return `${d.getMonth() + 1}/${d.getDate()}`
+  const d = new Date(ts);
+  return `${d.getMonth() + 1}/${d.getDate()}`;
 }
 
 function normalizeWeightUnit(unit?: string | null): WeightUnit {
-  return unit === 'lb' ? 'lb' : 'kg'
+  return unit === 'lb' ? 'lb' : 'kg';
 }
 
 function convertKg(weightKg: number, unit: WeightUnit): number {
-  return unit === 'lb' ? weightKg * LB_PER_KG : weightKg
+  return unit === 'lb' ? weightKg * LB_PER_KG : weightKg;
 }
 
 function formatWeightValue(weightKg: number, unit: WeightUnit): string {
-  const value = convertKg(weightKg, unit)
-  return value >= 100 ? value.toFixed(0) : value.toFixed(1)
+  const value = convertKg(weightKg, unit);
+  return value >= 100 ? value.toFixed(0) : value.toFixed(1);
 }
 
 function formatWeight(weightKg: number, unit: WeightUnit): string {
-  return `${formatWeightValue(weightKg, unit)} ${unit}`
+  return `${formatWeightValue(weightKg, unit)} ${unit}`;
 }
 
 function formatSignedWeight(weightKg: number, unit: WeightUnit): string {
-  const value = convertKg(weightKg, unit)
-  const sign = value > 0 ? '+' : ''
-  return `${sign}${value.toFixed(1)} ${unit}`
+  const value = convertKg(weightKg, unit);
+  const sign = value > 0 ? '+' : '';
+  return `${sign}${value.toFixed(1)} ${unit}`;
 }
 
 function formatDateLabel(ts: number): string {
   return new Date(ts).toLocaleDateString(undefined, {
     month: 'short',
     day: 'numeric',
-  })
+  });
 }
 
-const emptySheet = createStyleSheet(() => ({}))
+const emptySheet = createStyleSheet(() => ({}));
 
 interface WeightChartProps {
-  logs: WeightLog[]
-  displayUnit: 'kg' | 'lb'
+  logs: WeightLog[];
+  displayUnit: 'kg' | 'lb';
 }
 
 function WeightChart({ logs, displayUnit }: WeightChartProps) {
-  const { theme } = useStyles(emptySheet)
-  const [containerWidth, setContainerWidth] = useState(0)
+  const { theme } = useStyles(emptySheet);
+  const [containerWidth, setContainerWidth] = useState(0);
 
   const chartData = useMemo(() => {
-    if (containerWidth === 0 || logs.length < 2) return null
+    if (containerWidth === 0 || logs.length < 2) return null;
 
-    const plotW = containerWidth - PAD.left - PAD.right
-    const plotH = CHART_HEIGHT - PAD.top - PAD.bottom
-    const bottomY = PAD.top + plotH
+    const plotW = containerWidth - PAD.left - PAD.right;
+    const plotH = CHART_HEIGHT - PAD.top - PAD.bottom;
+    const bottomY = PAD.top + plotH;
 
     const displayWeights = logs.map(l =>
       displayUnit === 'lb' ? l.weight * 2.20462 : l.weight,
-    )
+    );
 
-    const minW = Math.min(...displayWeights) - 1
-    const maxW = Math.max(...displayWeights) + 1
-    const range = maxW - minW
+    const minW = Math.min(...displayWeights) - 1;
+    const maxW = Math.max(...displayWeights) + 1;
+    const range = maxW - minW;
 
-    const toX = (i: number) => PAD.left + (i / (logs.length - 1)) * plotW
-    const toY = (w: number) => PAD.top + (1 - (w - minW) / range) * plotH
+    const toX = (i: number) => PAD.left + (i / (logs.length - 1)) * plotW;
+    const toY = (w: number) => PAD.top + (1 - (w - minW) / range) * plotH;
 
-    const linePath = Skia.Path.Make()
-    const fillPath = Skia.Path.Make()
+    const linePath = Skia.Path.Make();
+    const fillPath = Skia.Path.Make();
 
     displayWeights.forEach((w, i) => {
-      const x = toX(i)
-      const y = toY(w)
+      const x = toX(i);
+      const y = toY(w);
       if (i === 0) {
-        linePath.moveTo(x, y)
-        fillPath.moveTo(x, y)
+        linePath.moveTo(x, y);
+        fillPath.moveTo(x, y);
       } else {
-        linePath.lineTo(x, y)
-        fillPath.lineTo(x, y)
+        linePath.lineTo(x, y);
+        fillPath.lineTo(x, y);
       }
-    })
-    fillPath.lineTo(toX(logs.length - 1), bottomY)
-    fillPath.lineTo(toX(0), bottomY)
-    fillPath.close()
+    });
+    fillPath.lineTo(toX(logs.length - 1), bottomY);
+    fillPath.lineTo(toX(0), bottomY);
+    fillPath.close();
 
-    const dots = displayWeights.map((w, i) => ({ cx: toX(i), cy: toY(w) }))
+    const dots = displayWeights.map((w, i) => ({ cx: toX(i), cy: toY(w) }));
 
-    const yTickCount = 4
+    const yTickCount = 4;
     const yTicks = Array.from({ length: yTickCount }, (_, i) => ({
       label: (minW + (range * i) / (yTickCount - 1)).toFixed(1),
       y: toY(minW + (range * i) / (yTickCount - 1)),
-    }))
+    }));
 
-    const maxXTicks = 5
-    const step = Math.max(1, Math.ceil(logs.length / maxXTicks))
+    const maxXTicks = 5;
+    const step = Math.max(1, Math.ceil(logs.length / maxXTicks));
     const xTicks = logs
       .map((log, i) => ({ log, i }))
       .filter(({ i }) => i % step === 0 || i === logs.length - 1)
-      .map(({ log, i }) => ({ label: formatShortDate(log.loggedAt), x: toX(i) }))
+      .map(({ log, i }) => ({
+        label: formatShortDate(log.loggedAt),
+        x: toX(i),
+      }));
 
-    return { linePath, fillPath, dots, yTicks, xTicks, bottomY, plotW }
-  }, [containerWidth, logs, displayUnit])
+    return { linePath, fillPath, dots, yTicks, xTicks, bottomY, plotW };
+  }, [containerWidth, logs, displayUnit]);
 
-  const accentColor = theme.colors.accent
-  const gridColor = theme.colors.border
-  const bgColor = theme.colors.bg
+  const accentColor = theme.colors.accent;
+  const gridColor = theme.colors.border;
+  const bgColor = theme.colors.bg;
 
   return (
     <View
@@ -230,20 +237,24 @@ function WeightChart({ logs, displayUnit }: WeightChartProps) {
         </RNText>
       ))}
     </View>
-  )
+  );
 }
 
 interface HorizontalFadeEdgesProps {
-  height: number
-  showLeft: boolean
-  showRight: boolean
+  height: number;
+  showLeft: boolean;
+  showRight: boolean;
 }
 
-function HorizontalFadeEdges({ height, showLeft, showRight }: HorizontalFadeEdgesProps) {
-  const { theme } = useStyles(emptySheet)
-  const fadeWidth = 24
+function HorizontalFadeEdges({
+  height,
+  showLeft,
+  showRight,
+}: HorizontalFadeEdgesProps) {
+  const { theme } = useStyles(emptySheet);
+  const fadeWidth = 24;
 
-  if (!showLeft && !showRight) return null
+  if (!showLeft && !showRight) return null;
 
   return (
     <View pointerEvents="none" style={stylesForFadeEdges.overlay}>
@@ -259,7 +270,9 @@ function HorizontalFadeEdges({ height, showLeft, showRight }: HorizontalFadeEdge
         </Canvas>
       )}
       {showRight && (
-        <Canvas style={[stylesForFadeEdges.right, { width: fadeWidth, height }]}>
+        <Canvas
+          style={[stylesForFadeEdges.right, { width: fadeWidth, height }]}
+        >
           <Rect x={0} y={0} width={fadeWidth} height={height}>
             <LinearGradient
               start={vec(0, 0)}
@@ -270,7 +283,7 @@ function HorizontalFadeEdges({ height, showLeft, showRight }: HorizontalFadeEdge
         </Canvas>
       )}
     </View>
-  )
+  );
 }
 
 const stylesForFadeEdges = {
@@ -291,87 +304,97 @@ const stylesForFadeEdges = {
     top: 0,
     right: 0,
   },
-}
+};
 
 type HorizontalScrollMetrics = {
-  x: number
-  contentWidth: number
-  layoutWidth: number
-}
+  x: number;
+  contentWidth: number;
+  layoutWidth: number;
+};
 
 function getHorizontalFadeState(metrics: HorizontalScrollMetrics) {
-  const maxScroll = Math.max(0, metrics.contentWidth - metrics.layoutWidth)
-  const hasScrolled = metrics.x > 1
+  const maxScroll = Math.max(0, metrics.contentWidth - metrics.layoutWidth);
+  const hasScrolled = metrics.x > 1;
 
   return {
     showLeft: hasScrolled,
     showRight: hasScrolled && metrics.x < maxScroll - 1,
-  }
+  };
 }
 
-function getLayoutWidth(event: { nativeEvent?: { layout?: { width?: number } | null } } | null) {
-  return event?.nativeEvent?.layout?.width ?? 0
+function getLayoutWidth(
+  event: { nativeEvent?: { layout?: { width?: number } | null } } | null,
+) {
+  return event?.nativeEvent?.layout?.width ?? 0;
 }
 
 interface ExerciseProgressChartProps {
-  points: ProgressPoint[]
-  displayUnit: WeightUnit
+  points: ProgressPoint[];
+  displayUnit: WeightUnit;
 }
 
-function ExerciseProgressChart({ points, displayUnit }: ExerciseProgressChartProps) {
-  const { theme } = useStyles(emptySheet)
-  const [containerWidth, setContainerWidth] = useState(0)
+function ExerciseProgressChart({
+  points,
+  displayUnit,
+}: ExerciseProgressChartProps) {
+  const { theme } = useStyles(emptySheet);
+  const [containerWidth, setContainerWidth] = useState(0);
 
   const chartData = useMemo(() => {
-    if (containerWidth === 0 || points.length < 2) return null
+    if (containerWidth === 0 || points.length < 2) return null;
 
-    const plotW = containerWidth - PAD.left - PAD.right
-    const plotH = CHART_HEIGHT - PAD.top - PAD.bottom
-    const bottomY = PAD.top + plotH
-    const displayWeights = points.map(point => convertKg(point.weightKg, displayUnit))
-    const minW = Math.min(...displayWeights) - 1
-    const maxW = Math.max(...displayWeights) + 1
-    const range = maxW - minW || 1
-    const toX = (i: number) => PAD.left + (i / (points.length - 1)) * plotW
-    const toY = (w: number) => PAD.top + (1 - (w - minW) / range) * plotH
+    const plotW = containerWidth - PAD.left - PAD.right;
+    const plotH = CHART_HEIGHT - PAD.top - PAD.bottom;
+    const bottomY = PAD.top + plotH;
+    const displayWeights = points.map(point =>
+      convertKg(point.weightKg, displayUnit),
+    );
+    const minW = Math.min(...displayWeights) - 1;
+    const maxW = Math.max(...displayWeights) + 1;
+    const range = maxW - minW || 1;
+    const toX = (i: number) => PAD.left + (i / (points.length - 1)) * plotW;
+    const toY = (w: number) => PAD.top + (1 - (w - minW) / range) * plotH;
 
-    const linePath = Skia.Path.Make()
-    const fillPath = Skia.Path.Make()
+    const linePath = Skia.Path.Make();
+    const fillPath = Skia.Path.Make();
 
     displayWeights.forEach((w, i) => {
-      const x = toX(i)
-      const y = toY(w)
+      const x = toX(i);
+      const y = toY(w);
       if (i === 0) {
-        linePath.moveTo(x, y)
-        fillPath.moveTo(x, y)
+        linePath.moveTo(x, y);
+        fillPath.moveTo(x, y);
       } else {
-        linePath.lineTo(x, y)
-        fillPath.lineTo(x, y)
+        linePath.lineTo(x, y);
+        fillPath.lineTo(x, y);
       }
-    })
-    fillPath.lineTo(toX(points.length - 1), bottomY)
-    fillPath.lineTo(toX(0), bottomY)
-    fillPath.close()
+    });
+    fillPath.lineTo(toX(points.length - 1), bottomY);
+    fillPath.lineTo(toX(0), bottomY);
+    fillPath.close();
 
-    const dots = displayWeights.map((w, i) => ({ cx: toX(i), cy: toY(w) }))
-    const yTickCount = 4
+    const dots = displayWeights.map((w, i) => ({ cx: toX(i), cy: toY(w) }));
+    const yTickCount = 4;
     const yTicks = Array.from({ length: yTickCount }, (_, i) => ({
       label: (minW + (range * i) / (yTickCount - 1)).toFixed(1),
       y: toY(minW + (range * i) / (yTickCount - 1)),
-    }))
-    const maxXTicks = 5
-    const step = Math.max(1, Math.ceil(points.length / maxXTicks))
+    }));
+    const maxXTicks = 5;
+    const step = Math.max(1, Math.ceil(points.length / maxXTicks));
     const xTicks = points
       .map((point, i) => ({ point, i }))
       .filter(({ i }) => i % step === 0 || i === points.length - 1)
-      .map(({ point, i }) => ({ label: formatShortDate(point.timestamp), x: toX(i) }))
+      .map(({ point, i }) => ({
+        label: formatShortDate(point.timestamp),
+        x: toX(i),
+      }));
 
-    return { linePath, fillPath, dots, yTicks, xTicks, bottomY, plotW }
-  }, [containerWidth, points, displayUnit])
+    return { linePath, fillPath, dots, yTicks, xTicks, bottomY, plotW };
+  }, [containerWidth, points, displayUnit]);
 
-  const accentColor = theme.colors.accent
-  const gridColor = theme.colors.border
-  const bgColor = theme.colors.surface
+  const accentColor = theme.colors.accent;
+  const gridColor = theme.colors.border;
+  const bgColor = theme.colors.surface;
 
   return (
     <View
@@ -458,38 +481,46 @@ function ExerciseProgressChart({ points, displayUnit }: ExerciseProgressChartPro
         </RNText>
       ))}
     </View>
-  )
+  );
 }
 
 export default function ProgressScreen() {
-  const { styles, theme } = useStyles(stylesheet)
-  const { showHeaderFade, handleHeaderScroll } = useHeaderFade()
-  const [logs, setLogs] = useState<WeightLog[]>([])
-  const [weightUnit, setWeightUnit] = useState<'kg' | 'lb'>('kg')
-  const [progressExercises, setProgressExercises] = useState<ProgressExerciseSummary[]>([])
-  const [selectedProgressExerciseId, setSelectedProgressExerciseId] = useState<string | null>(null)
-  const [selectedProgressMethodId, setSelectedProgressMethodId] = useState<string | null>(null)
-  const [exerciseSelectorMetrics, setExerciseSelectorMetrics] = useState<HorizontalScrollMetrics>({
-    x: 0,
-    contentWidth: 0,
-    layoutWidth: 0,
-  })
-  const [methodSelectorMetrics, setMethodSelectorMetrics] = useState<HorizontalScrollMetrics>({
-    x: 0,
-    contentWidth: 0,
-    layoutWidth: 0,
-  })
-  const [loading, setLoading] = useState(true)
-  const [showModal, setShowModal] = useState(false)
-  const [showOneRmInfo, setShowOneRmInfo] = useState(false)
-  const [inputWeight, setInputWeight] = useState('')
-  const [saving, setSaving] = useState(false)
+  const { styles, theme } = useStyles(stylesheet);
+  const { showHeaderFade, handleHeaderScroll } = useHeaderFade();
+  const [logs, setLogs] = useState<WeightLog[]>([]);
+  const [weightUnit, setWeightUnit] = useState<'kg' | 'lb'>('kg');
+  const [progressExercises, setProgressExercises] = useState<
+    ProgressExerciseSummary[]
+  >([]);
+  const [selectedProgressExerciseId, setSelectedProgressExerciseId] = useState<
+    string | null
+  >(null);
+  const [selectedProgressMethodId, setSelectedProgressMethodId] = useState<
+    string | null
+  >(null);
+  const [exerciseSelectorMetrics, setExerciseSelectorMetrics] =
+    useState<HorizontalScrollMetrics>({
+      x: 0,
+      contentWidth: 0,
+      layoutWidth: 0,
+    });
+  const [methodSelectorMetrics, setMethodSelectorMetrics] =
+    useState<HorizontalScrollMetrics>({
+      x: 0,
+      contentWidth: 0,
+      layoutWidth: 0,
+    });
+  const [loading, setLoading] = useState(true);
+  const [showModal, setShowModal] = useState(false);
+  const [showOneRmInfo, setShowOneRmInfo] = useState(false);
+  const [inputWeight, setInputWeight] = useState('');
+  const [saving, setSaving] = useState(false);
 
   useFocusEffect(
     useCallback(() => {
-      loadData()
+      loadData();
     }, []),
-  )
+  );
 
   async function loadData() {
     try {
@@ -497,106 +528,111 @@ export default function ProgressScreen() {
         getProfile(),
         getBodyWeightLogs(),
         getProgressOverview(),
-      ])
-      setWeightUnit((profile?.defaultWeightUnit as 'kg' | 'lb') ?? 'kg')
-      setLogs(weightLogs)
-      setProgressExercises(progressOverview.exercises)
+      ]);
+      setWeightUnit((profile?.defaultWeightUnit as 'kg' | 'lb') ?? 'kg');
+      setLogs(weightLogs);
+      setProgressExercises(progressOverview.exercises);
       setSelectedProgressExerciseId(current =>
-        progressOverview.exercises.some(exercise => exercise.exerciseTypeId === current)
+        progressOverview.exercises.some(
+          exercise => exercise.exerciseTypeId === current,
+        )
           ? current
           : progressOverview.exercises[0]?.exerciseTypeId ?? null,
-      )
+      );
     } catch (e) {
-      console.error('Failed to load weight data', e)
+      console.error('Failed to load weight data', e);
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
   }
 
   async function handleLogWeight() {
-    const val = parseFloat(inputWeight)
+    const val = parseFloat(inputWeight);
     if (isNaN(val) || val <= 0) {
-      Alert.alert('Invalid Weight', 'Please enter a valid positive number.')
-      return
+      Alert.alert('Invalid Weight', 'Please enter a valid positive number.');
+      return;
     }
-    setSaving(true)
+    setSaving(true);
     try {
-      const weightKg = weightUnit === 'lb' ? val / 2.20462 : val
-      await logBodyWeight(weightKg)
-      setInputWeight('')
-      setShowModal(false)
-      await loadData()
+      const weightKg = weightUnit === 'lb' ? val / 2.20462 : val;
+      await logBodyWeight(weightKg);
+      setInputWeight('');
+      setShowModal(false);
+      await loadData();
     } catch (e) {
-      Alert.alert('Error', 'Failed to log weight.')
-      console.error(e)
+      Alert.alert('Error', 'Failed to log weight.');
+      console.error(e);
     } finally {
-      setSaving(false)
+      setSaving(false);
     }
   }
 
   function openModal() {
-    const latestLog = logs[logs.length - 1]
+    const latestLog = logs[logs.length - 1];
     if (latestLog) {
       const displayVal =
         weightUnit === 'lb'
           ? (latestLog.weight * 2.20462).toFixed(1)
-          : latestLog.weight.toFixed(1)
-      setInputWeight(displayVal)
+          : latestLog.weight.toFixed(1);
+      setInputWeight(displayVal);
     }
-    setShowModal(true)
+    setShowModal(true);
   }
 
-  const latestLog = logs[logs.length - 1]
+  const latestLog = logs[logs.length - 1];
   const currentWeight = latestLog
     ? weightUnit === 'lb'
       ? (latestLog.weight * 2.20462).toFixed(1)
       : latestLog.weight.toFixed(1)
-    : null
+    : null;
 
   const selectedProgressExercise = useMemo(
     () =>
-      progressExercises.find(exercise => exercise.exerciseTypeId === selectedProgressExerciseId) ??
+      progressExercises.find(
+        exercise => exercise.exerciseTypeId === selectedProgressExerciseId,
+      ) ??
       progressExercises[0] ??
       null,
     [progressExercises, selectedProgressExerciseId],
-  )
+  );
   const selectedProgressMethod = useMemo(
     () =>
-      selectedProgressExercise?.methods.find(method => method.methodId === selectedProgressMethodId) ??
+      selectedProgressExercise?.methods.find(
+        method => method.methodId === selectedProgressMethodId,
+      ) ??
       selectedProgressExercise?.methods[0] ??
       null,
     [selectedProgressExercise, selectedProgressMethodId],
-  )
+  );
   const selectedExerciseRank = selectedProgressExercise
     ? progressExercises.findIndex(
-        exercise => exercise.exerciseTypeId === selectedProgressExercise.exerciseTypeId,
+        exercise =>
+          exercise.exerciseTypeId === selectedProgressExercise.exerciseTypeId,
       ) + 1
-    : 0
-  const exerciseFadeState = getHorizontalFadeState(exerciseSelectorMetrics)
-  const methodFadeState = getHorizontalFadeState(methodSelectorMetrics)
+    : 0;
+  const exerciseFadeState = getHorizontalFadeState(exerciseSelectorMetrics);
+  const methodFadeState = getHorizontalFadeState(methodSelectorMetrics);
   const progressDisplayUnit = selectedProgressMethod
     ? normalizeWeightUnit(selectedProgressMethod.latestUnit)
-    : weightUnit
+    : weightUnit;
 
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator color={theme.colors.accent} />
       </View>
-    )
+    );
   }
 
   return (
     <View style={styles.container}>
       <ScreenHeader title="Progress" showFade={showHeaderFade} />
-
       <ScrollView
         style={styles.scroll}
         contentContainerStyle={styles.content}
         onScroll={handleHeaderScroll}
         scrollEventThrottle={16}
       >
-
         <RNText style={styles.sectionLabel}>BODY WEIGHT</RNText>
 
         {currentWeight && (
@@ -628,9 +664,12 @@ export default function ProgressScreen() {
 
         {progressExercises.length === 0 ? (
           <View style={styles.emptyStrengthCard}>
-            <RNText style={styles.emptyStrengthTitle}>No strength history yet</RNText>
+            <RNText style={styles.emptyStrengthTitle}>
+              No strength history yet
+            </RNText>
             <RNText style={styles.emptyStrengthText}>
-              Finish workouts with weighted sets to see PR history, estimated 1RM, and weight trends.
+              Finish workouts with weighted sets to see PR history, estimated
+              1RM, and weight trends.
             </RNText>
           </View>
         ) : (
@@ -641,27 +680,31 @@ export default function ProgressScreen() {
                 showsHorizontalScrollIndicator={false}
                 contentContainerStyle={styles.exerciseSelector}
                 scrollEventThrottle={16}
-                onContentSizeChange={(contentWidth) =>
-                  setExerciseSelectorMetrics(metrics => ({ ...metrics, contentWidth }))
+                onContentSizeChange={contentWidth =>
+                  setExerciseSelectorMetrics(metrics => ({
+                    ...metrics,
+                    contentWidth,
+                  }))
                 }
-                onLayout={(event) => {
-                  const layoutWidth = getLayoutWidth(event)
+                onLayout={event => {
+                  const layoutWidth = getLayoutWidth(event);
                   setExerciseSelectorMetrics(metrics => ({
                     ...metrics,
                     layoutWidth,
-                  }))
+                  }));
                 }}
-                onScroll={(event) => {
-                  const x = event.nativeEvent.contentOffset.x
+                onScroll={event => {
+                  const x = event.nativeEvent.contentOffset.x;
                   setExerciseSelectorMetrics(metrics => ({
                     ...metrics,
                     x,
-                  }))
+                  }));
                 }}
               >
                 {progressExercises.map((exercise, index) => {
                   const selected =
-                    selectedProgressExercise?.exerciseTypeId === exercise.exerciseTypeId
+                    selectedProgressExercise?.exerciseTypeId ===
+                    exercise.exerciseTypeId;
                   return (
                     <TouchableOpacity
                       key={exercise.exerciseTypeId}
@@ -670,9 +713,14 @@ export default function ProgressScreen() {
                         selected && styles.exerciseChipSelected,
                       ]}
                       onPress={() => {
-                        setSelectedProgressExerciseId(exercise.exerciseTypeId)
-                        setSelectedProgressMethodId(exercise.methods[0]?.methodId ?? null)
-                        setMethodSelectorMetrics(metrics => ({ ...metrics, x: 0 }))
+                        setSelectedProgressExerciseId(exercise.exerciseTypeId);
+                        setSelectedProgressMethodId(
+                          exercise.methods[0]?.methodId ?? null,
+                        );
+                        setMethodSelectorMetrics(metrics => ({
+                          ...metrics,
+                          x: 0,
+                        }));
                       }}
                       activeOpacity={0.85}
                     >
@@ -694,10 +742,11 @@ export default function ProgressScreen() {
                         {exercise.exerciseName}
                       </RNText>
                       <RNText style={styles.exerciseChipMeta}>
-                        {exercise.workoutCount} workouts - {exercise.methodCount} methods
+                        {exercise.workoutCount} workouts -{' '}
+                        {exercise.methodCount} methods
                       </RNText>
                     </TouchableOpacity>
-                  )
+                  );
                 })}
               </ScrollView>
               <HorizontalFadeEdges
@@ -715,26 +764,30 @@ export default function ProgressScreen() {
                   showsHorizontalScrollIndicator={false}
                   contentContainerStyle={styles.methodSelector}
                   scrollEventThrottle={16}
-                  onContentSizeChange={(contentWidth) =>
-                    setMethodSelectorMetrics(metrics => ({ ...metrics, contentWidth }))
+                  onContentSizeChange={contentWidth =>
+                    setMethodSelectorMetrics(metrics => ({
+                      ...metrics,
+                      contentWidth,
+                    }))
                   }
-                  onLayout={(event) => {
-                    const layoutWidth = getLayoutWidth(event)
+                  onLayout={event => {
+                    const layoutWidth = getLayoutWidth(event);
                     setMethodSelectorMetrics(metrics => ({
                       ...metrics,
                       layoutWidth,
-                    }))
+                    }));
                   }}
-                  onScroll={(event) => {
-                    const x = event.nativeEvent.contentOffset.x
+                  onScroll={event => {
+                    const x = event.nativeEvent.contentOffset.x;
                     setMethodSelectorMetrics(metrics => ({
                       ...metrics,
                       x,
-                    }))
+                    }));
                   }}
                 >
-                  {selectedProgressExercise.methods.map((method) => {
-                    const selected = selectedProgressMethod?.methodId === method.methodId
+                  {selectedProgressExercise.methods.map(method => {
+                    const selected =
+                      selectedProgressMethod?.methodId === method.methodId;
                     return (
                       <TouchableOpacity
                         key={method.methodId}
@@ -742,7 +795,9 @@ export default function ProgressScreen() {
                           styles.methodChip,
                           selected && styles.methodChipSelected,
                         ]}
-                        onPress={() => setSelectedProgressMethodId(method.methodId)}
+                        onPress={() =>
+                          setSelectedProgressMethodId(method.methodId)
+                        }
                         activeOpacity={0.85}
                       >
                         <RNText
@@ -754,9 +809,11 @@ export default function ProgressScreen() {
                         >
                           {method.methodName}
                         </RNText>
-                        <RNText style={styles.methodChipMeta}>{method.setCount} sets</RNText>
+                        <RNText style={styles.methodChipMeta}>
+                          {method.setCount} sets
+                        </RNText>
                       </TouchableOpacity>
-                    )
+                    );
                   })}
                 </ScrollView>
                 <HorizontalFadeEdges
@@ -775,12 +832,15 @@ export default function ProgressScreen() {
                       {selectedProgressExercise.exerciseName}
                     </RNText>
                     <RNText style={styles.progressSubtitle}>
-                      {selectedProgressMethod.methodName} - {selectedProgressMethod.setCount} sets -{' '}
+                      {selectedProgressMethod.methodName} -{' '}
+                      {selectedProgressMethod.setCount} sets -{' '}
                       {selectedProgressMethod.workoutCount} workouts
                     </RNText>
                   </View>
                   <View style={styles.rankPill}>
-                    <RNText style={styles.rankPillText}>#{selectedExerciseRank}</RNText>
+                    <RNText style={styles.rankPillText}>
+                      #{selectedExerciseRank}
+                    </RNText>
                   </View>
                 </View>
 
@@ -788,7 +848,10 @@ export default function ProgressScreen() {
                   <View style={styles.progressStat}>
                     <RNText style={styles.progressStatLabel}>Current PR</RNText>
                     <RNText style={styles.progressStatValue}>
-                      {formatWeight(selectedProgressMethod.currentPrKg, progressDisplayUnit)}
+                      {formatWeight(
+                        selectedProgressMethod.currentPrKg,
+                        progressDisplayUnit,
+                      )}
                     </RNText>
                     <RNText style={styles.progressStatNote}>
                       {selectedProgressMethod.currentPrReps} reps
@@ -806,16 +869,24 @@ export default function ProgressScreen() {
                       </TouchableOpacity>
                     </View>
                     <RNText style={styles.progressStatValue}>
-                      {formatWeight(selectedProgressMethod.estimatedOneRmKg, progressDisplayUnit)}
+                      {formatWeight(
+                        selectedProgressMethod.estimatedOneRmKg,
+                        progressDisplayUnit,
+                      )}
                     </RNText>
                     <RNText style={styles.progressStatNote}>
                       from {selectedProgressMethod.estimatedOneRmReps} reps
                     </RNText>
                   </View>
                   <View style={styles.progressStat}>
-                    <RNText style={styles.progressStatLabel}>Progression</RNText>
+                    <RNText style={styles.progressStatLabel}>
+                      Progression
+                    </RNText>
                     <RNText style={styles.progressStatValue}>
-                      {formatSignedWeight(selectedProgressMethod.weightDeltaKg, progressDisplayUnit)}
+                      {formatSignedWeight(
+                        selectedProgressMethod.weightDeltaKg,
+                        progressDisplayUnit,
+                      )}
                     </RNText>
                     <RNText style={styles.progressStatNote}>
                       since {formatDateLabel(selectedProgressMethod.firstSetAt)}
@@ -825,8 +896,12 @@ export default function ProgressScreen() {
 
                 <View style={styles.trendCard}>
                   <View style={styles.trendHeader}>
-                    <RNText style={styles.trendTitle}>Best weight over time</RNText>
-                    <RNText style={styles.trendUnit}>{progressDisplayUnit}</RNText>
+                    <RNText style={styles.trendTitle}>
+                      Best weight over time
+                    </RNText>
+                    <RNText style={styles.trendUnit}>
+                      {progressDisplayUnit}
+                    </RNText>
                   </View>
                   {selectedProgressMethod.trend.length >= 2 ? (
                     <ExerciseProgressChart
@@ -836,7 +911,8 @@ export default function ProgressScreen() {
                   ) : (
                     <View style={styles.emptyTrend}>
                       <RNText style={styles.emptyChartText}>
-                        Finish this exercise in another workout to start the trend line.
+                        Finish this exercise in another workout to start the
+                        trend line.
                       </RNText>
                     </View>
                   )}
@@ -844,28 +920,33 @@ export default function ProgressScreen() {
 
                 <View style={styles.prHistoryHeader}>
                   <RNText style={styles.prHistoryTitle}>PR history</RNText>
-                  <RNText style={styles.prHistoryHint}>weight milestones</RNText>
+                  <RNText style={styles.prHistoryHint}>
+                    weight milestones
+                  </RNText>
                 </View>
                 <View style={styles.prHistoryList}>
-                  {selectedProgressMethod.prHistory.slice(-4).reverse().map((pr) => (
-                    <View
-                      key={`${pr.timestamp}-${pr.weightKg}-${pr.reps}`}
-                      style={styles.prHistoryRow}
-                    >
-                      <View style={styles.prDot} />
-                      <View style={styles.prHistoryText}>
-                        <RNText style={styles.prHistoryValue}>
-                          {formatWeight(pr.weightKg, progressDisplayUnit)}
-                        </RNText>
-                        <RNText style={styles.prHistoryMeta}>
-                          {pr.reps} reps - {pr.methodName}
+                  {selectedProgressMethod.prHistory
+                    .slice(-4)
+                    .reverse()
+                    .map(pr => (
+                      <View
+                        key={`${pr.timestamp}-${pr.weightKg}-${pr.reps}`}
+                        style={styles.prHistoryRow}
+                      >
+                        <View style={styles.prDot} />
+                        <View style={styles.prHistoryText}>
+                          <RNText style={styles.prHistoryValue}>
+                            {formatWeight(pr.weightKg, progressDisplayUnit)}
+                          </RNText>
+                          <RNText style={styles.prHistoryMeta}>
+                            {pr.reps} reps - {pr.methodName}
+                          </RNText>
+                        </View>
+                        <RNText style={styles.prHistoryDate}>
+                          {formatDateLabel(pr.timestamp)}
                         </RNText>
                       </View>
-                      <RNText style={styles.prHistoryDate}>
-                        {formatDateLabel(pr.timestamp)}
-                      </RNText>
-                    </View>
-                  ))}
+                    ))}
                 </View>
               </View>
             )}
@@ -898,8 +979,8 @@ export default function ProgressScreen() {
               <TouchableOpacity
                 style={styles.cancelModalBtn}
                 onPress={() => {
-                  setShowModal(false)
-                  setInputWeight('')
+                  setShowModal(false);
+                  setInputWeight('');
                 }}
               >
                 <RNText style={styles.cancelModalText}>Cancel</RNText>
@@ -931,10 +1012,10 @@ export default function ProgressScreen() {
         ]}
       />
     </View>
-  )
+  );
 }
 
-const stylesheet = createStyleSheet((theme) => ({
+const stylesheet = createStyleSheet(theme => ({
   container: {
     flex: 1,
     backgroundColor: theme.colors.bg,
@@ -1369,4 +1450,4 @@ const stylesheet = createStyleSheet((theme) => ({
     fontSize: theme.fontSize.sm,
     fontFamily: theme.fontFamily.semiBold,
   },
-}))
+}));

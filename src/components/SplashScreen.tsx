@@ -1,32 +1,26 @@
-import React, { useEffect, useRef, useState } from 'react'
-import {
-  Animated,
-  Easing,
-  StatusBar,
-  StyleSheet,
-  View,
-} from 'react-native'
-import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons'
-import { darkTheme } from '@/theme/themes'
+import React, { useEffect, useRef, useState } from 'react';
+import { Animated, Easing, StyleSheet, View } from 'react-native';
+import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
+import { darkTheme } from '@/theme/themes';
 
-const SPLASH_BACKGROUND = darkTheme.colors.accent
-const LOGO_COLOR = '#FFFFFF'
-const MINIMUM_SPLASH_MS = 650
+const SPLASH_BACKGROUND = darkTheme.colors.accent;
+const LOGO_COLOR = '#FFFFFF';
+const MINIMUM_SPLASH_MS = 650;
 
 type Props = {
-  ready: boolean
-  onFinished: () => void
-}
+  ready: boolean;
+  onFinished: () => void;
+};
 
 export default function SplashScreen({ ready, onFinished }: Props) {
-  const [minimumElapsed, setMinimumElapsed] = useState(false)
-  const logoScale = useRef(new Animated.Value(0.9)).current
-  const logoOpacity = useRef(new Animated.Value(0)).current
-  const overlayOpacity = useRef(new Animated.Value(1)).current
-  const finishedRef = useRef(false)
+  const [minimumElapsed, setMinimumElapsed] = useState(false);
+  const logoScale = useRef(new Animated.Value(0.9)).current;
+  const logoOpacity = useRef(new Animated.Value(0)).current;
+  const overlayOpacity = useRef(new Animated.Value(1)).current;
+  const finishedRef = useRef(false);
 
   useEffect(() => {
-    const timer = setTimeout(() => setMinimumElapsed(true), MINIMUM_SPLASH_MS)
+    const timer = setTimeout(() => setMinimumElapsed(true), MINIMUM_SPLASH_MS);
     Animated.parallel([
       Animated.spring(logoScale, {
         toValue: 1,
@@ -41,15 +35,15 @@ export default function SplashScreen({ ready, onFinished }: Props) {
         easing: Easing.out(Easing.cubic),
         useNativeDriver: true,
       }),
-    ]).start()
+    ]).start();
 
-    return () => clearTimeout(timer)
-  }, [logoOpacity, logoScale])
+    return () => clearTimeout(timer);
+  }, [logoOpacity, logoScale]);
 
   useEffect(() => {
-    if (!ready || !minimumElapsed || finishedRef.current) return
+    if (!ready || !minimumElapsed || finishedRef.current) return;
 
-    finishedRef.current = true
+    finishedRef.current = true;
     Animated.sequence([
       Animated.delay(80),
       Animated.parallel([
@@ -74,16 +68,22 @@ export default function SplashScreen({ ready, onFinished }: Props) {
         }),
       ]),
     ]).start(({ finished }) => {
-      if (finished) onFinished()
-    })
-  }, [logoOpacity, logoScale, minimumElapsed, onFinished, overlayOpacity, ready])
+      if (finished) onFinished();
+    });
+  }, [
+    logoOpacity,
+    logoScale,
+    minimumElapsed,
+    onFinished,
+    overlayOpacity,
+    ready,
+  ]);
 
   return (
     <Animated.View
       pointerEvents="auto"
       style={[styles.container, { opacity: overlayOpacity }]}
     >
-      <StatusBar backgroundColor={SPLASH_BACKGROUND} barStyle="light-content" />
       <View style={styles.center}>
         <Animated.View
           style={[
@@ -102,7 +102,7 @@ export default function SplashScreen({ ready, onFinished }: Props) {
         </Animated.View>
       </View>
     </Animated.View>
-  )
+  );
 }
 
 const styles = StyleSheet.create({
@@ -127,4 +127,4 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-})
+});

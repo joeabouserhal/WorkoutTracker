@@ -5,7 +5,7 @@ import {
   Easing,
   Keyboard,
   Modal,
-  PanResponder,
+  StatusBar,
   type LayoutChangeEvent,
   type NativeScrollEvent,
   type NativeSyntheticEvent,
@@ -22,6 +22,11 @@ import {
   GestureHandlerRootView,
   ScrollView as GestureScrollView,
 } from 'react-native-gesture-handler'
+import {
+  KeyboardAwareScrollView,
+  KeyboardProvider,
+  type KeyboardAwareScrollViewProps,
+} from 'react-native-keyboard-controller'
 import ReanimatedSwipeable from 'react-native-gesture-handler/ReanimatedSwipeable'
 import Reanimated, {
   runOnJS,
@@ -82,7 +87,6 @@ type LocalSet = {
 
 type WorkoutExercisePositions = Record<string, number>
 type WorkoutExerciseHeights = Record<string, number>
-type WorkoutExerciseLayouts = Record<string, { y: number; height: number }>
 
 const LB_PER_KG = 2.20462
 const PR_GOLD = '#D9A441'
@@ -109,6 +113,9 @@ const PR_CONFETTI = Array.from({ length: 22 }, (_, index) => {
     delay: index * 16,
   }
 })
+const KeyboardAwareGestureScrollView = Reanimated.createAnimatedComponent(
+  GestureScrollView,
+) as NonNullable<KeyboardAwareScrollViewProps['ScrollViewComponent']>
 
 function buildWorkoutExercisePositions(exercises: ExerciseEntry[]): WorkoutExercisePositions {
   return exercises.reduce<WorkoutExercisePositions>((positions, exercise, index) => {
@@ -364,7 +371,8 @@ function formatPrWeight(weightKg: number, unit: string): string {
 export default function ActiveWorkoutSheet() {
   const { styles, theme } = useStyles(stylesheet)
   const insets = useSafeAreaInsets()
-  const scrollRef = useRef<RNScrollView>(null)
+  const topSafeInset = Math.max(insets.top, StatusBar.currentHeight ?? 0)
+  const bottomSafeInset = Math.max(insets.bottom, 0)
   const [pickerVisible, setPickerVisible] = useState(false)
   const [localSets, setLocalSets] = useState<Record<string, LocalSet[]>>({})
   const [restSetKey, setRestSetKey] = useState<string | null>(null)
@@ -379,8 +387,6 @@ export default function ActiveWorkoutSheet() {
   const [validationNotice, setValidationNotice] = useState<string | null>(null)
   const [validationErrors, setValidationErrors] = useState<Record<string, boolean>>({})
   const [methodLockedByExerciseType, setMethodLockedByExerciseType] = useState<Record<string, boolean>>({})
-  const [keyboardHeight, setKeyboardHeight] = useState(0)
-  const [footerHeight, setFooterHeight] = useState(0)
   const [prCelebration, setPrCelebration] = useState<WorkoutWeightPrAchievement[]>([])
   const [draggingExerciseId, setDraggingExerciseId] = useState<string | null>(null)
   const elapsedRef = useRef(0)
@@ -390,17 +396,9 @@ export default function ActiveWorkoutSheet() {
   ).current
   const prSpotlightAnimation = useRef(new Animated.Value(0)).current
   const restDoneNotifiedRef = useRef(false)
-  const keyboardHeightRef = useRef(0)
-  const footerHeightRef = useRef(0)
   const handledEndRequestRef = useRef(0)
-  const scrollOffsetRef = useRef(0)
-  const scrollHeightRef = useRef(0)
-  const setLayoutRef = useRef<Record<string, { y: number; height: number }>>({})
-  const exerciseLayoutRef = useRef<Record<string, { y: number; height: number }>>({})
-  const exercisePanResponderRef = useRef<Record<string, ReturnType<typeof PanResponder.create>>>({})
   const localSetsDraftHydratedForWorkoutRef = useRef<string | null>(null)
   const localSetsRef = useRef(localSets)
-  const focusedSetKeyRef = useRef<string | null>(null)
   const notificationRestEndsAtRef = useRef<number | null>(null)
   const sheetScrollAtTopRef = useRef(true)
   const sheetScrollAtTop = useSharedValue(true)
@@ -428,7 +426,6 @@ export default function ActiveWorkoutSheet() {
 
   const dismissSetKeyboard = useCallback(() => {
     Keyboard.dismiss()
-    focusedSetKeyRef.current = null
   }, [])
 
   const exerciseWeightUnitById = useMemo(() => (
@@ -543,8 +540,6 @@ export default function ActiveWorkoutSheet() {
   }, [activeWorkoutId, endWorkout])
 
   const getRestSetKey = useCallback((weId: string, setId: string) => `${weId}:${setId}`, [])
-  const getSetLayoutKey = useCallback((weId: string, setId: string) => `${weId}:${setId}`, [])
-
   const getFieldErrorKey = useCallback(
     (weId: string, setId: string, field: 'weight' | 'reps') => `${weId}:${setId}:${field}`,
     [],
@@ -751,12 +746,7 @@ export default function ActiveWorkoutSheet() {
     setPickerVisible(false)
     setLocalSets({})
     localSetsDraftHydratedForWorkoutRef.current = null
-    focusedSetKeyRef.current = null
-    setLayoutRef.current = {}
-    scrollOffsetRef.current = 0
     sheetScrollAtTopRef.current = true
-    exerciseLayoutRef.current = {}
-    exercisePanResponderRef.current = {}
     sheetScrollAtTop.value = true
     setDraggingExerciseId(null)
   }, [activeWorkoutId, sheetScrollAtTop])
@@ -1025,90 +1015,10 @@ export default function ActiveWorkoutSheet() {
 
   function handleScroll(event: NativeSyntheticEvent<NativeScrollEvent>) {
     const offsetY = event.nativeEvent.contentOffset.y
-    scrollOffsetRef.current = offsetY
     const isAtTop = offsetY <= SHEET_TOP_SWIPE_TOLERANCE
     sheetScrollAtTopRef.current = isAtTop
     sheetScrollAtTop.value = isAtTop
   }
-
-  function handleScrollLayout(event: LayoutChangeEvent) {
-    scrollHeightRef.current = event.nativeEvent.layout.height
-  }
-
-  function handleFooterLayout(event: LayoutChangeEvent) {
-    const nextHeight = event.nativeEvent.layout.height
-    footerHeightRef.current = nextHeight
-    setFooterHeight(nextHeight)
-  }
-
-  function handleSetRowLayout(weId: string, key: string, event: LayoutChangeEvent) {
-    const exerciseY = exerciseLayoutRef.current[weId]?.y ?? 0
-    setLayoutRef.current[key] = {
-      y: exerciseY + event.nativeEvent.layout.y,
-      height: event.nativeEvent.layout.height,
-    }
-  }
-
-  const handleExerciseLayoutsChange = useCallback((layouts: WorkoutExerciseLayouts) => {
-    exerciseLayoutRef.current = layouts
-  }, [])
-
-  const scrollSetIntoView = useCallback((key: string, delay = 40) => {
-    setTimeout(() => {
-      const layout = setLayoutRef.current[key]
-      const viewportHeight = scrollHeightRef.current
-      if (!layout || viewportHeight <= 0) return
-
-      const currentOffset = scrollOffsetRef.current
-      const safeBottom = Math.max(
-        footerHeightRef.current,
-        keyboardHeightRef.current,
-      )
-      const visibleTop = currentOffset + theme.spacing.sm
-      const visibleBottom = currentOffset + viewportHeight - safeBottom
-      const rowTop = layout.y
-      const rowBottom = layout.y + layout.height
-
-      if (rowBottom > visibleBottom) {
-        scrollRef.current?.scrollTo({
-          y: Math.max(0, rowBottom - viewportHeight + safeBottom),
-          animated: true,
-        })
-        return
-      }
-
-      if (rowTop < visibleTop) {
-        scrollRef.current?.scrollTo({
-          y: Math.max(0, rowTop - theme.spacing.sm),
-          animated: true,
-        })
-      }
-    }, delay)
-  }, [theme.spacing.sm])
-
-  function handleSetInputFocus(key: string) {
-    focusedSetKeyRef.current = key
-    scrollSetIntoView(key, keyboardHeightRef.current > 0 ? 30 : 120)
-  }
-
-  useEffect(() => {
-    const showSub = Keyboard.addListener('keyboardDidShow', (event) => {
-      keyboardHeightRef.current = event.endCoordinates.height
-      setKeyboardHeight(event.endCoordinates.height)
-      const focusedKey = focusedSetKeyRef.current
-      if (focusedKey) {
-        scrollSetIntoView(focusedKey, 60)
-      }
-    })
-    const hideSub = Keyboard.addListener('keyboardDidHide', () => {
-      keyboardHeightRef.current = 0
-      setKeyboardHeight(0)
-    })
-    return () => {
-      showSub.remove()
-      hideSub.remove()
-    }
-  }, [scrollSetIntoView])
 
   function saveWorkoutName() {
     if (!activeWorkoutId) return
@@ -1419,10 +1329,9 @@ export default function ActiveWorkoutSheet() {
           statusBarTranslucent
           navigationBarTranslucent
         >
-        <GestureHandlerRootView style={styles.gestureRoot}>
-        <View
-          style={[styles.root, { paddingTop: insets.top }]}
-        >
+          <KeyboardProvider statusBarTranslucent navigationBarTranslucent>
+            <GestureHandlerRootView style={styles.gestureRoot}>
+              <View style={[styles.root, { paddingTop: topSafeInset }]}>
           {/* Fixed header */}
           <GestureDetector gesture={swipeDownToCloseGesture}>
             <View style={styles.header}>
@@ -1452,23 +1361,18 @@ export default function ActiveWorkoutSheet() {
           </GestureDetector>
 
           {/* Scrollable exercise list */}
-          <GestureScrollView
-            ref={scrollRef}
+          <KeyboardAwareScrollView
+            ScrollViewComponent={KeyboardAwareGestureScrollView}
+            bottomOffset={theme.spacing.md}
             style={styles.scroll}
             contentContainerStyle={[
               styles.scrollContent,
               {
-                paddingBottom: keyboardHeight > 0
-                  ? Math.max(
-                    footerHeight + insets.bottom + theme.spacing.sm,
-                    keyboardHeight + theme.spacing.sm,
-                  )
-                  : theme.spacing.lg,
+                paddingBottom: theme.spacing.lg,
               },
             ]}
             keyboardShouldPersistTaps="handled"
             keyboardDismissMode="interactive"
-            onLayout={handleScrollLayout}
             onScroll={handleScroll}
             scrollEnabled={!draggingExerciseId}
           >
@@ -1496,7 +1400,6 @@ export default function ActiveWorkoutSheet() {
                 methodLockedByExerciseType={methodLockedByExerciseType}
                 onDeleteExercise={handleDeleteExercise}
                 onDragStateChange={handleExerciseDragStateChange}
-                onExerciseLayoutsChange={handleExerciseLayoutsChange}
                 onReorder={persistExerciseOrder}
                 renderExerciseBody={(ex) => {
                   const sets = localSets[ex.workoutExerciseId] ?? []
@@ -1513,14 +1416,9 @@ export default function ActiveWorkoutSheet() {
                       {/* Set rows — swipe left to delete set */}
                       {sets.map((s, i) => {
                         const setRestKey = getRestSetKey(ex.workoutExerciseId, s.id)
-                        const setLayoutKey = getSetLayoutKey(ex.workoutExerciseId, s.id)
                         return (
                           <React.Fragment key={s.id}>
-                            <View
-                              onLayout={(event) =>
-                                handleSetRowLayout(ex.workoutExerciseId, setLayoutKey, event)
-                              }
-                            >
+                            <View>
                               <ReanimatedSwipeable
                                 renderRightActions={() => renderDeleteAction(() => removeLocalSet(ex.workoutExerciseId, s.id))}
                                 childrenContainerStyle={styles.swipeableSetContent}
@@ -1548,7 +1446,6 @@ export default function ActiveWorkoutSheet() {
                                       placeholder="0"
                                       placeholderTextColor={theme.colors.textMuted}
                                       returnKeyType="done"
-                                      onFocus={() => handleSetInputFocus(setLayoutKey)}
                                     />
                                     <TouchableOpacity
                                       style={styles.inputUnitButton}
@@ -1575,7 +1472,6 @@ export default function ActiveWorkoutSheet() {
                                       placeholder="0"
                                       placeholderTextColor={theme.colors.textMuted}
                                       returnKeyType="done"
-                                      onFocus={() => handleSetInputFocus(setLayoutKey)}
                                     />
                                     <View style={styles.inputUnitButton}>
                                       <Text style={styles.inputUnit}>reps</Text>
@@ -1636,17 +1532,15 @@ export default function ActiveWorkoutSheet() {
               </View>
               <Text style={styles.addExerciseText}>Add Exercise</Text>
             </TouchableOpacity>
-          </GestureScrollView>
+          </KeyboardAwareScrollView>
 
-          {/* Fixed footer */}
           <View
             style={[
               styles.footer,
               {
-                paddingBottom: Math.max(theme.spacing.md, insets.bottom + theme.spacing.sm),
+                paddingBottom: Math.max(theme.spacing.lg, bottomSafeInset + theme.spacing.md),
               },
             ]}
-            onLayout={handleFooterLayout}
           >
             {validationNotice ? (
               <View style={styles.validationNotice}>
@@ -1743,8 +1637,9 @@ export default function ActiveWorkoutSheet() {
               </View>
             </View>
           ) : null}
-        </View>
-        </GestureHandlerRootView>
+              </View>
+            </GestureHandlerRootView>
+          </KeyboardProvider>
         </Modal>
       ) : null}
 
@@ -1923,7 +1818,6 @@ function SortableActiveWorkoutExerciseList({
   methodLockedByExerciseType,
   onDeleteExercise,
   onDragStateChange,
-  onExerciseLayoutsChange,
   onReorder,
   renderExerciseBody,
 }: {
@@ -1932,7 +1826,6 @@ function SortableActiveWorkoutExerciseList({
   methodLockedByExerciseType: Record<string, boolean>
   onDeleteExercise: (workoutExerciseId: string) => void
   onDragStateChange: (workoutExerciseId: string | null) => void
-  onExerciseLayoutsChange: (layouts: WorkoutExerciseLayouts) => void
   onReorder: (workoutExerciseIds: string[]) => void
   renderExerciseBody: (exercise: ExerciseEntry) => React.ReactNode
 }) {
@@ -1946,8 +1839,6 @@ function SortableActiveWorkoutExerciseList({
   const heights = useSharedValue<WorkoutExerciseHeights>({})
   const activeExerciseId = useSharedValue<string | null>(null)
   const [measuredHeights, setMeasuredHeights] = useState<WorkoutExerciseHeights>({})
-  const [listY, setListY] = useState(0)
-
   useEffect(() => {
     positions.value = buildWorkoutExercisePositions(exercises)
     activeExerciseId.value = null
@@ -1956,17 +1847,6 @@ function SortableActiveWorkoutExerciseList({
   useEffect(() => {
     heights.value = measuredHeights
   }, [heights, measuredHeights])
-
-  useEffect(() => {
-    let nextY = listY
-    const layouts: WorkoutExerciseLayouts = {}
-    for (const exercise of exercises) {
-      const height = measuredHeights[exercise.workoutExerciseId] ?? WORKOUT_EXERCISE_DEFAULT_HEIGHT
-      layouts[exercise.workoutExerciseId] = { y: nextY, height }
-      nextY += height + WORKOUT_EXERCISE_GAP
-    }
-    onExerciseLayoutsChange(layouts)
-  }, [exerciseKey, exercises, listY, measuredHeights, onExerciseLayoutsChange])
 
   const listHeight = useMemo(
     () =>
@@ -1985,10 +1865,6 @@ function SortableActiveWorkoutExerciseList({
     [listHeight, styles.sortableWorkoutExerciseList],
   )
 
-  const handleListLayout = useCallback((event: LayoutChangeEvent) => {
-    setListY(event.nativeEvent.layout.y)
-  }, [])
-
   const handleExerciseMeasure = useCallback((workoutExerciseId: string, height: number) => {
     if (!Number.isFinite(height) || height <= 0) return
     heights.value = {
@@ -2006,7 +1882,7 @@ function SortableActiveWorkoutExerciseList({
   }, [heights])
 
   return (
-    <View style={listStyle} onLayout={handleListLayout}>
+    <View style={listStyle}>
       {exercises.map((exercise, index) => {
         const showMethod = !(exercise.methodLocked || methodLockedByExerciseType[exercise.exerciseTypeId])
         return (

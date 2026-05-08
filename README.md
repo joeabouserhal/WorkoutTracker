@@ -1,76 +1,108 @@
-![Logo](https://github.com/joeabouserhal/WorkoutTracker/blob/main/android/app/src/main/res/mipmap-hdpi/ic_launcher_monochrome.png)
+<div align="center">
+  <img src="https://github.com/joeabouserhal/WorkoutTracker/blob/main/android/app/src/main/res/mipmap-hdpi/ic_launcher_monochrome.png" alt="WorkoutTracker logo" width="120" />
+
 # WorkoutTracker
 
-A React Native application for tracking workouts, progress, and managing fitness routines.
+A modern **React Native** app for planning workouts, tracking progress, and staying consistent with your fitness goals.
+</div>
 
-## Features
+---
 
-- Track workouts with exercises
-- Progress tracking
-- Calendar view
-- Profile management
-- Themes support
-- Notifications for workouts
+## ✨ Features
 
-## Prerequisites
+- 🏋️ Create and track workouts with custom exercises
+- 📈 Monitor progress over time
+- 📅 View workout schedule in a calendar-style flow
+- 👤 Manage personal profile settings
+- 🎨 Switch themes for a personalized experience
+- 🔔 Get workout reminders and notifications
 
-- Node.js (version 18 or higher)
-- React Native development environment set up
-- Android Studio for Android development
-- Xcode for iOS development (macOS only)
+---
 
-## Installation
+## 🧰 Tech Stack
 
-1. Clone the repository:
-   ```sh
-   git clone <repository-url>
-   cd WorkoutTracker
-   ```
+- **React Native** + **TypeScript**
+- **Drizzle ORM**
+- **SQLite** (via `op-sqlite`)
+- **Zustand** for state management
+- **React Navigation**
+- **React Native Reanimated**
 
-2. Install dependencies:
-   ```sh
-   npm install
-   ```
+---
 
-3. For iOS, install CocoaPods:
-   ```sh
-   cd ios
-   bundle install
-   bundle exec pod install
-   cd ..
-   ```
+## ✅ Prerequisites
 
-## Running the App
+Before you begin, make sure you have:
 
-1. Start Metro:
-   ```sh
-   npm start
-   ```
+- **Node.js** 18+
+- A configured **React Native development environment**
+- **Android Studio** (Android)
+- **Xcode** (iOS on macOS)
 
-2. Run on Android:
-   ```sh
-   npm run android
-   ```
+---
 
-3. Run on iOS:
-   ```sh
-   npm run ios
-   ```
+## 🚀 Getting Started
 
-## Building APK
+### 1) Clone the repository
 
-To build a release APK for Android:
+```sh
+git clone <repository-url>
+cd WorkoutTracker
+```
+
+### 2) Install dependencies
+
+```sh
+npm install
+```
+
+### 3) Install iOS dependencies (macOS only)
+
+```sh
+cd ios
+bundle install
+bundle exec pod install
+cd ..
+```
+
+---
+
+## ▶️ Run the App
+
+### Start Metro
+
+```sh
+npm start
+```
+
+### Run on Android
+
+```sh
+npm run android
+```
+
+### Run on iOS
+
+```sh
+npm run ios
+```
+
+---
+
+## 📦 Build Android Release APK
 
 ```sh
 cd android
 ./gradlew assembleRelease
 ```
 
-## Troubleshooting
+---
 
-### Windows APK Build Issues
+## 🛠️ Troubleshooting
 
-If you encounter issues while compiling the APK on Windows, try deleting the following directories and files to clear caches:
+### Windows APK Build Cache Issues
+
+If APK builds fail on Windows, clear these folders/files:
 
 - `android\build`
 - `android\.cxx`
@@ -81,7 +113,7 @@ If you encounter issues while compiling the APK on Windows, try deleting the fol
 - `node_modules\react-native-reanimated\android\.cxx`
 - `%USERPROFILE%\.gradle\caches`
 
-After deleting these, clean and rebuild:
+Then clean and rebuild:
 
 ```sh
 cd android
@@ -89,21 +121,18 @@ cd android
 ./gradlew assembleRelease
 ```
 
-## Scripts
+---
 
-- `npm start`: Start Metro server
-- `npm run android`: Run on Android
-- `npm run ios`: Run on iOS
-- `npm test`: Run tests
-- `npm run lint`: Run linter
+## 📜 Available Scripts
 
-## Technologies Used
+- `npm start` — Start Metro bundler
+- `npm run android` — Run on Android
+- `npm run ios` — Run on iOS
+- `npm test` — Run tests
+- `npm run lint` — Run linter
 
-- React Native
-- TypeScript
-- Drizzle ORM
-- SQLite (via op-sqlite)
-- Zustand for state management
-- React Navigation
-- React Native Reanimated
-- And more...
+---
+
+## 🤝 Contributing
+
+Contributions, improvements, and fixes are welcome. Feel free to open an issue or submit a pull request.

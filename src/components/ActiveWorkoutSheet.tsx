@@ -994,8 +994,12 @@ export default function ActiveWorkoutSheet() {
   const handleCloseSheet = useCallback(() => {
     Keyboard.dismiss()
     closeDialog()
+    // Immediately hide pull-to-close hint so it's not visible when reopening
+    pullToCloseHintOpacity.setValue(0)
+    pullToCloseStartedAtTopRef.current = false
+    setDraggingExerciseId(null)
     closeWorkoutSheet()
-  }, [closeDialog, closeWorkoutSheet])
+  }, [closeDialog, closeWorkoutSheet, pullToCloseHintOpacity, setDraggingExerciseId])
 
   function handlePickerOpen() {
     dismissSetKeyboard()

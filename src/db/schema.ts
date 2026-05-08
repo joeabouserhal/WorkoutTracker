@@ -10,6 +10,8 @@ export const methods = sqliteTable('methods', {
   id: text('id').primaryKey(),
   name: text('name').notNull(),
   isCustom: integer('is_custom').notNull().default(0),
+  isHidden: integer('is_hidden').notNull().default(0),
+  ownerExerciseTypeId: text('owner_exercise_type_id'),
 })
 
 export const exerciseTypes = sqliteTable('exercise_types', {
@@ -17,6 +19,7 @@ export const exerciseTypes = sqliteTable('exercise_types', {
   sectionId: text('section_id').notNull(),
   name: text('name').notNull(),
   isCustom: integer('is_custom').notNull().default(0),
+  isHidden: integer('is_hidden').notNull().default(0),
   methodLocked: integer('method_locked').notNull().default(0),
   lockedMethodId: text('locked_method_id'),
 })
@@ -71,6 +74,24 @@ export const profile = sqliteTable('profile', {
   id: text('id').primaryKey(),
   name: text('name'),
   height: real('height'),
+  weight: real('weight'),
   heightUnit: text('height_unit').notNull().default('cm'),
   defaultWeightUnit: text('default_weight_unit').notNull().default('kg'),
+})
+
+export const workoutTemplates = sqliteTable('workout_templates', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  isFavorite: integer('is_favorite').notNull().default(0),
+  createdAt: integer('created_at').notNull(),
+  updatedAt: integer('updated_at').notNull(),
+})
+
+export const workoutTemplateExercises = sqliteTable('workout_template_exercises', {
+  id: text('id').primaryKey(),
+  templateId: text('template_id').notNull(),
+  exerciseTypeId: text('exercise_type_id').notNull(),
+  methodId: text('method_id').notNull(),
+  setCount: integer('set_count').notNull().default(3),
+  orderIndex: integer('order_index').notNull().default(0),
 })

@@ -1,15 +1,8 @@
+import { desc, eq } from 'drizzle-orm'
 import { db } from './client'
+import { bodyWeightLogs, profile } from './schema'
 
 export const PROFILE_ID = 'user_profile'
-
-type ProfileRow = {
-  id: string
-  name: string | null
-  height: number | null
-  weight: number | null
-  height_unit: string
-  default_weight_unit: string
-}
 
 async function ensureProfileTable() {
   await db.$client.execute(`
@@ -42,21 +35,27 @@ async function ensureProfileTable() {
 export async function getProfile() {
   await ensureProfileTable()
 
-  const result = await db.$client.execute(
-    'SELECT id, name, height, height_unit, default_weight_unit FROM profile WHERE id = ?',
-    [PROFILE_ID]
-  )
-
-  const row = result.rows[0] as Omit<ProfileRow, 'weight'> | undefined
+  const row = (await db
+    .select({
+      id: profile.id,
+      name: profile.name,
+      height: profile.height,
+      heightUnit: profile.heightUnit,
+      defaultWeightUnit: profile.defaultWeightUnit,
+    })
+    .from(profile)
+    .where(eq(profile.id, PROFILE_ID))
+    .limit(1))[0]
   if (!row) return null
 
   // Current weight is always the latest body_weight_logs entry
   let weight: number | null = null
   try {
-    const bwlResult = await db.$client.execute(
-      'SELECT weight FROM body_weight_logs ORDER BY logged_at DESC LIMIT 1'
-    )
-    const bwlRow = bwlResult.rows[0] as { weight: number } | undefined
+    const bwlRow = (await db
+      .select({ weight: bodyWeightLogs.weight })
+      .from(bodyWeightLogs)
+      .orderBy(desc(bodyWeightLogs.loggedAt))
+      .limit(1))[0]
     weight = bwlRow?.weight ?? null
   } catch {
     // Table not yet created; weight stays null
@@ -67,8 +66,8 @@ export async function getProfile() {
     name: row.name,
     height: row.height,
     weight,
-    heightUnit: row.height_unit,
-    defaultWeightUnit: row.default_weight_unit,
+    heightUnit: row.heightUnit,
+    defaultWeightUnit: row.defaultWeightUnit,
   }
 }
 
@@ -81,42 +80,30 @@ export async function upsertProfile(data: {
 }) {
   await ensureProfileTable()
 
-  const fields: string[] = []
-  const values: Array<number | string | null> = []
+  const values: Partial<typeof profile.$inferInsert> = {}
 
   if ('name' in data) {
-    fields.push('name = ?')
-    values.push(data.name ?? null)
+    values.name = data.name ?? null
   }
   if ('height' in data) {
-    fields.push('height = ?')
-    values.push(data.height ?? null)
+    values.height = data.height ?? null
   }
   if ('weight' in data) {
-    fields.push('weight = ?')
-    values.push(data.weight ?? null)
+    values.weight = data.weight ?? null
   }
   if ('heightUnit' in data) {
-    fields.push('height_unit = ?')
-    values.push(data.heightUnit ?? 'cm')
+    values.heightUnit = data.heightUnit ?? 'cm'
   }
   if ('defaultWeightUnit' in data) {
-    fields.push('default_weight_unit = ?')
-    values.push(data.defaultWeightUnit ?? 'kg')
+    values.defaultWeightUnit = data.defaultWeightUnit ?? 'kg'
   }
 
-  if (fields.length === 0) return
+  if (Object.keys(values).length === 0) return
 
-  await db.$client.execute(
-    `INSERT OR IGNORE INTO profile (
-      id,
-      height_unit,
-      default_weight_unit
-    ) VALUES (?, ?, ?)`,
-    [PROFILE_ID, 'cm', 'kg'],
-  )
-  await db.$client.execute(
-    `UPDATE profile SET ${fields.join(', ')} WHERE id = ?`,
-    [...values, PROFILE_ID],
-  )
+  await db.insert(profile).values({
+    id: PROFILE_ID,
+    heightUnit: 'cm',
+    defaultWeightUnit: 'kg',
+  }).onConflictDoNothing()
+  await db.update(profile).set(values).where(eq(profile.id, PROFILE_ID))
 }

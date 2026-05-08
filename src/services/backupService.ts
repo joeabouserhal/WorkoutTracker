@@ -6,6 +6,7 @@ import {
   isErrorWithCode,
   keepLocalCopy,
   pick,
+  saveDocuments,
   types,
 } from '@react-native-documents/picker'
 import { db } from '@/db/client'
@@ -102,6 +103,13 @@ export type RestoreResult = {
   rowCount: number
 }
 
+export type LocalBackupExportResult = {
+  fileName: string
+  uri: string
+  createdAt: string
+  rowCount: number
+}
+
 let googleConfigured = false
 
 export function getAutoBackupAfterWorkoutEnabled() {
@@ -160,6 +168,10 @@ function getReadableFilePath(uri: string) {
   return uri.startsWith('file://') ? decodeURIComponent(uri.slice('file://'.length)) : uri
 }
 
+function getEncodedFileUri(path: string) {
+  return `file://${path.split('/').map(encodeURIComponent).join('/')}`
+}
+
 function getSafeLocalCopyFileName(name: string | null) {
   const fileName = name?.trim().replace(/[\\/]/g, '_') || 'workouttracker-backup.json'
   return fileName.toLowerCase().endsWith('.json') ? fileName : `${fileName}.json`
@@ -174,13 +186,16 @@ async function ensureBackupTables() {
   await db.$client.execute(`CREATE TABLE IF NOT EXISTS methods (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
-    is_custom INTEGER NOT NULL DEFAULT 0
+    is_custom INTEGER NOT NULL DEFAULT 0,
+    is_hidden INTEGER NOT NULL DEFAULT 0,
+    owner_exercise_type_id TEXT
   )`)
   await db.$client.execute(`CREATE TABLE IF NOT EXISTS exercise_types (
     id TEXT PRIMARY KEY,
     section_id TEXT NOT NULL,
     name TEXT NOT NULL,
     is_custom INTEGER NOT NULL DEFAULT 0,
+    is_hidden INTEGER NOT NULL DEFAULT 0,
     method_locked INTEGER NOT NULL DEFAULT 0,
     locked_method_id TEXT
   )`)
@@ -248,6 +263,19 @@ async function ensureBackupTables() {
     set_count INTEGER NOT NULL DEFAULT 3,
     order_index INTEGER NOT NULL DEFAULT 0
   )`)
+
+  const methodColumns = await getTableColumns('methods')
+  if (!methodColumns.includes('owner_exercise_type_id')) {
+    await db.$client.execute('ALTER TABLE methods ADD COLUMN owner_exercise_type_id TEXT')
+  }
+  if (!methodColumns.includes('is_hidden')) {
+    await db.$client.execute('ALTER TABLE methods ADD COLUMN is_hidden INTEGER NOT NULL DEFAULT 0')
+  }
+
+  const exerciseTypeColumns = await getTableColumns('exercise_types')
+  if (!exerciseTypeColumns.includes('is_hidden')) {
+    await db.$client.execute('ALTER TABLE exercise_types ADD COLUMN is_hidden INTEGER NOT NULL DEFAULT 0')
+  }
 }
 
 async function getTableColumns(tableName: string) {
@@ -635,33 +663,47 @@ export async function validateGoogleDriveConnection(): Promise<{
   return { account, latestBackup }
 }
 
-export async function exportBackupLocally(): Promise<{ path: string; createdAt: string; rowCount: number }> {
+export async function exportBackupLocally(): Promise<LocalBackupExportResult | null> {
   const payload = await createBackupPayload()
   const content = JSON.stringify(payload, null, 2)
   const stamp = new Date().toISOString().replace(/[:.]/g, '-')
-  const filename = `workouttracker-backup-${stamp}.json`
-  const candidateDirs = Platform.OS === 'android'
-    ? [RNFS.DownloadDirectoryPath, RNFS.ExternalDirectoryPath, RNFS.DocumentDirectoryPath]
-    : [RNFS.DocumentDirectoryPath]
+  const fileName = `workouttracker-backup-${stamp}.json`
+  const tempDir = RNFS.TemporaryDirectoryPath || RNFS.CachesDirectoryPath
+  const tempPath = `${tempDir}/${fileName}`
 
-  let lastError: unknown
-  for (const dir of candidateDirs.filter(Boolean)) {
-    const path = `${dir}/${filename}`
+  try {
+    await RNFS.writeFile(tempPath, content, 'utf8')
+    const [savedFile] = await saveDocuments({
+      sourceUris: [getEncodedFileUri(tempPath)],
+      mimeType: 'application/json',
+      fileName,
+      copy: true,
+    })
+
+    if (savedFile.error) {
+      throw new Error(`Could not save local backup: ${savedFile.error}`)
+    }
+
+    return {
+      fileName: savedFile.name ?? fileName,
+      uri: savedFile.uri,
+      createdAt: payload.createdAt,
+      rowCount: getRowCount(payload),
+    }
+  } catch (e) {
+    if (isErrorWithCode(e) && e.code === errorCodes.OPERATION_CANCELED) {
+      return null
+    }
+    throw e
+  } finally {
     try {
-      await RNFS.writeFile(path, content, 'utf8')
-      return {
-        path,
-        createdAt: payload.createdAt,
-        rowCount: getRowCount(payload),
+      if (await RNFS.exists(tempPath)) {
+        await RNFS.unlink(tempPath)
       }
     } catch (e) {
-      lastError = e
+      console.warn('Could not remove temporary backup export file', e)
     }
   }
-
-  throw lastError instanceof Error
-    ? lastError
-    : new Error('Could not export a local backup file.')
 }
 
 export async function importBackupLocally(): Promise<RestoreResult | null> {

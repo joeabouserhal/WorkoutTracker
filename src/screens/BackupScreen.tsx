@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react'
 import {
   ActivityIndicator,
+  InteractionManager,
   ScrollView,
   Switch,
   Text,
@@ -158,11 +159,10 @@ export default function BackupScreen({ navigation }: Props) {
 
   async function importLocalNow() {
     if (activeWorkoutId) return
-    setLocalRestoreVisible(false)
     const result = await runAction(
       'import',
       importBackupLocally,
-      '',
+      'Opening file picker...',
     )
     if (!result) {
       setMessage('')
@@ -170,6 +170,15 @@ export default function BackupScreen({ navigation }: Props) {
     }
     bumpDataVersion()
     setMessage(`Imported ${result.rowCount} rows from ${result.fileName}.`)
+  }
+
+  function chooseLocalBackupFile() {
+    setLocalRestoreVisible(false)
+    InteractionManager.runAfterInteractions(() => {
+      setTimeout(() => {
+        importLocalNow().catch(console.error)
+      }, 120)
+    })
   }
 
   async function deleteBackupNow() {
@@ -187,9 +196,12 @@ export default function BackupScreen({ navigation }: Props) {
 
   async function exportLocal() {
     if (activeWorkoutId) return
-    const result = await runAction('export', exportBackupLocally, 'Writing a local backup file...')
-    if (!result) return
-    setMessage(`Local backup exported to ${result.path}`)
+    const result = await runAction('export', exportBackupLocally, 'Opening save picker...')
+    if (!result) {
+      setMessage('')
+      return
+    }
+    setMessage(`Local backup exported as ${result.fileName}.`)
   }
 
   async function toggleAutoBackup(enabled: boolean) {
@@ -443,7 +455,7 @@ export default function BackupScreen({ navigation }: Props) {
           <BackupActionButton
             iconName="file-export-outline"
             title="Export locally"
-            description="Write a backup JSON file to this device."
+            description="Choose where to save a backup JSON file."
             disabled={isBusy || blockedByWorkout}
             busy={busyAction === 'export'}
             onPress={exportLocal}
@@ -451,7 +463,7 @@ export default function BackupScreen({ navigation }: Props) {
           <BackupActionButton
             iconName="file-import-outline"
             title="Import local backup"
-            description="Pick a WorkoutTracker backup JSON from this device."
+            description="Choose a backup JSON file to restore."
             disabled={isBusy || blockedByWorkout}
             busy={busyAction === 'import'}
             onPress={() => setLocalRestoreVisible(true)}
@@ -484,7 +496,7 @@ export default function BackupScreen({ navigation }: Props) {
           <BackupActionButton
             iconName="file-export-outline"
             title="Export locally"
-            description="Write a backup JSON file to this device."
+            description="Choose where to save a backup JSON file."
             disabled={isBusy || blockedByWorkout}
             busy={busyAction === 'export'}
             onPress={exportLocal}
@@ -492,7 +504,7 @@ export default function BackupScreen({ navigation }: Props) {
           <BackupActionButton
             iconName="file-import-outline"
             title="Import local backup"
-            description="Pick a WorkoutTracker backup JSON from this device."
+            description="Choose a backup JSON file to restore."
             disabled={isBusy || blockedByWorkout}
             busy={busyAction === 'import'}
             onPress={() => setLocalRestoreVisible(true)}
@@ -515,7 +527,7 @@ export default function BackupScreen({ navigation }: Props) {
         message="This will replace all local workouts, library changes, templates, profile data, and progress with the backup JSON you choose from this device."
         actions={[
           { label: 'Cancel', onPress: () => setLocalRestoreVisible(false) },
-          { label: 'Choose File', variant: 'danger', onPress: importLocalNow },
+          { label: 'Choose File', variant: 'danger', onPress: chooseLocalBackupFile },
         ]}
       />
       <ThemedDialog

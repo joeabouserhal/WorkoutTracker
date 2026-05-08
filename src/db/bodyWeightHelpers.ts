@@ -1,4 +1,6 @@
+import { asc } from 'drizzle-orm'
 import { db } from './client'
+import { bodyWeightLogs } from './schema'
 
 export type WeightLog = {
   id: string
@@ -21,21 +23,29 @@ async function ensureTable() {
 export async function logBodyWeight(weightKg: number): Promise<void> {
   await ensureTable()
   const id = `bwl_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
-  await db.$client.execute(
-    'INSERT INTO body_weight_logs (id, weight, unit, logged_at) VALUES (?, ?, ?, ?)',
-    [id, weightKg, 'kg', Date.now()],
-  )
+  await db.insert(bodyWeightLogs).values({
+    id,
+    weight: weightKg,
+    unit: 'kg',
+    loggedAt: Date.now(),
+  })
 }
 
 export async function getBodyWeightLogs(): Promise<WeightLog[]> {
   await ensureTable()
-  const result = await db.$client.execute(
-    'SELECT id, weight, unit, logged_at FROM body_weight_logs ORDER BY logged_at ASC',
-  )
-  return (result.rows as any[]).map(row => ({
+  const rows = await db
+    .select({
+      id: bodyWeightLogs.id,
+      weight: bodyWeightLogs.weight,
+      unit: bodyWeightLogs.unit,
+      loggedAt: bodyWeightLogs.loggedAt,
+    })
+    .from(bodyWeightLogs)
+    .orderBy(asc(bodyWeightLogs.loggedAt))
+  return rows.map(row => ({
     id: row.id as string,
     weight: row.weight as number,
     unit: row.unit as string,
-    loggedAt: row.logged_at as number,
+    loggedAt: row.loggedAt as number,
   }))
 }

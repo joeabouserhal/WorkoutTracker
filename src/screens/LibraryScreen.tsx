@@ -153,7 +153,7 @@ export default function LibraryScreen() {
     setLoading(true)
     try {
       setShowRestoreDefaults(
-        Boolean(exerciseType.isCustom) && await hasHiddenDefaultMethods(exerciseType.id),
+        await hasHiddenDefaultMethods(exerciseType.id),
       )
       const [methods, prSummaries] = await Promise.all([
         getMethodsForExerciseType(exerciseType.id),
@@ -292,8 +292,7 @@ export default function LibraryScreen() {
         setMethodList(methods)
         setMethodPrSummaries(prSummaries)
         setShowRestoreDefaults(
-          Boolean(selectedExerciseType.isCustom) &&
-            await hasHiddenDefaultMethods(selectedExerciseType.id),
+          await hasHiddenDefaultMethods(selectedExerciseType.id),
         )
         return
       }
@@ -325,8 +324,7 @@ export default function LibraryScreen() {
       ])
       setMethodPrSummaries(prSummaries)
       setShowRestoreDefaults(
-        Boolean(selectedExerciseType.isCustom) &&
-          await hasHiddenDefaultMethods(selectedExerciseType.id),
+        await hasHiddenDefaultMethods(selectedExerciseType.id),
       )
       if (selectedExerciseType.methodLocked && selectedExerciseType.lockedMethodId) {
         setLockedMethodName(await getMethodName(selectedExerciseType.lockedMethodId))
@@ -370,7 +368,7 @@ export default function LibraryScreen() {
     if (!selectedExerciseType) return
     setDialog({
       title: 'Delete Method',
-      message: `Remove ${method.name} from ${selectedExerciseType.name}? This only affects this custom exercise.`,
+      message: `Remove ${method.name} from ${selectedExerciseType.name}? This only affects this exercise.`,
       actions: [
         { label: 'Cancel', onPress: closeDialog },
         {
@@ -397,7 +395,7 @@ export default function LibraryScreen() {
               })
               .catch((e) => {
                 console.error('Could not delete method', e)
-                showInfoDialog('Could Not Remove', 'This method is either already used in a workout for this exercise, or the exercise is not custom.')
+                showInfoDialog('Could Not Remove', 'This method is already used by this exercise, or it cannot be removed from this exercise.')
               })
           },
         },
@@ -421,7 +419,13 @@ export default function LibraryScreen() {
       if (createMode === 'section') {
         await createCustomSection(trimmed)
       } else if (createMode === 'method') {
-        await createCustomMethod(trimmed)
+        await createCustomMethod(trimmed, selectedExerciseType?.id ?? null)
+        if (selectedExerciseType) {
+          setSelectedExerciseType((current) => (
+            current ? { ...current, methodLocked: 0, lockedMethodId: null } : current
+          ))
+          setLockedMethodName('')
+        }
       } else if (createMode === 'exercise' && selectedSection) {
         await createCustomExerciseType({
           sectionId: selectedSection.id,
@@ -444,12 +448,25 @@ export default function LibraryScreen() {
     if (!selectedExerciseType) return
     const exerciseTypeId = selectedExerciseType.id
     restoreDefaultMethodsForExerciseType(exerciseTypeId)
-      .then(async () => {
-        await refreshMethodsForSelectedExercise()
+      .then(async (restoredExerciseType) => {
+        setSelectedExerciseType(restoredExerciseType)
+        const [methods, prSummaries] = await Promise.all([
+          getMethodsForExerciseType(restoredExerciseType.id),
+          getMethodPrSummariesForExerciseType(restoredExerciseType.id),
+        ])
+        setMethodPrSummaries(prSummaries)
+        setShowRestoreDefaults(await hasHiddenDefaultMethods(restoredExerciseType.id))
+        if (restoredExerciseType.methodLocked && restoredExerciseType.lockedMethodId) {
+          setLockedMethodName(await getMethodName(restoredExerciseType.lockedMethodId))
+          setMethodList(methods.filter((method) => method.id === restoredExerciseType.lockedMethodId))
+        } else {
+          setLockedMethodName('')
+          setMethodList(methods)
+        }
       })
       .catch((e) => {
         console.error('Could not restore default methods', e)
-        showInfoDialog('Could Not Restore', 'Default methods can only be restored for custom exercises.')
+        showInfoDialog('Could Not Restore', 'Could not restore the default methods for this exercise.')
       })
   }
 
@@ -523,7 +540,7 @@ export default function LibraryScreen() {
         const prSummary = exercisePrSummaries[exerciseType.id]
         const row = (
           <TouchableOpacity
-            style={styles.row}
+            style={[styles.row, Boolean(exerciseType.isCustom) && styles.swipeableRow]}
             onPress={() => handleSelectExerciseType(exerciseType)}
           >
             <View style={styles.rowLeft}>
@@ -568,6 +585,9 @@ export default function LibraryScreen() {
           <ReanimatedSwipeable
             key={exerciseType.id}
             renderRightActions={() => renderDeleteAction(() => requestDeleteExercise(exerciseType))}
+            containerStyle={styles.swipeableRowContainer}
+            childrenContainerStyle={styles.swipeableRowContent}
+            dragOffsetFromRightEdge={3}
             overshootRight={false}
           >
             {row}
@@ -580,8 +600,9 @@ export default function LibraryScreen() {
       <EmptyState text="No methods found." />
     ) : methodList.map((method) => {
       const prSummary = methodPrSummaries[method.id]
+      const canRemoveMethod = Boolean(selectedExerciseType)
       const row = (
-        <View style={styles.row}>
+        <View style={[styles.row, canRemoveMethod && styles.swipeableRow]}>
           <View style={styles.rowLeft}>
             <View style={styles.rowIcon}>
               <MaterialCommunityIcons name="shape-outline" size={18} color={theme.colors.accent} />
@@ -612,7 +633,7 @@ export default function LibraryScreen() {
         </View>
       )
 
-      if (!selectedExerciseType?.isCustom) {
+      if (!canRemoveMethod) {
         return <React.Fragment key={method.id}>{row}</React.Fragment>
       }
 
@@ -620,6 +641,9 @@ export default function LibraryScreen() {
         <ReanimatedSwipeable
           key={method.id}
           renderRightActions={() => renderDeleteAction(() => requestDeleteMethod(method))}
+          containerStyle={styles.swipeableRowContainer}
+          childrenContainerStyle={styles.swipeableRowContent}
+          dragOffsetFromRightEdge={3}
           overshootRight={false}
         >
           {row}
@@ -630,8 +654,8 @@ export default function LibraryScreen() {
 
   function renderDeleteAction(onPress: () => void) {
     return (
-      <TouchableOpacity style={styles.deleteAction} onPress={onPress}>
-        <MaterialCommunityIcons name="trash-can-outline" size={21} color={theme.colors.danger} />
+      <TouchableOpacity style={styles.deleteAction} onPress={onPress} activeOpacity={0.82}>
+        <MaterialCommunityIcons name="trash-can-outline" size={22} color="#FFFFFF" />
       </TouchableOpacity>
     )
   }
@@ -919,14 +943,20 @@ const stylesheet = createStyleSheet((theme) => ({
     maxWidth: 84,
   },
   deleteAction: {
-    width: 74,
-    marginBottom: theme.spacing.xs,
-    borderRadius: theme.radius.md,
-    backgroundColor: theme.colors.surface2,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
+    width: 72,
+    backgroundColor: theme.colors.danger,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  swipeableRowContainer: {
+    borderRadius: theme.radius.md,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.surface,
+    overflow: 'hidden',
+  },
+  swipeableRowContent: {
+    width: '100%',
   },
   restoreRow: {
     flexDirection: 'row',
@@ -968,6 +998,7 @@ const stylesheet = createStyleSheet((theme) => ({
     justifyContent: 'center',
   },
   row: {
+    width: '100%',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
@@ -979,6 +1010,10 @@ const stylesheet = createStyleSheet((theme) => ({
     paddingVertical: theme.spacing.sm,
     minHeight: 58,
     gap: theme.spacing.sm,
+  },
+  swipeableRow: {
+    borderRadius: 0,
+    borderWidth: 0,
   },
   rowLeft: {
     flex: 1,

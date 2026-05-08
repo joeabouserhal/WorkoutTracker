@@ -219,7 +219,7 @@ export default function ExercisePickerModal({ visible, onClose, onPick }: Props)
       if (createMode === 'section') {
         await createCustomSection(trimmed)
       } else if (createMode === 'method') {
-        await createCustomMethod(trimmed)
+        await createCustomMethod(trimmed, selectedExerciseType?.id ?? null)
       } else if (createMode === 'exercise' && selectedSection) {
         await createCustomExerciseType({
           sectionId: selectedSection.id,

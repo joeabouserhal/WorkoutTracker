@@ -1,16 +1,28 @@
+import { and, eq } from 'drizzle-orm'
 import { db } from './client'
-import { sections, methods, exerciseTypes } from './schema'
+import {
+  exercises,
+  exerciseTypeMethodExclusions,
+  exerciseTypes,
+  methods,
+  sections,
+} from './schema'
 
 async function ensureTables() {
   await db.$client.execute(`CREATE TABLE IF NOT EXISTS sections (
     id TEXT PRIMARY KEY, name TEXT NOT NULL, is_custom INTEGER NOT NULL DEFAULT 0
   )`)
   await db.$client.execute(`CREATE TABLE IF NOT EXISTS methods (
-    id TEXT PRIMARY KEY, name TEXT NOT NULL, is_custom INTEGER NOT NULL DEFAULT 0
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    is_custom INTEGER NOT NULL DEFAULT 0,
+    is_hidden INTEGER NOT NULL DEFAULT 0,
+    owner_exercise_type_id TEXT
   )`)
   await db.$client.execute(`CREATE TABLE IF NOT EXISTS exercise_types (
     id TEXT PRIMARY KEY, section_id TEXT NOT NULL, name TEXT NOT NULL,
     is_custom INTEGER NOT NULL DEFAULT 0,
+    is_hidden INTEGER NOT NULL DEFAULT 0,
     method_locked INTEGER NOT NULL DEFAULT 0,
     locked_method_id TEXT
   )`)
@@ -32,13 +44,28 @@ async function ensureTables() {
   const hasMethodCustom = methodColumns.rows.some(
     (row: { name?: unknown }) => row.name === 'is_custom',
   )
+  const hasMethodOwnerExerciseTypeId = methodColumns.rows.some(
+    (row: { name?: unknown }) => row.name === 'owner_exercise_type_id',
+  )
+  const hasMethodHidden = methodColumns.rows.some(
+    (row: { name?: unknown }) => row.name === 'is_hidden',
+  )
   if (!hasMethodCustom) {
     await db.$client.execute('ALTER TABLE methods ADD COLUMN is_custom INTEGER NOT NULL DEFAULT 0')
+  }
+  if (!hasMethodOwnerExerciseTypeId) {
+    await db.$client.execute('ALTER TABLE methods ADD COLUMN owner_exercise_type_id TEXT')
+  }
+  if (!hasMethodHidden) {
+    await db.$client.execute('ALTER TABLE methods ADD COLUMN is_hidden INTEGER NOT NULL DEFAULT 0')
   }
 
   const exerciseTypeColumns = await db.$client.execute('PRAGMA table_info(exercise_types)')
   const hasExerciseTypeCustom = exerciseTypeColumns.rows.some(
     (row: { name?: unknown }) => row.name === 'is_custom',
+  )
+  const hasExerciseTypeHidden = exerciseTypeColumns.rows.some(
+    (row: { name?: unknown }) => row.name === 'is_hidden',
   )
   const hasMethodLocked = exerciseTypeColumns.rows.some(
     (row: { name?: unknown }) => row.name === 'method_locked',
@@ -48,6 +75,9 @@ async function ensureTables() {
   )
   if (!hasExerciseTypeCustom) {
     await db.$client.execute('ALTER TABLE exercise_types ADD COLUMN is_custom INTEGER NOT NULL DEFAULT 0')
+  }
+  if (!hasExerciseTypeHidden) {
+    await db.$client.execute('ALTER TABLE exercise_types ADD COLUMN is_hidden INTEGER NOT NULL DEFAULT 0')
   }
   if (!hasMethodLocked) {
     await db.$client.execute('ALTER TABLE exercise_types ADD COLUMN method_locked INTEGER NOT NULL DEFAULT 0')
@@ -150,33 +180,36 @@ const EXERCISE_DEFS: ExerciseDef[] = [
 ]
 
 async function removeRedundantCableCrunch(sectionId: string) {
-  const crunchResult = await db.$client.execute(
-    'SELECT id FROM exercise_types WHERE section_id = ? AND name = ? LIMIT 1',
-    [sectionId, 'Crunch'],
-  )
-  const cableCrunchResult = await db.$client.execute(
-    'SELECT id, is_custom as isCustom FROM exercise_types WHERE section_id = ? AND name = ? LIMIT 1',
-    [sectionId, 'Cable Crunch'],
-  )
-  const crunchId = (crunchResult.rows[0] as { id?: string } | undefined)?.id
-  const cableCrunch = cableCrunchResult.rows[0] as {
-    id?: string
-    isCustom?: number
-  } | undefined
+  const crunch = (await db
+    .select({ id: exerciseTypes.id })
+    .from(exerciseTypes)
+    .where(and(
+      eq(exerciseTypes.sectionId, sectionId),
+      eq(exerciseTypes.name, 'Crunch'),
+    ))
+    .limit(1))[0]
+  const cableCrunch = (await db
+    .select({
+      id: exerciseTypes.id,
+      isCustom: exerciseTypes.isCustom,
+    })
+    .from(exerciseTypes)
+    .where(and(
+      eq(exerciseTypes.sectionId, sectionId),
+      eq(exerciseTypes.name, 'Cable Crunch'),
+    ))
+    .limit(1))[0]
+  const crunchId = crunch?.id
   if (!crunchId || !cableCrunch?.id || cableCrunch.isCustom) return
 
-  await db.$client.execute(
-    'UPDATE exercises SET exercise_type_id = ? WHERE exercise_type_id = ?',
-    [crunchId, cableCrunch.id],
-  )
-  await db.$client.execute(
-    'DELETE FROM exercise_type_method_exclusions WHERE exercise_type_id = ?',
-    [cableCrunch.id],
-  )
-  await db.$client.execute(
-    'DELETE FROM exercise_types WHERE id = ?',
-    [cableCrunch.id],
-  )
+  await db
+    .update(exercises)
+    .set({ exerciseTypeId: crunchId })
+    .where(eq(exercises.exerciseTypeId, cableCrunch.id))
+  await db
+    .delete(exerciseTypeMethodExclusions)
+    .where(eq(exerciseTypeMethodExclusions.exerciseTypeId, cableCrunch.id))
+  await db.delete(exerciseTypes).where(eq(exerciseTypes.id, cableCrunch.id))
 }
 
 export async function seedDatabaseIfEmpty(): Promise<void> {
@@ -185,12 +218,17 @@ export async function seedDatabaseIfEmpty(): Promise<void> {
   const sectionNames = ['Chest', 'Back', 'Shoulders', 'Biceps', 'Triceps', 'Forearms', 'Legs', 'Glutes', 'Core']
   const sectionRows = []
   for (const [i, name] of sectionNames.entries()) {
-    const existing = await db.$client.execute(
-      'SELECT id, name, is_custom as isCustom FROM sections WHERE name = ? LIMIT 1',
-      [name],
-    )
-    if (existing.rows.length > 0) {
-      sectionRows.push(existing.rows[0] as { id: string; name: string; isCustom: number })
+    const existing = (await db
+      .select({
+        id: sections.id,
+        name: sections.name,
+        isCustom: sections.isCustom,
+      })
+      .from(sections)
+      .where(eq(sections.name, name))
+      .limit(1))[0]
+    if (existing) {
+      sectionRows.push(existing)
       continue
     }
     const row = {
@@ -205,18 +243,23 @@ export async function seedDatabaseIfEmpty(): Promise<void> {
   const methodNames = ['Barbell', 'Dumbbell', 'Cable', 'Machine', 'Bodyweight']
   const methodRows = []
   for (const [i, name] of methodNames.entries()) {
-    const existing = await db.$client.execute(
-      'SELECT id, name FROM methods WHERE name = ? LIMIT 1',
-      [name],
-    )
-    if (existing.rows.length > 0) {
-      methodRows.push(existing.rows[0] as { id: string; name: string })
+    const existing = (await db
+      .select({
+        id: methods.id,
+        name: methods.name,
+      })
+      .from(methods)
+      .where(eq(methods.name, name))
+      .limit(1))[0]
+    if (existing) {
+      methodRows.push(existing)
       continue
     }
     const row = {
       id: genId(100 + i),
       name,
       isCustom: 0,
+      ownerExerciseTypeId: null,
     }
     await db.insert(methods).values(row)
     methodRows.push(row)
@@ -228,15 +271,22 @@ export async function seedDatabaseIfEmpty(): Promise<void> {
   for (const [i, def] of EXERCISE_DEFS.entries()) {
     const sectionId = sectionMap[def.section]
     const lockedMethodId = def.lockedMethod ? methodMap[def.lockedMethod] ?? null : null
-    const existing = await db.$client.execute(
-      'SELECT id FROM exercise_types WHERE section_id = ? AND name = ? LIMIT 1',
-      [sectionId, def.name],
-    )
-    if (existing.rows.length > 0) {
-      await db.$client.execute(
-        'UPDATE exercise_types SET method_locked = ?, locked_method_id = ? WHERE id = ?',
-        [def.methodLocked ? 1 : 0, lockedMethodId, (existing.rows[0] as { id: string }).id],
-      )
+    const existing = (await db
+      .select({ id: exerciseTypes.id })
+      .from(exerciseTypes)
+      .where(and(
+        eq(exerciseTypes.sectionId, sectionId),
+        eq(exerciseTypes.name, def.name),
+      ))
+      .limit(1))[0]
+    if (existing) {
+      await db
+        .update(exerciseTypes)
+        .set({
+          methodLocked: def.methodLocked ? 1 : 0,
+          lockedMethodId,
+        })
+        .where(eq(exerciseTypes.id, existing.id))
       continue
     }
     await db.insert(exerciseTypes).values({

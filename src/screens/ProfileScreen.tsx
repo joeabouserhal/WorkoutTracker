@@ -8,11 +8,17 @@ import {
 import type { NativeStackScreenProps } from '@react-navigation/native-stack'
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons'
 import { createStyleSheet, useStyles } from 'react-native-unistyles'
+import ThemedDialog, { type ThemedDialogAction } from '@/components/ui/ThemedDialog'
 import ScreenHeader, { useHeaderFade } from '@/components/ui/ScreenHeader'
 import { getProfile } from '@/db/profileHelpers'
 import type { ProfileStackParamList } from '../navigation/TabNavigator'
 
 type Props = NativeStackScreenProps<ProfileStackParamList, 'Profile'>
+type DialogState = {
+  title: string
+  message: string
+  actions: ThemedDialogAction[]
+}
 
 export default function ProfileScreen({ navigation }: Props) {
   const { styles, theme } = useStyles(stylesheet)
@@ -25,6 +31,7 @@ export default function ProfileScreen({ navigation }: Props) {
     defaultWeightUnit: string
   } | null>(null)
   const [loading, setLoading] = useState(true)
+  const [dialog, setDialog] = useState<DialogState | null>(null)
 
   useEffect(() => {
     loadProfile()
@@ -78,6 +85,29 @@ export default function ProfileScreen({ navigation }: Props) {
       return `${(profile.weight * 2.20462).toFixed(1)} lb`
     }
     return `${profile.weight} kg`
+  }
+
+  function closeDialog() {
+    setDialog(null)
+  }
+
+  function confirmDebugNavigation() {
+    setDialog({
+      title: 'Dangerous Debug Area',
+      message:
+        'This page contains destructive tools that can remove custom library data from this device. Create a backup before entering.',
+      actions: [
+        { label: 'Cancel', onPress: closeDialog },
+        {
+          label: 'Enter Debug',
+          variant: 'danger',
+          onPress: () => {
+            closeDialog()
+            navigation.navigate('Debug')
+          },
+        },
+      ],
+    })
   }
 
   if (loading) {
@@ -251,7 +281,33 @@ export default function ProfileScreen({ navigation }: Props) {
         </View>
         <Text style={styles.settingsChevron}>›</Text>
       </TouchableOpacity>
+
+      <Text style={styles.sectionTitle}>Debug</Text>
+
+      <TouchableOpacity
+        style={[styles.settingsButton, styles.debugButton]}
+        onPress={confirmDebugNavigation}
+        activeOpacity={0.75}
+      >
+        <View style={styles.debugIconBadge}>
+          <MaterialCommunityIcons name="alert-octagon-outline" size={19} color={theme.colors.danger} />
+        </View>
+        <View style={styles.settingsTextBlock}>
+          <Text style={styles.debugButtonTitle}>Debug Menu</Text>
+          <Text style={styles.settingsButtonDescription}>
+            Dangerous data cleanup tools.
+          </Text>
+        </View>
+        <Text style={styles.debugChevron}>›</Text>
+      </TouchableOpacity>
       </ScrollView>
+
+      <ThemedDialog
+        visible={Boolean(dialog)}
+        title={dialog?.title ?? ''}
+        message={dialog?.message}
+        actions={dialog?.actions ?? []}
+      />
     </View>
   )
 }
@@ -411,6 +467,30 @@ const stylesheet = createStyleSheet((theme) => ({
   },
   settingsChevron: {
     color: theme.colors.accent,
+    fontSize: theme.fontSize.xl,
+    fontFamily: theme.fontFamily.bold,
+  },
+  debugButton: {
+    borderColor: theme.colors.danger + '55',
+  },
+  debugIconBadge: {
+    width: 38,
+    height: 38,
+    borderRadius: theme.radius.full,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: theme.colors.danger + '16',
+    borderWidth: 1,
+    borderColor: theme.colors.danger + '45',
+  },
+  debugButtonTitle: {
+    color: theme.colors.danger,
+    fontSize: theme.fontSize.md,
+    fontFamily: theme.fontFamily.extraBold,
+    marginBottom: 2,
+  },
+  debugChevron: {
+    color: theme.colors.danger,
     fontSize: theme.fontSize.xl,
     fontFamily: theme.fontFamily.bold,
   },

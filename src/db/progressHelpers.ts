@@ -1,4 +1,13 @@
+import { and, asc, eq, gt, isNotNull } from 'drizzle-orm'
 import { db } from './client'
+import {
+  exercises as exerciseRows,
+  exerciseTypes,
+  methods,
+  sets,
+  workoutExercises,
+  workouts,
+} from './schema'
 
 type ProgressSetRow = {
   setId: string
@@ -199,32 +208,32 @@ function buildAnalytics(rows: ProgressSetRow[]): ProgressAnalyticsSummary {
 export async function getProgressOverview(limit = 6): Promise<ProgressOverview> {
   await ensureProgressTables()
 
-  const result = await db.$client.execute(
-    `SELECT
-       s.id as setId,
-       e.exercise_type_id as exerciseTypeId,
-       et.name as exerciseName,
-       e.method_id as methodId,
-       m.name as methodName,
-       w.id as workoutId,
-       w.started_at as workoutStartedAt,
-       s.weight as weightKg,
-       s.weight_unit as weightUnit,
-       s.reps as reps,
-       s.completed_at as completedAt
-     FROM sets s
-     JOIN workout_exercises we ON we.id = s.workout_exercise_id
-     JOIN workouts w ON w.id = we.workout_id
-     JOIN exercises e ON e.id = we.exercise_id
-     JOIN exercise_types et ON et.id = e.exercise_type_id
-     JOIN methods m ON m.id = e.method_id
-     WHERE w.ended_at IS NOT NULL
-       AND s.weight > 0
-       AND s.reps > 0
-     ORDER BY s.completed_at ASC, s.id ASC`,
-  )
-
-  const rows = (result.rows as ProgressSetRow[]).map((row) => ({
+  const rows = (await db
+    .select({
+      setId: sets.id,
+      exerciseTypeId: exerciseRows.exerciseTypeId,
+      exerciseName: exerciseTypes.name,
+      methodId: exerciseRows.methodId,
+      methodName: methods.name,
+      workoutId: workouts.id,
+      workoutStartedAt: workouts.startedAt,
+      weightKg: sets.weight,
+      weightUnit: sets.weightUnit,
+      reps: sets.reps,
+      completedAt: sets.completedAt,
+    })
+    .from(sets)
+    .innerJoin(workoutExercises, eq(workoutExercises.id, sets.workoutExerciseId))
+    .innerJoin(workouts, eq(workouts.id, workoutExercises.workoutId))
+    .innerJoin(exerciseRows, eq(exerciseRows.id, workoutExercises.exerciseId))
+    .innerJoin(exerciseTypes, eq(exerciseTypes.id, exerciseRows.exerciseTypeId))
+    .innerJoin(methods, eq(methods.id, exerciseRows.methodId))
+    .where(and(
+      isNotNull(workouts.endedAt),
+      gt(sets.weight, 0),
+      gt(sets.reps, 0),
+    ))
+    .orderBy(asc(sets.completedAt), asc(sets.id))).map((row) => ({
     ...row,
     workoutStartedAt: Number(row.workoutStartedAt),
     weightKg: Number(row.weightKg),
@@ -236,8 +245,8 @@ export async function getProgressOverview(limit = 6): Promise<ProgressOverview> 
     return acc
   }, {})
 
-  const exercises = Object.entries(grouped).map(([exerciseTypeId, exerciseRows]) => {
-    const sorted = [...exerciseRows].sort((a, b) =>
+  const exerciseSummaries = Object.entries(grouped).map(([exerciseTypeId, rowsForExercise]) => {
+    const sorted = [...rowsForExercise].sort((a, b) =>
       a.completedAt === b.completedAt
         ? a.setId.localeCompare(b.setId)
         : a.completedAt - b.completedAt,
@@ -247,7 +256,7 @@ export async function getProgressOverview(limit = 6): Promise<ProgressOverview> 
       acc[row.methodId] = [...(acc[row.methodId] ?? []), row]
       return acc
     }, {})
-    const methods = Object.entries(groupedMethods)
+    const methodSummaries = Object.entries(groupedMethods)
       .map(([methodId, methodRows]) => ({
         methodId,
         methodName: methodRows[0]?.methodName ?? 'Method',
@@ -264,14 +273,14 @@ export async function getProgressOverview(limit = 6): Promise<ProgressOverview> 
       exerciseName: sorted[0]?.exerciseName ?? 'Exercise',
       setCount: sorted.length,
       workoutCount: workoutIds.size,
-      methodCount: methods.length,
+      methodCount: methodSummaries.length,
       latestSetAt: sorted[sorted.length - 1]?.completedAt ?? Date.now(),
-      methods,
+      methods: methodSummaries,
     } satisfies ProgressExerciseSummary
   })
 
   return {
-    exercises: exercises
+    exercises: exerciseSummaries
       .sort((a, b) => {
         if (a.setCount !== b.setCount) return b.setCount - a.setCount
         if (a.workoutCount !== b.workoutCount) return b.workoutCount - a.workoutCount

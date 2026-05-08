@@ -9,14 +9,19 @@ import {
   type LayoutChangeEvent,
   type NativeScrollEvent,
   type NativeSyntheticEvent,
-  ScrollView,
+  ScrollView as RNScrollView,
   StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
   View,
 } from 'react-native'
-import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler'
+import {
+  Gesture,
+  GestureDetector,
+  GestureHandlerRootView,
+  ScrollView as GestureScrollView,
+} from 'react-native-gesture-handler'
 import ReanimatedSwipeable from 'react-native-gesture-handler/ReanimatedSwipeable'
 import Reanimated, {
   runOnJS,
@@ -88,6 +93,7 @@ const SHEET_SWIPE_CLOSE_VELOCITY = 0.48
 const WORKOUT_EXERCISE_DEFAULT_HEIGHT = 178
 const WORKOUT_EXERCISE_GAP = 8
 const ACTIVE_WORKOUT_DRAFT_SAVE_DELAY_MS = 250
+const DELETE_SWIPE_DRAG_OFFSET = 18
 const PR_CONFETTI_COLORS = [PR_GOLD, '#F7D774', '#FFFFFF', '#75C7E6', '#8FE3B0']
 const PR_CONFETTI = Array.from({ length: 22 }, (_, index) => {
   const column = index % 11
@@ -358,7 +364,7 @@ function formatPrWeight(weightKg: number, unit: string): string {
 export default function ActiveWorkoutSheet() {
   const { styles, theme } = useStyles(stylesheet)
   const insets = useSafeAreaInsets()
-  const scrollRef = useRef<ScrollView>(null)
+  const scrollRef = useRef<RNScrollView>(null)
   const [pickerVisible, setPickerVisible] = useState(false)
   const [localSets, setLocalSets] = useState<Record<string, LocalSet[]>>({})
   const [restSetKey, setRestSetKey] = useState<string | null>(null)
@@ -1414,38 +1420,39 @@ export default function ActiveWorkoutSheet() {
           navigationBarTranslucent
         >
         <GestureHandlerRootView style={styles.gestureRoot}>
-        <GestureDetector gesture={swipeDownToCloseGesture}>
         <View
           style={[styles.root, { paddingTop: insets.top }]}
         >
           {/* Fixed header */}
-          <View style={styles.header}>
-            <TouchableOpacity style={styles.iconBtn} onPress={handleCloseSheet}>
-              <MaterialCommunityIcons name="chevron-down" size={17} color={theme.colors.text} />
-            </TouchableOpacity>
-            <Text style={styles.headerTitle}>Active Workout</Text>
-            <View style={styles.headerActions}>
-              <TouchableOpacity
-                style={styles.cancelIconButton}
-                onPress={requestCancelWorkout}
-                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-              >
-                <MaterialCommunityIcons
-                  name="close"
-                  size={17}
-                  color={theme.colors.text}
-                />
-                <Text style={styles.cancelIconText}>Cancel</Text>
+          <GestureDetector gesture={swipeDownToCloseGesture}>
+            <View style={styles.header}>
+              <TouchableOpacity style={styles.iconBtn} onPress={handleCloseSheet}>
+                <MaterialCommunityIcons name="chevron-down" size={17} color={theme.colors.text} />
               </TouchableOpacity>
-              <View style={styles.timerPill}>
-                <View style={styles.timerDot} />
-                <Text style={styles.timerText}>{formatElapsed(elapsed)}</Text>
+              <Text style={styles.headerTitle}>Active Workout</Text>
+              <View style={styles.headerActions}>
+                <TouchableOpacity
+                  style={styles.cancelIconButton}
+                  onPress={requestCancelWorkout}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                >
+                  <MaterialCommunityIcons
+                    name="close"
+                    size={17}
+                    color={theme.colors.text}
+                  />
+                  <Text style={styles.cancelIconText}>Cancel</Text>
+                </TouchableOpacity>
+                <View style={styles.timerPill}>
+                  <View style={styles.timerDot} />
+                  <Text style={styles.timerText}>{formatElapsed(elapsed)}</Text>
+                </View>
               </View>
             </View>
-          </View>
+          </GestureDetector>
 
           {/* Scrollable exercise list */}
-          <ScrollView
+          <GestureScrollView
             ref={scrollRef}
             style={styles.scroll}
             contentContainerStyle={[
@@ -1517,7 +1524,7 @@ export default function ActiveWorkoutSheet() {
                               <ReanimatedSwipeable
                                 renderRightActions={() => renderDeleteAction(() => removeLocalSet(ex.workoutExerciseId, s.id))}
                                 childrenContainerStyle={styles.swipeableSetContent}
-                                dragOffsetFromRightEdge={3}
+                                dragOffsetFromRightEdge={DELETE_SWIPE_DRAG_OFFSET}
                                 overshootRight={false}
                               >
                                 <View
@@ -1629,7 +1636,7 @@ export default function ActiveWorkoutSheet() {
               </View>
               <Text style={styles.addExerciseText}>Add Exercise</Text>
             </TouchableOpacity>
-          </ScrollView>
+          </GestureScrollView>
 
           {/* Fixed footer */}
           <View
@@ -1737,7 +1744,6 @@ export default function ActiveWorkoutSheet() {
             </View>
           ) : null}
         </View>
-        </GestureDetector>
         </GestureHandlerRootView>
         </Modal>
       ) : null}
@@ -1844,7 +1850,7 @@ export default function ActiveWorkoutSheet() {
               </View>
             </View>
 
-            <ScrollView
+            <RNScrollView
               style={styles.prList}
               contentContainerStyle={styles.prListContent}
               showsVerticalScrollIndicator={false}
@@ -1891,7 +1897,7 @@ export default function ActiveWorkoutSheet() {
                   </View>
                 </View>
               ))}
-            </ScrollView>
+            </RNScrollView>
 
             <TouchableOpacity
               style={styles.prDoneButton}
@@ -2199,6 +2205,7 @@ function SortableActiveWorkoutExerciseRow({
               <MaterialCommunityIcons name="trash-can-outline" size={22} color="#fff" />
             </TouchableOpacity>
           )}
+          dragOffsetFromRightEdge={DELETE_SWIPE_DRAG_OFFSET}
           overshootRight={false}
         >
           <View style={styles.exerciseHeader}>

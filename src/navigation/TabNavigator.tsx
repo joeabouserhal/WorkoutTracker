@@ -26,6 +26,7 @@ import ThemesScreen from '../screens/ThemesScreen'
 import ScheduleScreen from '../screens/ScheduleScreen'
 import AboutScreen from '../screens/AboutScreen'
 import BackupScreen from '../screens/BackupScreen'
+import DebugScreen from '../screens/DebugScreen'
 import ActiveWorkoutSheet from '../components/ActiveWorkoutSheet'
 import { useSessionStore } from '@/store/sessionStore'
 import { formatRestTimer } from '@/services/restTimerSettings'
@@ -44,6 +45,7 @@ const LibraryStack = createNativeStackNavigator()
 const TAB_BAR_HORIZONTAL_PADDING = 8
 const TAB_ICON_PILL_WIDTH = 52
 const TAB_ICON_PILL_TOP = 9
+const TAB_BAR_EXTRA_BOTTOM_PADDING = 10
 export type ProfileStackParamList = {
   Profile: undefined
   EditProfile: undefined
@@ -52,6 +54,7 @@ export type ProfileStackParamList = {
   Backup: undefined
   Schedule: undefined
   About: undefined
+  Debug: undefined
 }
 const ProfileStack = createNativeStackNavigator<ProfileStackParamList>()
 
@@ -105,6 +108,7 @@ function ProfileStackScreen() {
       <ProfileStack.Screen name="Backup" component={BackupScreen} />
       <ProfileStack.Screen name="Schedule" component={ScheduleScreen} />
       <ProfileStack.Screen name="About" component={AboutScreen} />
+      <ProfileStack.Screen name="Debug" component={DebugScreen} />
     </ProfileStack.Navigator>
   )
 }
@@ -334,7 +338,7 @@ function CustomTabBar(props: BottomTabBarProps) {
   const { styles } = useStyles(stylesheet)
   const insets = useSafeAreaInsets()
   const activeWorkoutId = useSessionStore((s) => s.activeWorkoutId)
-  const bottomPadding = Math.max(insets.bottom, 8)
+  const bottomPadding = Math.max(insets.bottom + TAB_BAR_EXTRA_BOTTOM_PADDING, 18)
   const [tabBarWidth, setTabBarWidth] = useState(0)
   const activeIndex = useSharedValue(state.index)
 

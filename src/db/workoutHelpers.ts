@@ -1,4 +1,17 @@
+import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, lt, ne, notInArray, or, sql } from 'drizzle-orm'
 import { db } from './client'
+import {
+  exerciseTypeMethodExclusions as exerciseTypeMethodExclusionsTable,
+  exerciseTypes as exerciseTypesTable,
+  exercises as exercisesTable,
+  methods as methodsTable,
+  sections as sectionsTable,
+  sets as setsTable,
+  workoutExercises as workoutExercisesTable,
+  workoutTemplateExercises as workoutTemplateExercisesTable,
+  workoutTemplates as workoutTemplatesTable,
+  workouts as workoutsTable,
+} from './schema'
 
 async function ensureTable() {
   await db.$client.execute(`
@@ -43,11 +56,16 @@ async function ensureLibraryTables() {
     id TEXT PRIMARY KEY, name TEXT NOT NULL, is_custom INTEGER NOT NULL DEFAULT 0
   )`)
   await db.$client.execute(`CREATE TABLE IF NOT EXISTS methods (
-    id TEXT PRIMARY KEY, name TEXT NOT NULL, is_custom INTEGER NOT NULL DEFAULT 0
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    is_custom INTEGER NOT NULL DEFAULT 0,
+    is_hidden INTEGER NOT NULL DEFAULT 0,
+    owner_exercise_type_id TEXT
   )`)
   await db.$client.execute(`CREATE TABLE IF NOT EXISTS exercise_types (
     id TEXT PRIMARY KEY, section_id TEXT NOT NULL, name TEXT NOT NULL,
     is_custom INTEGER NOT NULL DEFAULT 0,
+    is_hidden INTEGER NOT NULL DEFAULT 0,
     method_locked INTEGER NOT NULL DEFAULT 0,
     locked_method_id TEXT
   )`)
@@ -69,13 +87,28 @@ async function ensureLibraryTables() {
   const hasMethodCustom = methodColumns.rows.some(
     (row: { name?: unknown }) => row.name === 'is_custom',
   )
+  const hasMethodOwnerExerciseTypeId = methodColumns.rows.some(
+    (row: { name?: unknown }) => row.name === 'owner_exercise_type_id',
+  )
+  const hasMethodHidden = methodColumns.rows.some(
+    (row: { name?: unknown }) => row.name === 'is_hidden',
+  )
   if (!hasMethodCustom) {
     await db.$client.execute('ALTER TABLE methods ADD COLUMN is_custom INTEGER NOT NULL DEFAULT 0')
+  }
+  if (!hasMethodOwnerExerciseTypeId) {
+    await db.$client.execute('ALTER TABLE methods ADD COLUMN owner_exercise_type_id TEXT')
+  }
+  if (!hasMethodHidden) {
+    await db.$client.execute('ALTER TABLE methods ADD COLUMN is_hidden INTEGER NOT NULL DEFAULT 0')
   }
 
   const exerciseTypeColumns = await db.$client.execute('PRAGMA table_info(exercise_types)')
   const hasExerciseTypeCustom = exerciseTypeColumns.rows.some(
     (row: { name?: unknown }) => row.name === 'is_custom',
+  )
+  const hasExerciseTypeHidden = exerciseTypeColumns.rows.some(
+    (row: { name?: unknown }) => row.name === 'is_hidden',
   )
   const hasMethodLocked = exerciseTypeColumns.rows.some(
     (row: { name?: unknown }) => row.name === 'method_locked',
@@ -85,6 +118,9 @@ async function ensureLibraryTables() {
   )
   if (!hasExerciseTypeCustom) {
     await db.$client.execute('ALTER TABLE exercise_types ADD COLUMN is_custom INTEGER NOT NULL DEFAULT 0')
+  }
+  if (!hasExerciseTypeHidden) {
+    await db.$client.execute('ALTER TABLE exercise_types ADD COLUMN is_hidden INTEGER NOT NULL DEFAULT 0')
   }
   if (!hasMethodLocked) {
     await db.$client.execute('ALTER TABLE exercise_types ADD COLUMN method_locked INTEGER NOT NULL DEFAULT 0')
@@ -97,30 +133,31 @@ async function ensureLibraryTables() {
 export async function createWorkout(): Promise<string> {
   await ensureTable()
   const id = `workout_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
-  await db.$client.execute(
-    'INSERT INTO workouts (id, name, started_at) VALUES (?, ?, ?)',
-    [id, 'Workout', Date.now()],
-  )
+  await db.insert(workoutsTable).values({
+    id,
+    name: 'Workout',
+    startedAt: Date.now(),
+  })
   return id
 }
 
 export async function getWorkoutName(workoutId: string): Promise<string> {
   await ensureTable()
-  const result = await db.$client.execute(
-    'SELECT name FROM workouts WHERE id = ?',
-    [workoutId],
-  )
-  const row = result.rows[0] as { name?: string | null } | undefined
+  const row = (await db
+    .select({ name: workoutsTable.name })
+    .from(workoutsTable)
+    .where(eq(workoutsTable.id, workoutId))
+    .limit(1))[0]
   return row?.name ?? ''
 }
 
 export async function updateWorkoutName(workoutId: string, name: string): Promise<void> {
   await ensureTable()
   const trimmed = name.trim()
-  await db.$client.execute(
-    'UPDATE workouts SET name = ? WHERE id = ?',
-    [trimmed.length > 0 ? trimmed : null, workoutId],
-  )
+  await db
+    .update(workoutsTable)
+    .set({ name: trimmed.length > 0 ? trimmed : null })
+    .where(eq(workoutsTable.id, workoutId))
 }
 
 export async function updateCompletedWorkout(params: {
@@ -132,11 +169,17 @@ export async function updateCompletedWorkout(params: {
   await ensureTable()
   await ensureExerciseTables()
 
-  const workoutResult = await db.$client.execute(
-    'SELECT started_at as startedAt, ended_at as endedAt FROM workouts WHERE id = ? AND ended_at IS NOT NULL',
-    [params.workoutId],
-  )
-  const workout = workoutResult.rows[0] as {
+  const workout = (await db
+    .select({
+      startedAt: workoutsTable.startedAt,
+      endedAt: workoutsTable.endedAt,
+    })
+    .from(workoutsTable)
+    .where(and(
+      eq(workoutsTable.id, params.workoutId),
+      isNotNull(workoutsTable.endedAt),
+    ))
+    .limit(1))[0] as {
     startedAt?: number
     endedAt?: number | null
   } | undefined
@@ -151,72 +194,84 @@ export async function updateCompletedWorkout(params: {
   const endedAt = workout.endedAt + delta
   const trimmedName = params.name.trim()
 
-  await db.$client.execute(
-    'UPDATE workouts SET name = ?, started_at = ?, ended_at = ? WHERE id = ?',
-    [trimmedName.length > 0 ? trimmedName : null, startedAt, endedAt, params.workoutId],
-  )
+  await db
+    .update(workoutsTable)
+    .set({
+      name: trimmedName.length > 0 ? trimmedName : null,
+      startedAt,
+      endedAt,
+    })
+    .where(eq(workoutsTable.id, params.workoutId))
 
   if (delta !== 0) {
-    await db.$client.execute(
-      `UPDATE sets
-       SET completed_at = completed_at + ?
-       WHERE workout_exercise_id IN (
-         SELECT id FROM workout_exercises WHERE workout_id = ?
-       )`,
-      [delta, params.workoutId],
-    )
+    const workoutExerciseIds = (await db
+      .select({ id: workoutExercisesTable.id })
+      .from(workoutExercisesTable)
+      .where(eq(workoutExercisesTable.workoutId, params.workoutId)))
+      .map((row) => row.id)
+    if (workoutExerciseIds.length > 0) {
+      await db
+        .update(setsTable)
+        .set({ completedAt: sql`${setsTable.completedAt} + ${delta}` })
+        .where(inArray(setsTable.workoutExerciseId, workoutExerciseIds))
+    }
   }
 
+  const workoutExerciseIds = (await db
+    .select({ id: workoutExercisesTable.id })
+    .from(workoutExercisesTable)
+    .where(eq(workoutExercisesTable.workoutId, params.workoutId)))
+    .map((row) => row.id)
+
   for (const set of params.sets) {
+    if (workoutExerciseIds.length === 0) break
     const weightKg = Number.isFinite(set.weightKg) ? set.weightKg : 0
     const weightUnit = set.weightUnit === 'lb' ? 'lb' : 'kg'
     const reps = Number.isFinite(set.reps) ? Math.max(0, Math.trunc(set.reps)) : 0
     const volume = weightKg * reps
-    await db.$client.execute(
-      `UPDATE sets
-       SET weight = ?, weight_unit = ?, reps = ?, volume = ?
-       WHERE id = ?
-         AND workout_exercise_id IN (
-           SELECT id FROM workout_exercises WHERE workout_id = ?
-         )`,
-      [weightKg, weightUnit, reps, volume, set.id, params.workoutId],
-    )
+    await db
+      .update(setsTable)
+      .set({
+        weight: weightKg,
+        weightUnit,
+        reps,
+        volume,
+      })
+      .where(and(
+        eq(setsTable.id, set.id),
+        inArray(setsTable.workoutExerciseId, workoutExerciseIds),
+      ))
   }
 }
 
 export async function finishWorkout(workoutId: string): Promise<void> {
   await ensureTable()
   await ensureExerciseTables()
-  await db.$client.execute(
-    'UPDATE workouts SET ended_at = ? WHERE id = ?',
-    [Date.now(), workoutId],
-  )
+  await db
+    .update(workoutsTable)
+    .set({ endedAt: Date.now() })
+    .where(eq(workoutsTable.id, workoutId))
 }
 
 export async function deleteWorkout(workoutId: string): Promise<void> {
   await ensureTable()
   await ensureExerciseTables()
-  await db.$client.execute(
-    `DELETE FROM sets
-     WHERE workout_exercise_id IN (
-       SELECT id FROM workout_exercises WHERE workout_id = ?
-     )`,
-    [workoutId],
-  )
-  await db.$client.execute('DELETE FROM workout_exercises WHERE workout_id = ?', [workoutId])
-  await db.$client.execute('DELETE FROM workouts WHERE id = ?', [workoutId])
+  const workoutExerciseIds = (await db
+    .select({ id: workoutExercisesTable.id })
+    .from(workoutExercisesTable)
+    .where(eq(workoutExercisesTable.workoutId, workoutId)))
+    .map((row) => row.id)
+  if (workoutExerciseIds.length > 0) {
+    await db.delete(setsTable).where(inArray(setsTable.workoutExerciseId, workoutExerciseIds))
+  }
+  await db.delete(workoutExercisesTable).where(eq(workoutExercisesTable.workoutId, workoutId))
+  await db.delete(workoutsTable).where(eq(workoutsTable.id, workoutId))
 }
 
 export async function deleteWorkoutExercise(workoutExerciseId: string): Promise<void> {
   await ensureExerciseTables()
-  await db.$client.execute(
-    'DELETE FROM sets WHERE workout_exercise_id = ?',
-    [workoutExerciseId],
-  )
-  await db.$client.execute(
-    'DELETE FROM workout_exercises WHERE id = ?',
-    [workoutExerciseId],
-  )
+  await db.delete(setsTable).where(eq(setsTable.workoutExerciseId, workoutExerciseId))
+  await db.delete(workoutExercisesTable).where(eq(workoutExercisesTable.id, workoutExerciseId))
 }
 
 export async function updateWorkoutExerciseOrder(
@@ -224,10 +279,10 @@ export async function updateWorkoutExerciseOrder(
 ): Promise<void> {
   await ensureExerciseTables()
   for (const [index, workoutExerciseId] of workoutExerciseIds.entries()) {
-    await db.$client.execute(
-      'UPDATE workout_exercises SET order_index = ? WHERE id = ?',
-      [index, workoutExerciseId],
-    )
+    await db
+      .update(workoutExercisesTable)
+      .set({ orderIndex: index })
+      .where(eq(workoutExercisesTable.id, workoutExerciseId))
   }
 }
 
@@ -339,25 +394,24 @@ async function getWeightPrHistoryForExerciseTypes(
   const uniqueIds = [...new Set(exerciseTypeIds)].filter(Boolean)
   if (uniqueIds.length === 0) return []
 
-  const placeholders = uniqueIds.map(() => '?').join(', ')
-  const result = await db.$client.execute(
-    `SELECT
-       s.id as setId,
-       e.exercise_type_id as exerciseTypeId,
-       e.method_id as methodId,
-       s.weight as weightKg,
-       s.completed_at as completedAt
-     FROM sets s
-     JOIN workout_exercises we ON we.id = s.workout_exercise_id
-     JOIN exercises e ON e.id = we.exercise_id
-     JOIN workouts w ON w.id = we.workout_id
-     WHERE e.exercise_type_id IN (${placeholders})
-       AND w.ended_at IS NOT NULL
-       AND s.weight > 0
-     ORDER BY s.completed_at ASC, s.id ASC`,
-    uniqueIds,
-  )
-  return result.rows as WeightPrHistorySetRow[]
+  return db
+    .select({
+      setId: setsTable.id,
+      exerciseTypeId: exercisesTable.exerciseTypeId,
+      methodId: exercisesTable.methodId,
+      weightKg: setsTable.weight,
+      completedAt: setsTable.completedAt,
+    })
+    .from(setsTable)
+    .innerJoin(workoutExercisesTable, eq(workoutExercisesTable.id, setsTable.workoutExerciseId))
+    .innerJoin(exercisesTable, eq(exercisesTable.id, workoutExercisesTable.exerciseId))
+    .innerJoin(workoutsTable, eq(workoutsTable.id, workoutExercisesTable.workoutId))
+    .where(and(
+      inArray(exercisesTable.exerciseTypeId, uniqueIds),
+      isNotNull(workoutsTable.endedAt),
+      gt(setsTable.weight, 0),
+    ))
+    .orderBy(asc(setsTable.completedAt), asc(setsTable.id))
 }
 
 function buildWeightPrFlags(
@@ -400,23 +454,23 @@ async function enrichWorkoutSummariesWithWeightPrs(
   if (summaries.length === 0) return summaries
 
   const workoutIds = summaries.map((workout) => workout.id)
-  const placeholders = workoutIds.map(() => '?').join(', ')
-  const visibleRows = (await db.$client.execute(
-    `SELECT
-       w.id as workoutId,
-       s.id as setId,
-       e.exercise_type_id as exerciseTypeId,
-       e.method_id as methodId,
-       s.weight as weightKg,
-       s.completed_at as completedAt
-     FROM workouts w
-     JOIN workout_exercises we ON we.workout_id = w.id
-     JOIN exercises e ON e.id = we.exercise_id
-     JOIN sets s ON s.workout_exercise_id = we.id
-     WHERE w.id IN (${placeholders})
-       AND s.weight > 0`,
-    workoutIds,
-  )).rows as VisibleWeightPrSetRow[]
+  const visibleRows = await db
+    .select({
+      workoutId: workoutsTable.id,
+      setId: setsTable.id,
+      exerciseTypeId: exercisesTable.exerciseTypeId,
+      methodId: exercisesTable.methodId,
+      weightKg: setsTable.weight,
+      completedAt: setsTable.completedAt,
+    })
+    .from(workoutsTable)
+    .innerJoin(workoutExercisesTable, eq(workoutExercisesTable.workoutId, workoutsTable.id))
+    .innerJoin(exercisesTable, eq(exercisesTable.id, workoutExercisesTable.exerciseId))
+    .innerJoin(setsTable, eq(setsTable.workoutExerciseId, workoutExercisesTable.id))
+    .where(and(
+      inArray(workoutsTable.id, workoutIds),
+      gt(setsTable.weight, 0),
+    )) as VisibleWeightPrSetRow[]
 
   const flags = buildWeightPrFlags(
     await getWeightPrHistoryForExerciseTypes(
@@ -448,98 +502,96 @@ export async function getCompletedWorkoutsInRange(
 ): Promise<WorkoutSummary[]> {
   await ensureTable()
   await ensureExerciseTables()
-  const result = await db.$client.execute(
-    `SELECT
-       w.id,
-       w.name,
-       w.started_at as startedAt,
-       w.ended_at as endedAt,
-       COUNT(DISTINCT we.id) as exerciseCount,
-       COUNT(s.id) as setCount,
-       COALESCE(SUM(s.volume), 0) as volume
-     FROM workouts w
-     LEFT JOIN workout_exercises we ON we.workout_id = w.id
-     LEFT JOIN sets s ON s.workout_exercise_id = we.id
-     WHERE w.ended_at IS NOT NULL
-       AND w.started_at >= ?
-       AND w.started_at < ?
-     GROUP BY w.id
-     ORDER BY w.started_at DESC`,
-    [startAt, endAt],
-  )
-  return enrichWorkoutSummariesWithWeightPrs(result.rows as WorkoutSummary[])
+  const rows = await db
+    .select({
+      id: workoutsTable.id,
+      name: workoutsTable.name,
+      startedAt: workoutsTable.startedAt,
+      endedAt: workoutsTable.endedAt,
+      exerciseCount: sql<number>`COUNT(DISTINCT ${workoutExercisesTable.id})`,
+      setCount: sql<number>`COUNT(${setsTable.id})`,
+      volume: sql<number>`COALESCE(SUM(${setsTable.volume}), 0)`,
+    })
+    .from(workoutsTable)
+    .leftJoin(workoutExercisesTable, eq(workoutExercisesTable.workoutId, workoutsTable.id))
+    .leftJoin(setsTable, eq(setsTable.workoutExerciseId, workoutExercisesTable.id))
+    .where(and(
+      isNotNull(workoutsTable.endedAt),
+      sql`${workoutsTable.startedAt} >= ${startAt}`,
+      lt(workoutsTable.startedAt, endAt),
+    ))
+    .groupBy(workoutsTable.id)
+    .orderBy(desc(workoutsTable.startedAt))
+  return enrichWorkoutSummariesWithWeightPrs(rows as WorkoutSummary[])
 }
 
 export async function getRecentCompletedWorkouts(limit = 3): Promise<WorkoutSummary[]> {
   await ensureTable()
   await ensureExerciseTables()
-  const result = await db.$client.execute(
-    `SELECT
-       w.id,
-       w.name,
-       w.started_at as startedAt,
-       w.ended_at as endedAt,
-       COUNT(DISTINCT we.id) as exerciseCount,
-       COUNT(s.id) as setCount,
-       COALESCE(SUM(s.volume), 0) as volume
-     FROM workouts w
-     LEFT JOIN workout_exercises we ON we.workout_id = w.id
-     LEFT JOIN sets s ON s.workout_exercise_id = we.id
-     WHERE w.ended_at IS NOT NULL
-     GROUP BY w.id
-     ORDER BY w.started_at DESC
-     LIMIT ?`,
-    [limit],
-  )
-  return enrichWorkoutSummariesWithWeightPrs(result.rows as WorkoutSummary[])
+  const rows = await db
+    .select({
+      id: workoutsTable.id,
+      name: workoutsTable.name,
+      startedAt: workoutsTable.startedAt,
+      endedAt: workoutsTable.endedAt,
+      exerciseCount: sql<number>`COUNT(DISTINCT ${workoutExercisesTable.id})`,
+      setCount: sql<number>`COUNT(${setsTable.id})`,
+      volume: sql<number>`COALESCE(SUM(${setsTable.volume}), 0)`,
+    })
+    .from(workoutsTable)
+    .leftJoin(workoutExercisesTable, eq(workoutExercisesTable.workoutId, workoutsTable.id))
+    .leftJoin(setsTable, eq(setsTable.workoutExerciseId, workoutExercisesTable.id))
+    .where(isNotNull(workoutsTable.endedAt))
+    .groupBy(workoutsTable.id)
+    .orderBy(desc(workoutsTable.startedAt))
+    .limit(limit)
+  return enrichWorkoutSummariesWithWeightPrs(rows as WorkoutSummary[])
 }
 
 export async function getWorkoutDetail(workoutId: string): Promise<WorkoutDetail | null> {
   await ensureTable()
   await ensureExerciseTables()
-  const workoutResult = await db.$client.execute(
-    `SELECT
-       w.id,
-       w.name,
-       w.started_at as startedAt,
-       w.ended_at as endedAt,
-       COUNT(DISTINCT we.id) as exerciseCount,
-       COUNT(s.id) as setCount,
-       COALESCE(SUM(s.volume), 0) as volume
-     FROM workouts w
-     LEFT JOIN workout_exercises we ON we.workout_id = w.id
-     LEFT JOIN sets s ON s.workout_exercise_id = we.id
-     WHERE w.id = ?
-     GROUP BY w.id`,
-    [workoutId],
-  )
-  const workout = workoutResult.rows[0] as WorkoutSummary | undefined
+  const workout = (await db
+    .select({
+      id: workoutsTable.id,
+      name: workoutsTable.name,
+      startedAt: workoutsTable.startedAt,
+      endedAt: workoutsTable.endedAt,
+      exerciseCount: sql<number>`COUNT(DISTINCT ${workoutExercisesTable.id})`,
+      setCount: sql<number>`COUNT(${setsTable.id})`,
+      volume: sql<number>`COALESCE(SUM(${setsTable.volume}), 0)`,
+    })
+    .from(workoutsTable)
+    .leftJoin(workoutExercisesTable, eq(workoutExercisesTable.workoutId, workoutsTable.id))
+    .leftJoin(setsTable, eq(setsTable.workoutExerciseId, workoutExercisesTable.id))
+    .where(eq(workoutsTable.id, workoutId))
+    .groupBy(workoutsTable.id)
+    .limit(1))[0] as WorkoutSummary | undefined
   if (!workout?.endedAt) return null
 
-  const rows = (await db.$client.execute(
-    `SELECT
-       we.id as workoutExerciseId,
-       et.id as exerciseTypeId,
-       et.name as exerciseName,
-       m.name as methodName,
-       e.method_id as methodId,
-       e.default_unit as defaultWeightUnit,
-       s.id as setId,
-       s.set_type as setType,
-       s.weight as weightKg,
-       s.weight_unit as weightUnit,
-       s.reps as reps,
-       s.volume as volume,
-       s.completed_at as completedAt
-     FROM workout_exercises we
-     JOIN exercises e ON e.id = we.exercise_id
-     JOIN exercise_types et ON et.id = e.exercise_type_id
-     JOIN methods m ON m.id = e.method_id
-     LEFT JOIN sets s ON s.workout_exercise_id = we.id
-     WHERE we.workout_id = ?
-     ORDER BY we.order_index ASC, s.completed_at ASC`,
-    [workoutId],
-  )).rows as Array<{
+  const rows = await db
+    .select({
+      workoutExerciseId: workoutExercisesTable.id,
+      exerciseTypeId: exerciseTypesTable.id,
+      exerciseName: exerciseTypesTable.name,
+      methodName: methodsTable.name,
+      methodId: exercisesTable.methodId,
+      defaultWeightUnit: exercisesTable.defaultUnit,
+      setId: setsTable.id,
+      setType: setsTable.setType,
+      weightKg: setsTable.weight,
+      weightUnit: setsTable.weightUnit,
+      reps: setsTable.reps,
+      volume: setsTable.volume,
+      completedAt: setsTable.completedAt,
+    })
+    .from(workoutExercisesTable)
+    .innerJoin(exercisesTable, eq(exercisesTable.id, workoutExercisesTable.exerciseId))
+    .innerJoin(exerciseTypesTable, eq(exerciseTypesTable.id, exercisesTable.exerciseTypeId))
+    .innerJoin(methodsTable, eq(methodsTable.id, exercisesTable.methodId))
+    .leftJoin(setsTable, eq(setsTable.workoutExerciseId, workoutExercisesTable.id))
+    .where(eq(workoutExercisesTable.workoutId, workoutId))
+    .orderBy(asc(workoutExercisesTable.orderIndex), asc(setsTable.completedAt)) as Array<{
     workoutExerciseId: string
     exerciseTypeId: string
     exerciseName: string
@@ -616,29 +668,30 @@ export async function getWorkoutWeightPrAchievements(
   await ensureTable()
   await ensureExerciseTables()
 
-  const workoutRows = (await db.$client.execute(
-    `SELECT
-       s.id as setId,
-       et.name as exerciseName,
-       m.name as methodName,
-       e.exercise_type_id as exerciseTypeId,
-       e.method_id as methodId,
-       s.weight as weightKg,
-       s.weight_unit as weightUnit,
-       s.reps as reps,
-       s.completed_at as completedAt
-     FROM workout_exercises we
-     JOIN exercises e ON e.id = we.exercise_id
-     JOIN exercise_types et ON et.id = e.exercise_type_id
-     JOIN methods m ON m.id = e.method_id
-     JOIN sets s ON s.workout_exercise_id = we.id
-     JOIN workouts w ON w.id = we.workout_id
-     WHERE we.workout_id = ?
-       AND w.ended_at IS NOT NULL
-       AND s.weight > 0
-     ORDER BY s.completed_at ASC, s.id ASC`,
-    [workoutId],
-  )).rows as Array<{
+  const workoutRows = await db
+    .select({
+      setId: setsTable.id,
+      exerciseName: exerciseTypesTable.name,
+      methodName: methodsTable.name,
+      exerciseTypeId: exercisesTable.exerciseTypeId,
+      methodId: exercisesTable.methodId,
+      weightKg: setsTable.weight,
+      weightUnit: setsTable.weightUnit,
+      reps: setsTable.reps,
+      completedAt: setsTable.completedAt,
+    })
+    .from(workoutExercisesTable)
+    .innerJoin(exercisesTable, eq(exercisesTable.id, workoutExercisesTable.exerciseId))
+    .innerJoin(exerciseTypesTable, eq(exerciseTypesTable.id, exercisesTable.exerciseTypeId))
+    .innerJoin(methodsTable, eq(methodsTable.id, exercisesTable.methodId))
+    .innerJoin(setsTable, eq(setsTable.workoutExerciseId, workoutExercisesTable.id))
+    .innerJoin(workoutsTable, eq(workoutsTable.id, workoutExercisesTable.workoutId))
+    .where(and(
+      eq(workoutExercisesTable.workoutId, workoutId),
+      isNotNull(workoutsTable.endedAt),
+      gt(setsTable.weight, 0),
+    ))
+    .orderBy(asc(setsTable.completedAt), asc(setsTable.id)) as Array<{
     setId: string
     exerciseName: string
     methodName: string
@@ -664,19 +717,18 @@ export async function getWorkoutWeightPrAchievements(
   const uniqueExerciseTypeIds = [...new Set(exerciseTypeIds)].filter(Boolean)
   const priorExerciseTypeIds = new Set<string>()
   if (uniqueExerciseTypeIds.length > 0) {
-    const placeholders = uniqueExerciseTypeIds.map(() => '?').join(', ')
-    const priorRows = (await db.$client.execute(
-      `SELECT DISTINCT e.exercise_type_id as exerciseTypeId
-       FROM sets s
-       JOIN workout_exercises we ON we.id = s.workout_exercise_id
-       JOIN exercises e ON e.id = we.exercise_id
-       JOIN workouts w ON w.id = we.workout_id
-       WHERE e.exercise_type_id IN (${placeholders})
-         AND w.id <> ?
-         AND w.ended_at IS NOT NULL
-         AND s.weight > 0`,
-      [...uniqueExerciseTypeIds, workoutId],
-    )).rows as Array<{ exerciseTypeId: string }>
+    const priorRows = await db
+      .selectDistinct({ exerciseTypeId: exercisesTable.exerciseTypeId })
+      .from(setsTable)
+      .innerJoin(workoutExercisesTable, eq(workoutExercisesTable.id, setsTable.workoutExerciseId))
+      .innerJoin(exercisesTable, eq(exercisesTable.id, workoutExercisesTable.exerciseId))
+      .innerJoin(workoutsTable, eq(workoutsTable.id, workoutExercisesTable.workoutId))
+      .where(and(
+        inArray(exercisesTable.exerciseTypeId, uniqueExerciseTypeIds),
+        ne(workoutsTable.id, workoutId),
+        isNotNull(workoutsTable.endedAt),
+        gt(setsTable.weight, 0),
+      )) as Array<{ exerciseTypeId: string }>
     for (const row of priorRows) {
       priorExerciseTypeIds.add(row.exerciseTypeId)
     }
@@ -733,10 +785,17 @@ export type ExerciseTypeRow = {
   name: string
   sectionId: string
   isCustom: number
+  isHidden?: number
   methodLocked: number
   lockedMethodId: string | null
 }
-export type MethodRow = { id: string; name: string; isCustom: number }
+export type MethodRow = {
+  id: string
+  name: string
+  isCustom: number
+  isHidden?: number
+  ownerExerciseTypeId: string | null
+}
 export type ExercisePrSummary = {
   weightKg: number | null
   weightUnit: string | null
@@ -745,6 +804,19 @@ export type ExercisePrSummary = {
 export type MethodPrSummary = {
   weightKg: number | null
   weightUnit: string | null
+}
+
+const DEFAULT_LOCKED_METHOD_BY_EXERCISE_NAME: Record<string, string> = {
+  'Push Up': 'Bodyweight',
+  'Pull Up': 'Bodyweight',
+  'T-Bar Row': 'Machine',
+  Dip: 'Bodyweight',
+  'Leg Press': 'Machine',
+  'Leg Extension': 'Machine',
+  'Leg Curl': 'Machine',
+  'Abductor Machine': 'Machine',
+  Plank: 'Bodyweight',
+  'Side Plank': 'Bodyweight',
 }
 
 type PrSetRow = {
@@ -793,19 +865,34 @@ function reduceMethodPrRows(rows: PrSetRow[]): Record<string, MethodPrSummary> {
 
 export async function getSections(): Promise<SectionRow[]> {
   await ensureLibraryTables()
-  const result = await db.$client.execute(
-    "SELECT id, name FROM sections WHERE name != 'Cardio' ORDER BY name ASC",
-  )
-  return result.rows as SectionRow[]
+  return db
+    .select({
+      id: sectionsTable.id,
+      name: sectionsTable.name,
+    })
+    .from(sectionsTable)
+    .where(ne(sectionsTable.name, 'Cardio'))
+    .orderBy(asc(sectionsTable.name))
 }
 
 export async function getExerciseTypesBySection(sectionId: string): Promise<ExerciseTypeRow[]> {
   await ensureLibraryTables()
-  const result = await db.$client.execute(
-    'SELECT id, name, section_id as sectionId, is_custom as isCustom, method_locked as methodLocked, locked_method_id as lockedMethodId FROM exercise_types WHERE section_id = ? ORDER BY name ASC',
-    [sectionId],
-  )
-  return result.rows as ExerciseTypeRow[]
+  return db
+    .select({
+      id: exerciseTypesTable.id,
+      name: exerciseTypesTable.name,
+      sectionId: exerciseTypesTable.sectionId,
+      isCustom: exerciseTypesTable.isCustom,
+      isHidden: exerciseTypesTable.isHidden,
+      methodLocked: exerciseTypesTable.methodLocked,
+      lockedMethodId: exerciseTypesTable.lockedMethodId,
+    })
+    .from(exerciseTypesTable)
+    .where(and(
+      eq(exerciseTypesTable.sectionId, sectionId),
+      sql`COALESCE(${exerciseTypesTable.isHidden}, 0) = 0`,
+    ))
+    .orderBy(asc(exerciseTypesTable.name))
 }
 
 export async function getExercisePrSummariesBySection(
@@ -813,24 +900,25 @@ export async function getExercisePrSummariesBySection(
 ): Promise<Record<string, ExercisePrSummary>> {
   await ensureLibraryTables()
   await ensureExerciseTables()
-  const rows = (await db.$client.execute(
-    `SELECT
-       et.id as exerciseTypeId,
-       m.id as methodId,
-       m.name as methodName,
-       s.weight as weightKg,
-       s.weight_unit as weightUnit
-     FROM sets s
-     JOIN workout_exercises we ON we.id = s.workout_exercise_id
-     JOIN exercises e ON e.id = we.exercise_id
-     JOIN exercise_types et ON et.id = e.exercise_type_id
-     JOIN methods m ON m.id = e.method_id
-     JOIN workouts w ON w.id = we.workout_id
-     WHERE et.section_id = ?
-       AND w.ended_at IS NOT NULL
-     ORDER BY s.completed_at ASC`,
-    [sectionId],
-  )).rows as PrSetRow[]
+  const rows = await db
+    .select({
+      exerciseTypeId: exerciseTypesTable.id,
+      methodId: methodsTable.id,
+      methodName: methodsTable.name,
+      weightKg: setsTable.weight,
+      weightUnit: setsTable.weightUnit,
+    })
+    .from(setsTable)
+    .innerJoin(workoutExercisesTable, eq(workoutExercisesTable.id, setsTable.workoutExerciseId))
+    .innerJoin(exercisesTable, eq(exercisesTable.id, workoutExercisesTable.exerciseId))
+    .innerJoin(exerciseTypesTable, eq(exerciseTypesTable.id, exercisesTable.exerciseTypeId))
+    .innerJoin(methodsTable, eq(methodsTable.id, exercisesTable.methodId))
+    .innerJoin(workoutsTable, eq(workoutsTable.id, workoutExercisesTable.workoutId))
+    .where(and(
+      eq(exerciseTypesTable.sectionId, sectionId),
+      isNotNull(workoutsTable.endedAt),
+    ))
+    .orderBy(asc(setsTable.completedAt)) as PrSetRow[]
 
   return reduceExercisePrRows(rows)
 }
@@ -840,103 +928,278 @@ export async function getMethodPrSummariesForExerciseType(
 ): Promise<Record<string, MethodPrSummary>> {
   await ensureLibraryTables()
   await ensureExerciseTables()
-  const rows = (await db.$client.execute(
-    `SELECT
-       e.exercise_type_id as exerciseTypeId,
-       m.id as methodId,
-       m.name as methodName,
-       s.weight as weightKg,
-       s.weight_unit as weightUnit
-     FROM sets s
-     JOIN workout_exercises we ON we.id = s.workout_exercise_id
-     JOIN exercises e ON e.id = we.exercise_id
-     JOIN methods m ON m.id = e.method_id
-     JOIN workouts w ON w.id = we.workout_id
-     WHERE e.exercise_type_id = ?
-       AND w.ended_at IS NOT NULL
-     ORDER BY s.completed_at ASC`,
-    [exerciseTypeId],
-  )).rows as PrSetRow[]
+  const rows = await db
+    .select({
+      exerciseTypeId: exercisesTable.exerciseTypeId,
+      methodId: methodsTable.id,
+      methodName: methodsTable.name,
+      weightKg: setsTable.weight,
+      weightUnit: setsTable.weightUnit,
+    })
+    .from(setsTable)
+    .innerJoin(workoutExercisesTable, eq(workoutExercisesTable.id, setsTable.workoutExerciseId))
+    .innerJoin(exercisesTable, eq(exercisesTable.id, workoutExercisesTable.exerciseId))
+    .innerJoin(methodsTable, eq(methodsTable.id, exercisesTable.methodId))
+    .innerJoin(workoutsTable, eq(workoutsTable.id, workoutExercisesTable.workoutId))
+    .where(and(
+      eq(exercisesTable.exerciseTypeId, exerciseTypeId),
+      isNotNull(workoutsTable.endedAt),
+    ))
+    .orderBy(asc(setsTable.completedAt)) as PrSetRow[]
 
   return reduceMethodPrRows(rows)
 }
 
 export async function isExerciseTypeMethodLocked(exerciseTypeId: string): Promise<boolean> {
   await ensureLibraryTables()
-  const result = await db.$client.execute(
-    'SELECT method_locked as methodLocked FROM exercise_types WHERE id = ?',
-    [exerciseTypeId],
-  )
-  const row = result.rows[0] as { methodLocked?: number } | undefined
+  const row = (await db
+    .select({ methodLocked: exerciseTypesTable.methodLocked })
+    .from(exerciseTypesTable)
+    .where(eq(exerciseTypesTable.id, exerciseTypeId))
+    .limit(1))[0]
   return Boolean(row?.methodLocked)
 }
 
 export async function getMethods(): Promise<MethodRow[]> {
   await ensureLibraryTables()
-  const result = await db.$client.execute(
-    'SELECT id, name, is_custom as isCustom FROM methods ORDER BY name ASC',
-  )
-  return result.rows as MethodRow[]
+  return db
+    .select({
+      id: methodsTable.id,
+      name: methodsTable.name,
+      isCustom: methodsTable.isCustom,
+      isHidden: methodsTable.isHidden,
+      ownerExerciseTypeId: methodsTable.ownerExerciseTypeId,
+    })
+    .from(methodsTable)
+    .where(and(
+      isNull(methodsTable.ownerExerciseTypeId),
+      sql`COALESCE(${methodsTable.isHidden}, 0) = 0`,
+    ))
+    .orderBy(asc(methodsTable.name))
 }
 
 export async function getMethodsForExerciseType(exerciseTypeId: string): Promise<MethodRow[]> {
   await ensureLibraryTables()
-  const exerciseType = await db.$client.execute(
-    'SELECT is_custom as isCustom FROM exercise_types WHERE id = ?',
-    [exerciseTypeId],
-  )
-  const isCustom = Boolean((exerciseType.rows[0] as { isCustom?: number } | undefined)?.isCustom)
-  if (!isCustom) return getMethods()
+  const excludedMethodIds = (await db
+    .select({ methodId: exerciseTypeMethodExclusionsTable.methodId })
+    .from(exerciseTypeMethodExclusionsTable)
+    .where(eq(exerciseTypeMethodExclusionsTable.exerciseTypeId, exerciseTypeId)))
+    .map((row) => row.methodId)
 
-  const result = await db.$client.execute(
-    `SELECT m.id, m.name, m.is_custom as isCustom
-     FROM methods m
-     WHERE NOT EXISTS (
-       SELECT 1
-       FROM exercise_type_method_exclusions ex
-       WHERE ex.exercise_type_id = ? AND ex.method_id = m.id
-     )
-     ORDER BY m.name ASC`,
-    [exerciseTypeId],
-  )
-  return result.rows as MethodRow[]
+  return db
+    .select({
+      id: methodsTable.id,
+      name: methodsTable.name,
+      isCustom: methodsTable.isCustom,
+      isHidden: methodsTable.isHidden,
+      ownerExerciseTypeId: methodsTable.ownerExerciseTypeId,
+    })
+    .from(methodsTable)
+    .where(and(
+      or(
+        isNull(methodsTable.ownerExerciseTypeId),
+        eq(methodsTable.ownerExerciseTypeId, exerciseTypeId),
+      ),
+      sql`COALESCE(${methodsTable.isHidden}, 0) = 0`,
+      excludedMethodIds.length > 0
+        ? notInArray(methodsTable.id, excludedMethodIds)
+        : undefined,
+    ))
+    .orderBy(asc(methodsTable.name))
 }
 
 export async function hasHiddenDefaultMethods(exerciseTypeId: string): Promise<boolean> {
   await ensureLibraryTables()
-  const result = await db.$client.execute(
-    `SELECT 1
-     FROM exercise_type_method_exclusions ex
-     JOIN methods m ON m.id = ex.method_id
-     JOIN exercise_types et ON et.id = ex.exercise_type_id
-     WHERE ex.exercise_type_id = ?
-       AND et.is_custom = 1
-       AND m.is_custom = 0
-     LIMIT 1`,
-    [exerciseTypeId],
-  )
-  return result.rows.length > 0
-}
+  const exerciseType = (await db
+    .select({
+      id: exerciseTypesTable.id,
+      name: exerciseTypesTable.name,
+      isCustom: exerciseTypesTable.isCustom,
+      methodLocked: exerciseTypesTable.methodLocked,
+      lockedMethodId: exerciseTypesTable.lockedMethodId,
+    })
+    .from(exerciseTypesTable)
+    .where(eq(exerciseTypesTable.id, exerciseTypeId))
+    .limit(1))[0] as {
+    id: string
+    name: string
+    isCustom: number
+    methodLocked: number
+    lockedMethodId: string | null
+  } | undefined
+  if (!exerciseType) return false
 
-export async function restoreDefaultMethodsForExerciseType(exerciseTypeId: string): Promise<void> {
-  await ensureLibraryTables()
-  const exerciseType = await db.$client.execute(
-    'SELECT is_custom as isCustom FROM exercise_types WHERE id = ?',
-    [exerciseTypeId],
-  )
-  const row = exerciseType.rows[0] as { isCustom?: number } | undefined
-  if (!row?.isCustom) {
-    throw new Error('Default methods can only be restored for custom exercises')
+  const hiddenDefaultMethod = (await db
+    .select({ id: exerciseTypeMethodExclusionsTable.methodId })
+    .from(exerciseTypeMethodExclusionsTable)
+    .innerJoin(methodsTable, eq(methodsTable.id, exerciseTypeMethodExclusionsTable.methodId))
+    .where(and(
+      eq(exerciseTypeMethodExclusionsTable.exerciseTypeId, exerciseTypeId),
+      eq(methodsTable.isCustom, 0),
+    ))
+    .limit(1))[0]
+  if (hiddenDefaultMethod) return true
+
+  if (exerciseType.isCustom) return false
+
+  const excludedMethodIds = (await db
+    .select({ methodId: exerciseTypeMethodExclusionsTable.methodId })
+    .from(exerciseTypeMethodExclusionsTable)
+    .where(eq(exerciseTypeMethodExclusionsTable.exerciseTypeId, exerciseTypeId)))
+    .map((row) => row.methodId)
+  const visibleOwnedMethod = (await db
+    .select({ id: methodsTable.id })
+    .from(methodsTable)
+    .where(and(
+      eq(methodsTable.ownerExerciseTypeId, exerciseTypeId),
+      sql`COALESCE(${methodsTable.isHidden}, 0) = 0`,
+      excludedMethodIds.length > 0
+        ? notInArray(methodsTable.id, excludedMethodIds)
+        : undefined,
+    ))
+    .limit(1))[0]
+  if (visibleOwnedMethod) return true
+
+  const expectedLockedMethodName = DEFAULT_LOCKED_METHOD_BY_EXERCISE_NAME[exerciseType.name]
+  if (!expectedLockedMethodName) {
+    return Boolean(exerciseType.methodLocked || exerciseType.lockedMethodId)
   }
 
-  await db.$client.execute(
-    `DELETE FROM exercise_type_method_exclusions
-     WHERE exercise_type_id = ?
-       AND method_id IN (
-         SELECT id FROM methods WHERE is_custom = 0
-       )`,
-    [exerciseTypeId],
-  )
+  const expectedMethod = (await db
+    .select({ id: methodsTable.id })
+    .from(methodsTable)
+    .where(and(
+      eq(methodsTable.name, expectedLockedMethodName),
+      eq(methodsTable.isCustom, 0),
+    ))
+    .limit(1))[0]
+  const expectedMethodId = expectedMethod?.id ?? null
+  return !exerciseType.methodLocked || exerciseType.lockedMethodId !== expectedMethodId
+}
+
+export async function restoreDefaultMethodsForExerciseType(
+  exerciseTypeId: string,
+): Promise<ExerciseTypeRow> {
+  await ensureLibraryTables()
+  await ensureExerciseTables()
+  await ensureTemplateTables()
+  const row = (await db
+    .select({
+      id: exerciseTypesTable.id,
+      name: exerciseTypesTable.name,
+      sectionId: exerciseTypesTable.sectionId,
+      isCustom: exerciseTypesTable.isCustom,
+      isHidden: exerciseTypesTable.isHidden,
+      methodLocked: exerciseTypesTable.methodLocked,
+      lockedMethodId: exerciseTypesTable.lockedMethodId,
+    })
+    .from(exerciseTypesTable)
+    .where(eq(exerciseTypesTable.id, exerciseTypeId))
+    .limit(1))[0] as ExerciseTypeRow | undefined
+  if (!row) {
+    throw new Error('Unknown exercise')
+  }
+
+  const defaultMethodIds = (await db
+    .select({ id: methodsTable.id })
+    .from(methodsTable)
+    .where(eq(methodsTable.isCustom, 0)))
+    .map((method) => method.id)
+  if (defaultMethodIds.length > 0) {
+    await db
+      .delete(exerciseTypeMethodExclusionsTable)
+      .where(and(
+        eq(exerciseTypeMethodExclusionsTable.exerciseTypeId, exerciseTypeId),
+        inArray(exerciseTypeMethodExclusionsTable.methodId, defaultMethodIds),
+      ))
+  }
+
+  if (!row.isCustom) {
+    const ownedMethodIds = (await db
+      .select({ id: methodsTable.id })
+      .from(methodsTable)
+      .where(eq(methodsTable.ownerExerciseTypeId, exerciseTypeId)))
+      .map((method) => method.id)
+
+    if (ownedMethodIds.length > 0) {
+      const workoutUsedMethodIds = (await db
+        .selectDistinct({ methodId: exercisesTable.methodId })
+        .from(workoutExercisesTable)
+        .innerJoin(exercisesTable, eq(exercisesTable.id, workoutExercisesTable.exerciseId))
+        .where(and(
+          eq(exercisesTable.exerciseTypeId, exerciseTypeId),
+          inArray(exercisesTable.methodId, ownedMethodIds),
+        )))
+        .map((item) => item.methodId)
+      const templateUsedMethodIds = (await db
+        .selectDistinct({ methodId: workoutTemplateExercisesTable.methodId })
+        .from(workoutTemplateExercisesTable)
+        .where(and(
+          eq(workoutTemplateExercisesTable.exerciseTypeId, exerciseTypeId),
+          inArray(workoutTemplateExercisesTable.methodId, ownedMethodIds),
+        )))
+        .map((item) => item.methodId)
+      const usedMethodIds = new Set([...workoutUsedMethodIds, ...templateUsedMethodIds])
+      const unusedOwnedMethodIds = ownedMethodIds.filter((id) => !usedMethodIds.has(id))
+
+      if (unusedOwnedMethodIds.length > 0) {
+        await db
+          .delete(exercisesTable)
+          .where(and(
+            eq(exercisesTable.exerciseTypeId, exerciseTypeId),
+            inArray(exercisesTable.methodId, unusedOwnedMethodIds),
+          ))
+        await db.delete(methodsTable).where(inArray(methodsTable.id, unusedOwnedMethodIds))
+      }
+
+      const remainingOwnedMethodIds = ownedMethodIds.filter((id) => !unusedOwnedMethodIds.includes(id))
+      if (remainingOwnedMethodIds.length > 0) {
+        await db
+          .insert(exerciseTypeMethodExclusionsTable)
+          .values(remainingOwnedMethodIds.map((methodId) => ({
+            exerciseTypeId,
+            methodId,
+          })))
+          .onConflictDoNothing()
+      }
+    }
+
+    const expectedLockedMethodName = DEFAULT_LOCKED_METHOD_BY_EXERCISE_NAME[row.name]
+    const expectedLockedMethodId = expectedLockedMethodName
+      ? (await db
+        .select({ id: methodsTable.id })
+        .from(methodsTable)
+        .where(and(
+          eq(methodsTable.name, expectedLockedMethodName),
+          eq(methodsTable.isCustom, 0),
+        ))
+        .limit(1))[0]
+      : null
+
+    await db
+      .update(exerciseTypesTable)
+      .set({
+        methodLocked: expectedLockedMethodId?.id ? 1 : 0,
+        lockedMethodId: expectedLockedMethodId?.id ?? null,
+      })
+      .where(eq(exerciseTypesTable.id, exerciseTypeId))
+  }
+
+  const refreshedRow = (await db
+    .select({
+      id: exerciseTypesTable.id,
+      name: exerciseTypesTable.name,
+      sectionId: exerciseTypesTable.sectionId,
+      isCustom: exerciseTypesTable.isCustom,
+      isHidden: exerciseTypesTable.isHidden,
+      methodLocked: exerciseTypesTable.methodLocked,
+      lockedMethodId: exerciseTypesTable.lockedMethodId,
+    })
+    .from(exerciseTypesTable)
+    .where(eq(exerciseTypesTable.id, exerciseTypeId))
+    .limit(1))[0] as ExerciseTypeRow | undefined
+  if (!refreshedRow) throw new Error('Unknown exercise')
+  return refreshedRow
 }
 
 export async function createCustomSection(name: string): Promise<SectionRow> {
@@ -944,52 +1207,294 @@ export async function createCustomSection(name: string): Promise<SectionRow> {
   if (!trimmed) throw new Error('Section name is required')
   await ensureLibraryTables()
   const id = genLibraryId('section')
-  await db.$client.execute(
-    'INSERT INTO sections (id, name, is_custom) VALUES (?, ?, ?)',
-    [id, trimmed, 1],
-  )
+  await db.insert(sectionsTable).values({
+    id,
+    name: trimmed,
+    isCustom: 1,
+  })
   return { id, name: trimmed }
 }
 
-export async function createCustomMethod(name: string): Promise<MethodRow> {
+export async function createCustomMethod(
+  name: string,
+  ownerExerciseTypeId?: string | null,
+): Promise<MethodRow> {
   const trimmed = name.trim()
   if (!trimmed) throw new Error('Method name is required')
   await ensureLibraryTables()
+  const ownerId = ownerExerciseTypeId ?? null
+  if (ownerId) {
+    const owner = (await db
+      .select({ id: exerciseTypesTable.id })
+      .from(exerciseTypesTable)
+      .where(eq(exerciseTypesTable.id, ownerId))
+      .limit(1))[0]
+    if (!owner) {
+      throw new Error('Unknown exercise for custom method')
+    }
+    await db
+      .update(exerciseTypesTable)
+      .set({ methodLocked: 0, lockedMethodId: null })
+      .where(eq(exerciseTypesTable.id, ownerId))
+  }
   const id = genLibraryId('method')
-  await db.$client.execute(
-    'INSERT INTO methods (id, name, is_custom) VALUES (?, ?, ?)',
-    [id, trimmed, 1],
-  )
-  return { id, name: trimmed, isCustom: 1 }
+  await db.insert(methodsTable).values({
+    id,
+    name: trimmed,
+    isCustom: 1,
+    ownerExerciseTypeId: ownerId,
+  })
+  return { id, name: trimmed, isCustom: 1, isHidden: 0, ownerExerciseTypeId: ownerId }
 }
 
 export async function deleteCustomExerciseType(exerciseTypeId: string): Promise<void> {
   await ensureLibraryTables()
   await ensureExerciseTables()
+  await ensureTemplateTables()
 
-  const exerciseType = await db.$client.execute(
-    'SELECT id, is_custom as isCustom FROM exercise_types WHERE id = ?',
-    [exerciseTypeId],
-  )
-  const row = exerciseType.rows[0] as { id: string; isCustom: number } | undefined
+  const row = (await db
+    .select({
+      id: exerciseTypesTable.id,
+      isCustom: exerciseTypesTable.isCustom,
+    })
+    .from(exerciseTypesTable)
+    .where(eq(exerciseTypesTable.id, exerciseTypeId))
+    .limit(1))[0]
   if (!row?.isCustom) {
     throw new Error('Only custom exercises can be deleted')
   }
 
-  const usage = await db.$client.execute(
-    `SELECT COUNT(*) as count
-     FROM workout_exercises we
-     JOIN exercises e ON e.id = we.exercise_id
-     WHERE e.exercise_type_id = ?`,
-    [exerciseTypeId],
-  )
-  const count = Number((usage.rows[0] as { count?: number } | undefined)?.count ?? 0)
+  const usage = (await db
+    .select({ count: sql<number>`COUNT(*)` })
+    .from(workoutExercisesTable)
+    .innerJoin(exercisesTable, eq(exercisesTable.id, workoutExercisesTable.exerciseId))
+    .where(eq(exercisesTable.exerciseTypeId, exerciseTypeId))
+    .limit(1))[0]
+  const count = Number(usage?.count ?? 0)
   if (count > 0) {
     throw new Error('This exercise is used in saved workouts')
   }
 
-  await db.$client.execute('DELETE FROM exercises WHERE exercise_type_id = ?', [exerciseTypeId])
-  await db.$client.execute('DELETE FROM exercise_types WHERE id = ?', [exerciseTypeId])
+  const templateUsage = (await db
+    .select({ count: sql<number>`COUNT(*)` })
+    .from(workoutTemplateExercisesTable)
+    .where(eq(workoutTemplateExercisesTable.exerciseTypeId, exerciseTypeId))
+    .limit(1))[0]
+  const templateCount = Number(templateUsage?.count ?? 0)
+  if (templateCount > 0) {
+    throw new Error('This exercise is used in templates')
+  }
+
+  const ownedMethodIds = (await db
+    .select({ id: methodsTable.id })
+    .from(methodsTable)
+    .where(eq(methodsTable.ownerExerciseTypeId, exerciseTypeId)))
+    .map((method) => method.id)
+  await db.delete(exercisesTable).where(eq(exercisesTable.exerciseTypeId, exerciseTypeId))
+  await db
+    .delete(exerciseTypeMethodExclusionsTable)
+    .where(or(
+      eq(exerciseTypeMethodExclusionsTable.exerciseTypeId, exerciseTypeId),
+      ownedMethodIds.length > 0
+        ? inArray(exerciseTypeMethodExclusionsTable.methodId, ownedMethodIds)
+        : undefined,
+    ))
+  await db.delete(methodsTable).where(eq(methodsTable.ownerExerciseTypeId, exerciseTypeId))
+  await db.delete(exerciseTypesTable).where(eq(exerciseTypesTable.id, exerciseTypeId))
+}
+
+type DebugDeleteCustomMethodsResult = {
+  deleted: number
+  hidden: number
+}
+
+type DebugDeleteCustomExercisesResult = {
+  deleted: number
+  hidden: number
+}
+
+export async function deleteAllCustomMethods(): Promise<DebugDeleteCustomMethodsResult> {
+  await ensureLibraryTables()
+  await ensureExerciseTables()
+  await ensureTemplateTables()
+
+  const methodIds = (await db
+    .select({ id: methodsTable.id })
+    .from(methodsTable)
+    .where(and(
+      eq(methodsTable.isCustom, 1),
+      sql`COALESCE(${methodsTable.isHidden}, 0) = 0`,
+    )))
+    .map((row) => row.id)
+
+  if (methodIds.length === 0) {
+    return { deleted: 0, hidden: 0 }
+  }
+
+  const workoutUsedMethodIds = (await db
+    .selectDistinct({ methodId: exercisesTable.methodId })
+    .from(workoutExercisesTable)
+    .innerJoin(exercisesTable, eq(exercisesTable.id, workoutExercisesTable.exerciseId))
+    .where(inArray(exercisesTable.methodId, methodIds)))
+    .map((row) => row.methodId)
+  const templateUsedMethodIds = (await db
+    .selectDistinct({ methodId: workoutTemplateExercisesTable.methodId })
+    .from(workoutTemplateExercisesTable)
+    .where(inArray(workoutTemplateExercisesTable.methodId, methodIds)))
+    .map((row) => row.methodId)
+  const usedMethodSet = new Set([...workoutUsedMethodIds, ...templateUsedMethodIds])
+  const unusedMethodIds = methodIds.filter((id) => !usedMethodSet.has(id))
+  const usedMethodIds = methodIds.filter((id) => usedMethodSet.has(id))
+
+  if (unusedMethodIds.length === 0 && usedMethodIds.length === 0) {
+    return { deleted: 0, hidden: 0 }
+  }
+
+  await db.$client.execute('BEGIN IMMEDIATE TRANSACTION')
+  try {
+    const allMethodIds = [...unusedMethodIds, ...usedMethodIds]
+    await db
+      .update(exerciseTypesTable)
+      .set({ methodLocked: 0, lockedMethodId: null })
+      .where(inArray(exerciseTypesTable.lockedMethodId, allMethodIds))
+
+    if (unusedMethodIds.length > 0) {
+      await db.delete(exercisesTable).where(inArray(exercisesTable.methodId, unusedMethodIds))
+      await db
+        .delete(exerciseTypeMethodExclusionsTable)
+        .where(inArray(exerciseTypeMethodExclusionsTable.methodId, unusedMethodIds))
+      await db.delete(methodsTable).where(inArray(methodsTable.id, unusedMethodIds))
+    }
+
+    if (usedMethodIds.length > 0) {
+      await db
+        .update(methodsTable)
+        .set({ isHidden: 1 })
+        .where(inArray(methodsTable.id, usedMethodIds))
+    }
+
+    await db.$client.execute('COMMIT')
+  } catch (error) {
+    await db.$client.execute('ROLLBACK')
+    throw error
+  }
+
+  return { deleted: unusedMethodIds.length, hidden: usedMethodIds.length }
+}
+
+export async function deleteAllCustomExercises(): Promise<DebugDeleteCustomExercisesResult> {
+  await ensureLibraryTables()
+  await ensureExerciseTables()
+  await ensureTemplateTables()
+
+  const exerciseTypeIds = (await db
+    .select({ id: exerciseTypesTable.id })
+    .from(exerciseTypesTable)
+    .where(and(
+      eq(exerciseTypesTable.isCustom, 1),
+      sql`COALESCE(${exerciseTypesTable.isHidden}, 0) = 0`,
+    )))
+    .map((row) => row.id)
+
+  if (exerciseTypeIds.length === 0) {
+    return { deleted: 0, hidden: 0 }
+  }
+
+  const workoutUsedExerciseTypeIds = (await db
+    .selectDistinct({ exerciseTypeId: exercisesTable.exerciseTypeId })
+    .from(workoutExercisesTable)
+    .innerJoin(exercisesTable, eq(exercisesTable.id, workoutExercisesTable.exerciseId))
+    .where(inArray(exercisesTable.exerciseTypeId, exerciseTypeIds)))
+    .map((row) => row.exerciseTypeId)
+  const templateUsedExerciseTypeIds = (await db
+    .selectDistinct({ exerciseTypeId: workoutTemplateExercisesTable.exerciseTypeId })
+    .from(workoutTemplateExercisesTable)
+    .where(inArray(workoutTemplateExercisesTable.exerciseTypeId, exerciseTypeIds)))
+    .map((row) => row.exerciseTypeId)
+  const usedExerciseTypeSet = new Set([...workoutUsedExerciseTypeIds, ...templateUsedExerciseTypeIds])
+  const unusedExerciseTypeIds = exerciseTypeIds.filter((id) => !usedExerciseTypeSet.has(id))
+  const usedExerciseTypeIds = exerciseTypeIds.filter((id) => usedExerciseTypeSet.has(id))
+
+  if (unusedExerciseTypeIds.length === 0 && usedExerciseTypeIds.length === 0) {
+    return { deleted: 0, hidden: 0 }
+  }
+
+  await db.$client.execute('BEGIN IMMEDIATE TRANSACTION')
+  try {
+    if (unusedExerciseTypeIds.length > 0) {
+      const unusedOwnedMethodIds = (await db
+        .select({ id: methodsTable.id })
+        .from(methodsTable)
+        .where(inArray(methodsTable.ownerExerciseTypeId, unusedExerciseTypeIds)))
+        .map((method) => method.id)
+      await db.delete(exercisesTable).where(inArray(exercisesTable.exerciseTypeId, unusedExerciseTypeIds))
+      await db
+        .delete(exerciseTypeMethodExclusionsTable)
+        .where(or(
+          inArray(exerciseTypeMethodExclusionsTable.exerciseTypeId, unusedExerciseTypeIds),
+          unusedOwnedMethodIds.length > 0
+            ? inArray(exerciseTypeMethodExclusionsTable.methodId, unusedOwnedMethodIds)
+            : undefined,
+        ))
+      await db.delete(methodsTable).where(inArray(methodsTable.ownerExerciseTypeId, unusedExerciseTypeIds))
+      await db.delete(exerciseTypesTable).where(inArray(exerciseTypesTable.id, unusedExerciseTypeIds))
+    }
+
+    if (usedExerciseTypeIds.length > 0) {
+      const ownedMethodIds = (await db
+        .select({ id: methodsTable.id })
+        .from(methodsTable)
+        .where(inArray(methodsTable.ownerExerciseTypeId, usedExerciseTypeIds)))
+        .map((method) => method.id)
+      if (ownedMethodIds.length > 0) {
+        const workoutUsedMethodIds = (await db
+          .selectDistinct({ methodId: exercisesTable.methodId })
+          .from(workoutExercisesTable)
+          .innerJoin(exercisesTable, eq(exercisesTable.id, workoutExercisesTable.exerciseId))
+          .where(inArray(exercisesTable.methodId, ownedMethodIds)))
+          .map((row) => row.methodId)
+        const templateUsedMethodIds = (await db
+          .selectDistinct({ methodId: workoutTemplateExercisesTable.methodId })
+          .from(workoutTemplateExercisesTable)
+          .where(inArray(workoutTemplateExercisesTable.methodId, ownedMethodIds)))
+          .map((row) => row.methodId)
+        const usedMethodSet = new Set([...workoutUsedMethodIds, ...templateUsedMethodIds])
+        const unusedOwnedMethodIds = ownedMethodIds.filter((id) => !usedMethodSet.has(id))
+
+        if (unusedOwnedMethodIds.length > 0) {
+          await db
+            .delete(exercisesTable)
+            .where(and(
+              inArray(exercisesTable.exerciseTypeId, usedExerciseTypeIds),
+              inArray(exercisesTable.methodId, unusedOwnedMethodIds),
+            ))
+          await db
+            .delete(exerciseTypeMethodExclusionsTable)
+            .where(inArray(exerciseTypeMethodExclusionsTable.methodId, unusedOwnedMethodIds))
+          await db.delete(methodsTable).where(inArray(methodsTable.id, unusedOwnedMethodIds))
+        }
+      }
+      await db
+        .update(methodsTable)
+        .set({ isHidden: 1 })
+        .where(inArray(methodsTable.ownerExerciseTypeId, usedExerciseTypeIds))
+      await db
+        .update(exerciseTypesTable)
+        .set({
+          isHidden: 1,
+          methodLocked: 0,
+          lockedMethodId: null,
+        })
+        .where(inArray(exerciseTypesTable.id, usedExerciseTypeIds))
+    }
+
+    await db.$client.execute('COMMIT')
+  } catch (error) {
+    await db.$client.execute('ROLLBACK')
+    throw error
+  }
+
+  return { deleted: unusedExerciseTypeIds.length, hidden: usedExerciseTypeIds.length }
 }
 
 export async function deleteCustomMethodFromExercise(
@@ -998,54 +1503,94 @@ export async function deleteCustomMethodFromExercise(
 ): Promise<void> {
   await ensureLibraryTables()
   await ensureExerciseTables()
+  await ensureTemplateTables()
 
-  const exerciseType = await db.$client.execute(
-    'SELECT id, is_custom as isCustom, locked_method_id as lockedMethodId FROM exercise_types WHERE id = ?',
-    [exerciseTypeId],
-  )
-  const exerciseTypeRow = exerciseType.rows[0] as {
+  const exerciseTypeRow = (await db
+    .select({
+      id: exerciseTypesTable.id,
+      isCustom: exerciseTypesTable.isCustom,
+      lockedMethodId: exerciseTypesTable.lockedMethodId,
+    })
+    .from(exerciseTypesTable)
+    .where(eq(exerciseTypesTable.id, exerciseTypeId))
+    .limit(1))[0] as {
     id: string
     isCustom: number
     lockedMethodId: string | null
   } | undefined
-  if (!exerciseTypeRow?.isCustom) {
-    throw new Error('Methods can only be deleted from custom exercises')
+  if (!exerciseTypeRow) {
+    throw new Error('Unknown exercise')
   }
-
-  const method = await db.$client.execute(
-    'SELECT id FROM methods WHERE id = ?',
-    [methodId],
-  )
-  if (method.rows.length === 0) {
+  const methodRow = (await db
+    .select({
+      id: methodsTable.id,
+      isCustom: methodsTable.isCustom,
+      ownerExerciseTypeId: methodsTable.ownerExerciseTypeId,
+    })
+    .from(methodsTable)
+    .where(eq(methodsTable.id, methodId))
+    .limit(1))[0] as {
+    id: string
+    isCustom: number
+    ownerExerciseTypeId: string | null
+  } | undefined
+  if (!methodRow) {
     throw new Error('Unknown method')
   }
-
-  const usage = await db.$client.execute(
-    `SELECT COUNT(*) as count
-     FROM workout_exercises we
-     JOIN exercises e ON e.id = we.exercise_id
-     WHERE e.exercise_type_id = ? AND e.method_id = ?`,
-    [exerciseTypeId, methodId],
-  )
-  const count = Number((usage.rows[0] as { count?: number } | undefined)?.count ?? 0)
-  if (count > 0) {
-    throw new Error('This method is used in saved workouts')
+  if (methodRow.ownerExerciseTypeId && methodRow.ownerExerciseTypeId !== exerciseTypeId) {
+    throw new Error('This method belongs to another exercise')
   }
 
-  await db.$client.execute(
-    'DELETE FROM exercises WHERE exercise_type_id = ? AND method_id = ?',
-    [exerciseTypeId, methodId],
-  )
-  await db.$client.execute(
-    'INSERT OR IGNORE INTO exercise_type_method_exclusions (exercise_type_id, method_id) VALUES (?, ?)',
-    [exerciseTypeId, methodId],
-  )
+  const usage = (await db
+    .select({ count: sql<number>`COUNT(*)` })
+    .from(workoutExercisesTable)
+    .innerJoin(exercisesTable, eq(exercisesTable.id, workoutExercisesTable.exerciseId))
+    .where(and(
+      eq(exercisesTable.exerciseTypeId, exerciseTypeId),
+      eq(exercisesTable.methodId, methodId),
+    ))
+    .limit(1))[0]
+  const workoutCount = Number(usage?.count ?? 0)
+
+  const templateUsage = (await db
+    .select({ count: sql<number>`COUNT(*)` })
+    .from(workoutTemplateExercisesTable)
+    .where(and(
+      eq(workoutTemplateExercisesTable.exerciseTypeId, exerciseTypeId),
+      eq(workoutTemplateExercisesTable.methodId, methodId),
+    ))
+    .limit(1))[0]
+  const templateCount = Number(templateUsage?.count ?? 0)
+  const hasUsage = workoutCount > 0 || templateCount > 0
+
+  if (!hasUsage) {
+    await db
+      .delete(exercisesTable)
+      .where(and(
+        eq(exercisesTable.exerciseTypeId, exerciseTypeId),
+        eq(exercisesTable.methodId, methodId),
+      ))
+  }
+
   if (exerciseTypeRow.lockedMethodId === methodId) {
-    await db.$client.execute(
-      'UPDATE exercise_types SET method_locked = 0, locked_method_id = NULL WHERE id = ?',
-      [exerciseTypeId],
-    )
+    await db
+      .update(exerciseTypesTable)
+      .set({ methodLocked: 0, lockedMethodId: null })
+      .where(eq(exerciseTypesTable.id, exerciseTypeId))
   }
+
+  if (methodRow.ownerExerciseTypeId === exerciseTypeId && !hasUsage) {
+    await db
+      .delete(exerciseTypeMethodExclusionsTable)
+      .where(eq(exerciseTypeMethodExclusionsTable.methodId, methodId))
+    await db.delete(methodsTable).where(eq(methodsTable.id, methodId))
+    return
+  }
+
+  await db
+    .insert(exerciseTypeMethodExclusionsTable)
+    .values({ exerciseTypeId, methodId })
+    .onConflictDoNothing()
 }
 
 export async function createCustomExerciseType(params: {
@@ -1062,24 +1607,14 @@ export async function createCustomExerciseType(params: {
 
   await ensureLibraryTables()
   const id = genLibraryId('exercise_type')
-  await db.$client.execute(
-    `INSERT INTO exercise_types (
-      id,
-      section_id,
-      name,
-      is_custom,
-      method_locked,
-      locked_method_id
-    ) VALUES (?, ?, ?, ?, ?, ?)`,
-    [
-      id,
-      params.sectionId,
-      trimmed,
-      1,
-      params.methodLocked ? 1 : 0,
-      params.methodLocked ? params.lockedMethodId ?? null : null,
-    ],
-  )
+  await db.insert(exerciseTypesTable).values({
+    id,
+    sectionId: params.sectionId,
+    name: trimmed,
+    isCustom: 1,
+    methodLocked: params.methodLocked ? 1 : 0,
+    lockedMethodId: params.methodLocked ? params.lockedMethodId ?? null : null,
+  })
   return {
     id,
     sectionId: params.sectionId,
@@ -1095,28 +1630,38 @@ export async function getOrCreateExercise(
   methodId: string,
 ): Promise<{ id: string; defaultUnit: string }> {
   await ensureExerciseTables()
-  const existing = await db.$client.execute(
-    'SELECT id, default_unit as defaultUnit FROM exercises WHERE exercise_type_id = ? AND method_id = ?',
-    [exerciseTypeId, methodId],
-  )
-  if (existing.rows.length > 0) {
-    return existing.rows[0] as { id: string; defaultUnit: string }
+  const existing = (await db
+    .select({
+      id: exercisesTable.id,
+      defaultUnit: exercisesTable.defaultUnit,
+    })
+    .from(exercisesTable)
+    .where(and(
+      eq(exercisesTable.exerciseTypeId, exerciseTypeId),
+      eq(exercisesTable.methodId, methodId),
+    ))
+    .limit(1))[0]
+  if (existing) {
+    return existing
   }
   const id = `ex_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
-  await db.$client.execute(
-    'INSERT INTO exercises (id, exercise_type_id, method_id, default_unit) VALUES (?, ?, ?, ?)',
-    [id, exerciseTypeId, methodId, 'kg'],
-  )
+  await db.insert(exercisesTable).values({
+    id,
+    exerciseTypeId,
+    methodId,
+    defaultUnit: 'kg',
+  })
   return { id, defaultUnit: 'kg' }
 }
 
 export async function getMethodName(methodId: string): Promise<string> {
   await ensureLibraryTables()
-  const result = await db.$client.execute(
-    'SELECT name FROM methods WHERE id = ?',
-    [methodId],
-  )
-  return (result.rows[0] as any)?.name ?? ''
+  const row = (await db
+    .select({ name: methodsTable.name })
+    .from(methodsTable)
+    .where(eq(methodsTable.id, methodId))
+    .limit(1))[0]
+  return row?.name ?? ''
 }
 
 async function assertCanAddExerciseToWorkout(params: {
@@ -1127,38 +1672,75 @@ async function assertCanAddExerciseToWorkout(params: {
   await ensureTable()
   await ensureLibraryTables()
 
-  const workout = await db.$client.execute(
-    'SELECT id FROM workouts WHERE id = ? AND ended_at IS NULL',
-    [params.workoutId],
-  )
-  if (workout.rows.length === 0) {
+  const workout = (await db
+    .select({ id: workoutsTable.id })
+    .from(workoutsTable)
+    .where(and(
+      eq(workoutsTable.id, params.workoutId),
+      isNull(workoutsTable.endedAt),
+    ))
+    .limit(1))[0]
+  if (!workout) {
     throw new Error(`Cannot add exercise to missing or ended workout: ${params.workoutId}`)
   }
 
-  const exerciseType = await db.$client.execute(
-    'SELECT id FROM exercise_types WHERE id = ?',
-    [params.exerciseTypeId],
-  )
-  if (exerciseType.rows.length === 0) {
-    throw new Error(`Unknown exercise type: ${params.exerciseTypeId}`)
+  await assertMethodAvailableForExerciseType(params.exerciseTypeId, params.methodId)
+}
+
+async function assertMethodAvailableForExerciseType(
+  exerciseTypeId: string,
+  methodId: string,
+) {
+  await ensureLibraryTables()
+
+  const exerciseTypeRow = (await db
+    .select({
+      id: exerciseTypesTable.id,
+      isHidden: exerciseTypesTable.isHidden,
+    })
+    .from(exerciseTypesTable)
+    .where(eq(exerciseTypesTable.id, exerciseTypeId))
+    .limit(1))[0] as { id: string; isHidden: number } | undefined
+  if (!exerciseTypeRow) {
+    throw new Error(`Unknown exercise type: ${exerciseTypeId}`)
+  }
+  if (exerciseTypeRow.isHidden) {
+    throw new Error(`Exercise type is not available: ${exerciseTypeId}`)
   }
 
-  const method = await db.$client.execute(
-    'SELECT id FROM methods WHERE id = ?',
-    [params.methodId],
-  )
-  if (method.rows.length === 0) {
-    throw new Error(`Unknown exercise method: ${params.methodId}`)
+  const methodRow = (await db
+    .select({
+      id: methodsTable.id,
+      isHidden: methodsTable.isHidden,
+      ownerExerciseTypeId: methodsTable.ownerExerciseTypeId,
+    })
+    .from(methodsTable)
+    .where(eq(methodsTable.id, methodId))
+    .limit(1))[0] as {
+    id: string
+    isHidden: number
+    ownerExerciseTypeId: string | null
+  } | undefined
+  if (!methodRow) {
+    throw new Error(`Unknown exercise method: ${methodId}`)
+  }
+  if (methodRow.isHidden) {
+    throw new Error(`Method is not available for exercise type: ${exerciseTypeId}`)
+  }
+  if (methodRow.ownerExerciseTypeId && methodRow.ownerExerciseTypeId !== exerciseTypeId) {
+    throw new Error(`Method is not available for exercise type: ${exerciseTypeId}`)
   }
 
-  const excludedMethod = await db.$client.execute(
-    `SELECT 1
-     FROM exercise_type_method_exclusions
-     WHERE exercise_type_id = ? AND method_id = ?`,
-    [params.exerciseTypeId, params.methodId],
-  )
-  if (excludedMethod.rows.length > 0) {
-    throw new Error(`Method is not available for exercise type: ${params.exerciseTypeId}`)
+  const excludedMethod = (await db
+    .select({ methodId: exerciseTypeMethodExclusionsTable.methodId })
+    .from(exerciseTypeMethodExclusionsTable)
+    .where(and(
+      eq(exerciseTypeMethodExclusionsTable.exerciseTypeId, exerciseTypeId),
+      eq(exerciseTypeMethodExclusionsTable.methodId, methodId),
+    ))
+    .limit(1))[0]
+  if (excludedMethod) {
+    throw new Error(`Method is not available for exercise type: ${exerciseTypeId}`)
   }
 }
 
@@ -1173,10 +1755,12 @@ export async function addExerciseToWorkout(params: {
   await assertCanAddExerciseToWorkout(params)
   const exercise = await getOrCreateExercise(params.exerciseTypeId, params.methodId)
   const id = `we_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
-  await db.$client.execute(
-    'INSERT INTO workout_exercises (id, workout_id, exercise_id, order_index) VALUES (?, ?, ?, ?)',
-    [id, params.workoutId, exercise.id, params.orderIndex],
-  )
+  await db.insert(workoutExercisesTable).values({
+    id,
+    workoutId: params.workoutId,
+    exerciseId: exercise.id,
+    orderIndex: params.orderIndex,
+  })
   return id
 }
 
@@ -1193,54 +1777,41 @@ export async function addCompletedSetToWorkout(params: {
   const weightUnit = params.weightUnit === 'lb' ? 'lb' : 'kg'
   const reps = Number.isFinite(params.reps) ? Math.max(0, Math.trunc(params.reps)) : 0
   const volume = weightKg * reps
-  const exerciseResult = await db.$client.execute(
-    'SELECT id FROM workout_exercises WHERE id = ?',
-    [params.workoutExerciseId],
-  )
-  if (exerciseResult.rows.length === 0) {
+  const exercise = (await db
+    .select({ id: workoutExercisesTable.id })
+    .from(workoutExercisesTable)
+    .where(eq(workoutExercisesTable.id, params.workoutExerciseId))
+    .limit(1))[0]
+  if (!exercise) {
     throw new Error(`Unknown workout exercise: ${params.workoutExerciseId}`)
   }
 
-  await db.$client.execute(
-    `INSERT INTO sets (
-      id,
-      workout_exercise_id,
-      set_type,
-      weight,
-      weight_unit,
-      reps,
-      volume,
-      completed_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-    [
-      id,
-      params.workoutExerciseId,
-      params.setType ?? 'working',
-      weightKg,
-      weightUnit,
-      reps,
-      volume,
-      Date.now(),
-    ],
-  )
+  await db.insert(setsTable).values({
+    id,
+    workoutExerciseId: params.workoutExerciseId,
+    setType: params.setType ?? 'working',
+    weight: weightKg,
+    weightUnit,
+    reps,
+    volume,
+    completedAt: Date.now(),
+  })
   return id
 }
 
 export async function deleteCompletedSet(setId: string): Promise<void> {
   await ensureExerciseTables()
-  await db.$client.execute('DELETE FROM sets WHERE id = ?', [setId])
+  await db.delete(setsTable).where(eq(setsTable.id, setId))
 }
 
 export async function getLatestOpenWorkoutId(): Promise<string | null> {
   await ensureTable()
-  const result = await db.$client.execute(
-    `SELECT id
-     FROM workouts
-     WHERE ended_at IS NULL
-     ORDER BY started_at DESC
-     LIMIT 1`,
-  )
-  const row = result.rows[0] as { id?: string } | undefined
+  const row = (await db
+    .select({ id: workoutsTable.id })
+    .from(workoutsTable)
+    .where(isNull(workoutsTable.endedAt))
+    .orderBy(desc(workoutsTable.startedAt))
+    .limit(1))[0]
   return row?.id ?? null
 }
 
@@ -1251,13 +1822,18 @@ export async function getActiveWorkoutSession(
   await ensureExerciseTables()
   await ensureLibraryTables()
 
-  const workoutResult = await db.$client.execute(
-    `SELECT id, name, started_at as startedAt
-     FROM workouts
-     WHERE id = ? AND ended_at IS NULL`,
-    [workoutId],
-  )
-  const workout = workoutResult.rows[0] as {
+  const workout = (await db
+    .select({
+      id: workoutsTable.id,
+      name: workoutsTable.name,
+      startedAt: workoutsTable.startedAt,
+    })
+    .from(workoutsTable)
+    .where(and(
+      eq(workoutsTable.id, workoutId),
+      isNull(workoutsTable.endedAt),
+    ))
+    .limit(1))[0] as {
     id: string
     name: string | null
     startedAt: number
@@ -1265,31 +1841,34 @@ export async function getActiveWorkoutSession(
 
   if (!workout) return null
 
-  const rows = (await db.$client.execute(
-    `SELECT
-       we.id as workoutExerciseId,
-       we.order_index as orderIndex,
-       et.id as exerciseTypeId,
-       et.name as exerciseTypeName,
-       et.method_locked as methodLocked,
-       m.id as methodId,
-       m.name as methodName,
-       e.default_unit as defaultWeightUnit,
-       s.id as setId,
-       s.set_type as setType,
-       s.weight as weight,
-       s.weight_unit as setWeightUnit,
-       s.reps as reps,
-       s.completed_at as completedAt
-     FROM workout_exercises we
-     JOIN exercises e ON e.id = we.exercise_id
-     JOIN exercise_types et ON et.id = e.exercise_type_id
-     JOIN methods m ON m.id = e.method_id
-     LEFT JOIN sets s ON s.workout_exercise_id = we.id
-     WHERE we.workout_id = ?
-     ORDER BY we.order_index ASC, s.completed_at ASC, s.id ASC`,
-    [workoutId],
-  )).rows as Array<{
+  const rows = await db
+    .select({
+      workoutExerciseId: workoutExercisesTable.id,
+      orderIndex: workoutExercisesTable.orderIndex,
+      exerciseTypeId: exerciseTypesTable.id,
+      exerciseTypeName: exerciseTypesTable.name,
+      methodLocked: exerciseTypesTable.methodLocked,
+      methodId: methodsTable.id,
+      methodName: methodsTable.name,
+      defaultWeightUnit: exercisesTable.defaultUnit,
+      setId: setsTable.id,
+      setType: setsTable.setType,
+      weight: setsTable.weight,
+      setWeightUnit: setsTable.weightUnit,
+      reps: setsTable.reps,
+      completedAt: setsTable.completedAt,
+    })
+    .from(workoutExercisesTable)
+    .innerJoin(exercisesTable, eq(exercisesTable.id, workoutExercisesTable.exerciseId))
+    .innerJoin(exerciseTypesTable, eq(exerciseTypesTable.id, exercisesTable.exerciseTypeId))
+    .innerJoin(methodsTable, eq(methodsTable.id, exercisesTable.methodId))
+    .leftJoin(setsTable, eq(setsTable.workoutExerciseId, workoutExercisesTable.id))
+    .where(eq(workoutExercisesTable.workoutId, workoutId))
+    .orderBy(
+      asc(workoutExercisesTable.orderIndex),
+      asc(setsTable.completedAt),
+      asc(setsTable.id),
+    ) as Array<{
     workoutExerciseId: string
     orderIndex: number
     exerciseTypeId: string
@@ -1402,10 +1981,12 @@ export async function createWorkoutTemplate(name: string): Promise<string> {
   await ensureTemplateTables()
   const id = genTemplateId('template')
   const now = Date.now()
-  await db.$client.execute(
-    'INSERT INTO workout_templates (id, name, created_at, updated_at) VALUES (?, ?, ?, ?)',
-    [id, trimmed, now, now],
-  )
+  await db.insert(workoutTemplatesTable).values({
+    id,
+    name: trimmed,
+    createdAt: now,
+    updatedAt: now,
+  })
   return id
 }
 
@@ -1413,91 +1994,100 @@ export async function updateWorkoutTemplateName(templateId: string, name: string
   const trimmed = name.trim()
   if (!trimmed) throw new Error('Template name is required')
   await ensureTemplateTables()
-  await db.$client.execute(
-    'UPDATE workout_templates SET name = ?, updated_at = ? WHERE id = ?',
-    [trimmed, Date.now(), templateId],
-  )
+  await db
+    .update(workoutTemplatesTable)
+    .set({ name: trimmed, updatedAt: Date.now() })
+    .where(eq(workoutTemplatesTable.id, templateId))
 }
 
 export async function getWorkoutTemplates(): Promise<WorkoutTemplateSummary[]> {
   await ensureTemplateTables()
-  const result = await db.$client.execute(
-    `SELECT
-       t.id,
-       t.name,
-       t.is_favorite as isFavorite,
-       t.created_at as createdAt,
-       t.updated_at as updatedAt,
-       COUNT(te.id) as exerciseCount,
-       COALESCE(SUM(te.set_count), 0) as totalSetCount
-     FROM workout_templates t
-     LEFT JOIN workout_template_exercises te ON te.template_id = t.id
-     GROUP BY t.id
-     ORDER BY t.is_favorite DESC, t.updated_at DESC`,
-  )
-  return result.rows as WorkoutTemplateSummary[]
+  return db
+    .select({
+      id: workoutTemplatesTable.id,
+      name: workoutTemplatesTable.name,
+      isFavorite: workoutTemplatesTable.isFavorite,
+      createdAt: workoutTemplatesTable.createdAt,
+      updatedAt: workoutTemplatesTable.updatedAt,
+      exerciseCount: sql<number>`COUNT(${workoutTemplateExercisesTable.id})`,
+      totalSetCount: sql<number>`COALESCE(SUM(${workoutTemplateExercisesTable.setCount}), 0)`,
+    })
+    .from(workoutTemplatesTable)
+    .leftJoin(
+      workoutTemplateExercisesTable,
+      eq(workoutTemplateExercisesTable.templateId, workoutTemplatesTable.id),
+    )
+    .groupBy(workoutTemplatesTable.id)
+    .orderBy(desc(workoutTemplatesTable.isFavorite), desc(workoutTemplatesTable.updatedAt)) as Promise<WorkoutTemplateSummary[]>
 }
 
 export async function getFavoriteWorkoutTemplates(): Promise<WorkoutTemplateSummary[]> {
   await ensureTemplateTables()
-  const result = await db.$client.execute(
-    `SELECT
-       t.id,
-       t.name,
-       t.is_favorite as isFavorite,
-       t.created_at as createdAt,
-       t.updated_at as updatedAt,
-       COUNT(te.id) as exerciseCount,
-       COALESCE(SUM(te.set_count), 0) as totalSetCount
-     FROM workout_templates t
-     LEFT JOIN workout_template_exercises te ON te.template_id = t.id
-     WHERE t.is_favorite = 1
-     GROUP BY t.id
-     ORDER BY t.updated_at DESC
-     LIMIT 6`,
-  )
-  return result.rows as WorkoutTemplateSummary[]
+  return db
+    .select({
+      id: workoutTemplatesTable.id,
+      name: workoutTemplatesTable.name,
+      isFavorite: workoutTemplatesTable.isFavorite,
+      createdAt: workoutTemplatesTable.createdAt,
+      updatedAt: workoutTemplatesTable.updatedAt,
+      exerciseCount: sql<number>`COUNT(${workoutTemplateExercisesTable.id})`,
+      totalSetCount: sql<number>`COALESCE(SUM(${workoutTemplateExercisesTable.setCount}), 0)`,
+    })
+    .from(workoutTemplatesTable)
+    .leftJoin(
+      workoutTemplateExercisesTable,
+      eq(workoutTemplateExercisesTable.templateId, workoutTemplatesTable.id),
+    )
+    .where(eq(workoutTemplatesTable.isFavorite, 1))
+    .groupBy(workoutTemplatesTable.id)
+    .orderBy(desc(workoutTemplatesTable.updatedAt))
+    .limit(6) as Promise<WorkoutTemplateSummary[]>
 }
 
 export async function getWorkoutTemplateDetail(
   templateId: string,
 ): Promise<WorkoutTemplateDetail | null> {
   await ensureTemplateTables()
-  const summary = (await db.$client.execute(
-    `SELECT
-       t.id,
-       t.name,
-       t.is_favorite as isFavorite,
-       t.created_at as createdAt,
-       t.updated_at as updatedAt,
-       COUNT(te.id) as exerciseCount,
-       COALESCE(SUM(te.set_count), 0) as totalSetCount
-     FROM workout_templates t
-     LEFT JOIN workout_template_exercises te ON te.template_id = t.id
-     WHERE t.id = ?
-     GROUP BY t.id`,
-    [templateId],
-  )).rows[0] as WorkoutTemplateSummary | undefined
+  const summary = (await db
+    .select({
+      id: workoutTemplatesTable.id,
+      name: workoutTemplatesTable.name,
+      isFavorite: workoutTemplatesTable.isFavorite,
+      createdAt: workoutTemplatesTable.createdAt,
+      updatedAt: workoutTemplatesTable.updatedAt,
+      exerciseCount: sql<number>`COUNT(${workoutTemplateExercisesTable.id})`,
+      totalSetCount: sql<number>`COALESCE(SUM(${workoutTemplateExercisesTable.setCount}), 0)`,
+    })
+    .from(workoutTemplatesTable)
+    .leftJoin(
+      workoutTemplateExercisesTable,
+      eq(workoutTemplateExercisesTable.templateId, workoutTemplatesTable.id),
+    )
+    .where(eq(workoutTemplatesTable.id, templateId))
+    .groupBy(workoutTemplatesTable.id)
+    .limit(1))[0] as WorkoutTemplateSummary | undefined
   if (!summary) return null
 
-  const exercises = (await db.$client.execute(
-    `SELECT
-       te.id,
-       te.template_id as templateId,
-       et.id as exerciseTypeId,
-       et.name as exerciseTypeName,
-       et.method_locked as methodLocked,
-       m.id as methodId,
-       m.name as methodName,
-       te.set_count as setCount,
-       te.order_index as orderIndex
-     FROM workout_template_exercises te
-     JOIN exercise_types et ON et.id = te.exercise_type_id
-     JOIN methods m ON m.id = te.method_id
-     WHERE te.template_id = ?
-     ORDER BY te.order_index ASC, te.id ASC`,
-    [templateId],
-  )).rows as WorkoutTemplateExercise[]
+  const exercises = await db
+    .select({
+      id: workoutTemplateExercisesTable.id,
+      templateId: workoutTemplateExercisesTable.templateId,
+      exerciseTypeId: exerciseTypesTable.id,
+      exerciseTypeName: exerciseTypesTable.name,
+      methodLocked: exerciseTypesTable.methodLocked,
+      methodId: methodsTable.id,
+      methodName: methodsTable.name,
+      setCount: workoutTemplateExercisesTable.setCount,
+      orderIndex: workoutTemplateExercisesTable.orderIndex,
+    })
+    .from(workoutTemplateExercisesTable)
+    .innerJoin(
+      exerciseTypesTable,
+      eq(exerciseTypesTable.id, workoutTemplateExercisesTable.exerciseTypeId),
+    )
+    .innerJoin(methodsTable, eq(methodsTable.id, workoutTemplateExercisesTable.methodId))
+    .where(eq(workoutTemplateExercisesTable.templateId, templateId))
+    .orderBy(asc(workoutTemplateExercisesTable.orderIndex), asc(workoutTemplateExercisesTable.id)) as WorkoutTemplateExercise[]
 
   return { ...summary, exercises }
 }
@@ -1508,25 +2098,31 @@ export async function setWorkoutTemplateFavorite(
 ): Promise<void> {
   await ensureTemplateTables()
   if (favorite) {
-    const countRow = (await db.$client.execute(
-      'SELECT COUNT(*) as count FROM workout_templates WHERE is_favorite = 1 AND id != ?',
-      [templateId],
-    )).rows[0] as { count?: number } | undefined
+    const countRow = (await db
+      .select({ count: sql<number>`COUNT(*)` })
+      .from(workoutTemplatesTable)
+      .where(and(
+        eq(workoutTemplatesTable.isFavorite, 1),
+        ne(workoutTemplatesTable.id, templateId),
+      ))
+      .limit(1))[0]
     const favoriteCount = Number(countRow?.count ?? 0)
     if (favoriteCount >= 6) {
       throw new Error('You can favorite up to 6 templates.')
     }
   }
-  await db.$client.execute(
-    'UPDATE workout_templates SET is_favorite = ?, updated_at = ? WHERE id = ?',
-    [favorite ? 1 : 0, Date.now(), templateId],
-  )
+  await db
+    .update(workoutTemplatesTable)
+    .set({ isFavorite: favorite ? 1 : 0, updatedAt: Date.now() })
+    .where(eq(workoutTemplatesTable.id, templateId))
 }
 
 export async function deleteWorkoutTemplate(templateId: string): Promise<void> {
   await ensureTemplateTables()
-  await db.$client.execute('DELETE FROM workout_template_exercises WHERE template_id = ?', [templateId])
-  await db.$client.execute('DELETE FROM workout_templates WHERE id = ?', [templateId])
+  await db
+    .delete(workoutTemplateExercisesTable)
+    .where(eq(workoutTemplateExercisesTable.templateId, templateId))
+  await db.delete(workoutTemplatesTable).where(eq(workoutTemplatesTable.id, templateId))
 }
 
 export async function addExerciseToWorkoutTemplate(params: {
@@ -1536,28 +2132,29 @@ export async function addExerciseToWorkoutTemplate(params: {
   setCount: number
 }): Promise<void> {
   await ensureTemplateTables()
+  await assertMethodAvailableForExerciseType(params.exerciseTypeId, params.methodId)
   const setCount = Math.max(1, Math.min(12, Math.trunc(params.setCount)))
-  const orderRow = (await db.$client.execute(
-    'SELECT COALESCE(MAX(order_index), -1) + 1 as nextOrder FROM workout_template_exercises WHERE template_id = ?',
-    [params.templateId],
-  )).rows[0] as { nextOrder?: number } | undefined
+  const orderRow = (await db
+    .select({
+      nextOrder: sql<number>`COALESCE(MAX(${workoutTemplateExercisesTable.orderIndex}), -1) + 1`,
+    })
+    .from(workoutTemplateExercisesTable)
+    .where(eq(workoutTemplateExercisesTable.templateId, params.templateId))
+    .limit(1))[0]
   const nextOrder = Number(orderRow?.nextOrder ?? 0)
   const id = genTemplateId('template_exercise')
-  await db.$client.execute(
-    `INSERT INTO workout_template_exercises (
-      id,
-      template_id,
-      exercise_type_id,
-      method_id,
-      set_count,
-      order_index
-    ) VALUES (?, ?, ?, ?, ?, ?)`,
-    [id, params.templateId, params.exerciseTypeId, params.methodId, setCount, nextOrder],
-  )
-  await db.$client.execute(
-    'UPDATE workout_templates SET updated_at = ? WHERE id = ?',
-    [Date.now(), params.templateId],
-  )
+  await db.insert(workoutTemplateExercisesTable).values({
+    id,
+    templateId: params.templateId,
+    exerciseTypeId: params.exerciseTypeId,
+    methodId: params.methodId,
+    setCount,
+    orderIndex: nextOrder,
+  })
+  await db
+    .update(workoutTemplatesTable)
+    .set({ updatedAt: Date.now() })
+    .where(eq(workoutTemplatesTable.id, params.templateId))
 }
 
 export async function updateWorkoutTemplateExerciseSetCount(
@@ -1566,36 +2163,40 @@ export async function updateWorkoutTemplateExerciseSetCount(
 ): Promise<void> {
   await ensureTemplateTables()
   const safeSetCount = Math.max(1, Math.min(12, Math.trunc(setCount)))
-  await db.$client.execute(
-    `UPDATE workout_template_exercises
-     SET set_count = ?
-     WHERE id = ?`,
-    [safeSetCount, templateExerciseId],
-  )
-  await db.$client.execute(
-    `UPDATE workout_templates
-     SET updated_at = ?
-     WHERE id = (
-       SELECT template_id FROM workout_template_exercises WHERE id = ?
-     )`,
-    [Date.now(), templateExerciseId],
-  )
+  await db
+    .update(workoutTemplateExercisesTable)
+    .set({ setCount: safeSetCount })
+    .where(eq(workoutTemplateExercisesTable.id, templateExerciseId))
+  const row = (await db
+    .select({ templateId: workoutTemplateExercisesTable.templateId })
+    .from(workoutTemplateExercisesTable)
+    .where(eq(workoutTemplateExercisesTable.id, templateExerciseId))
+    .limit(1))[0]
+  if (row?.templateId) {
+    await db
+      .update(workoutTemplatesTable)
+      .set({ updatedAt: Date.now() })
+      .where(eq(workoutTemplatesTable.id, row.templateId))
+  }
 }
 
 export async function removeExerciseFromWorkoutTemplate(
   templateExerciseId: string,
 ): Promise<void> {
   await ensureTemplateTables()
-  const row = (await db.$client.execute(
-    'SELECT template_id as templateId FROM workout_template_exercises WHERE id = ?',
-    [templateExerciseId],
-  )).rows[0] as { templateId?: string } | undefined
-  await db.$client.execute('DELETE FROM workout_template_exercises WHERE id = ?', [templateExerciseId])
+  const row = (await db
+    .select({ templateId: workoutTemplateExercisesTable.templateId })
+    .from(workoutTemplateExercisesTable)
+    .where(eq(workoutTemplateExercisesTable.id, templateExerciseId))
+    .limit(1))[0]
+  await db
+    .delete(workoutTemplateExercisesTable)
+    .where(eq(workoutTemplateExercisesTable.id, templateExerciseId))
   if (row?.templateId) {
-    await db.$client.execute(
-      'UPDATE workout_templates SET updated_at = ? WHERE id = ?',
-      [Date.now(), row.templateId],
-    )
+    await db
+      .update(workoutTemplatesTable)
+      .set({ updatedAt: Date.now() })
+      .where(eq(workoutTemplatesTable.id, row.templateId))
   }
 }
 
@@ -1604,31 +2205,23 @@ export async function replaceWorkoutTemplateExercises(
   exercises: WorkoutTemplateExercise[],
 ): Promise<void> {
   await ensureTemplateTables()
-  await db.$client.execute('DELETE FROM workout_template_exercises WHERE template_id = ?', [templateId])
+  await db
+    .delete(workoutTemplateExercisesTable)
+    .where(eq(workoutTemplateExercisesTable.templateId, templateId))
   for (const [index, exercise] of exercises.entries()) {
-    await db.$client.execute(
-      `INSERT INTO workout_template_exercises (
-        id,
-        template_id,
-        exercise_type_id,
-        method_id,
-        set_count,
-        order_index
-      ) VALUES (?, ?, ?, ?, ?, ?)`,
-      [
-        exercise.id,
-        templateId,
-        exercise.exerciseTypeId,
-        exercise.methodId,
-        Math.max(1, Math.min(12, Math.trunc(exercise.setCount))),
-        index,
-      ],
-    )
+    await db.insert(workoutTemplateExercisesTable).values({
+      id: exercise.id,
+      templateId,
+      exerciseTypeId: exercise.exerciseTypeId,
+      methodId: exercise.methodId,
+      setCount: Math.max(1, Math.min(12, Math.trunc(exercise.setCount))),
+      orderIndex: index,
+    })
   }
-  await db.$client.execute(
-    'UPDATE workout_templates SET updated_at = ? WHERE id = ?',
-    [Date.now(), templateId],
-  )
+  await db
+    .update(workoutTemplatesTable)
+    .set({ updatedAt: Date.now() })
+    .where(eq(workoutTemplatesTable.id, templateId))
 }
 
 export async function createWorkoutFromTemplate(

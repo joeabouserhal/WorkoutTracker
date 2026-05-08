@@ -2,6 +2,7 @@ import React, { ReactNode, useCallback, useMemo, useState } from 'react'
 import {
   NativeScrollEvent,
   NativeSyntheticEvent,
+  StatusBar,
   Text,
   TouchableOpacity,
   useWindowDimensions,
@@ -99,9 +100,10 @@ export default function ScreenHeader({
 }: ScreenHeaderProps) {
   const { styles, theme } = useStyles(stylesheet)
   const insets = useSafeAreaInsets()
+  const topInset = Math.max(insets.top, StatusBar.currentHeight ?? 0)
   const headerStyle = useMemo(
-    () => [styles.header, { paddingTop: insets.top + theme.spacing.md }],
-    [insets.top, styles.header, theme.spacing.md],
+    () => [styles.header, { paddingTop: topInset + theme.spacing.md }],
+    [styles.header, theme.spacing.md, topInset],
   )
   const hasTopRow = Boolean(onBack || rightContent)
 

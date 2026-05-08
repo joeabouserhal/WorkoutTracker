@@ -1,10 +1,6 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import {
-  Dimensions,
-  findNodeHandle,
-  Keyboard,
   Modal,
-  ScrollView,
   StatusBar,
   Text,
   TextInput,
@@ -13,15 +9,19 @@ import {
   type NativeScrollEvent,
   type NativeSyntheticEvent,
 } from 'react-native'
-import { SafeAreaView } from 'react-native-safe-area-context'
+import {
+  KeyboardAwareScrollView,
+  KeyboardProvider,
+} from 'react-native-keyboard-controller'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons'
 import { createStyleSheet, useStyles } from 'react-native-unistyles'
+import ScreenHeader, { useHeaderFade } from '@/components/ui/ScreenHeader'
 import ThemedDialog from '@/components/ui/ThemedDialog'
 import {
   deleteWorkout,
   getWorkoutDetail,
   updateCompletedWorkout,
-  updateWorkoutName,
   type CompletedWorkoutSetUpdate,
   type WorkoutDetail,
   type WorkoutSummary,
@@ -40,6 +40,20 @@ function formatDuration(startedAt: number, endedAt: number) {
 
 function formatCompactNumber(value: number) {
   return Number.parseFloat(value.toFixed(2)).toString()
+}
+
+function formatDetailSubtitle(workout: WorkoutDetail) {
+  const startedAt = new Date(workout.startedAt)
+  const date = startedAt.toLocaleDateString([], {
+    weekday: 'long',
+    month: 'long',
+    day: 'numeric',
+  })
+  const time = startedAt.toLocaleTimeString([], {
+    hour: 'numeric',
+    minute: '2-digit',
+  })
+  return `${date} - ${time} - ${formatDuration(workout.startedAt, workout.endedAt)}`
 }
 
 function roundWeightKg(value: number) {
@@ -327,7 +341,6 @@ export function WorkoutDetailModal({
   loading,
   onClose,
   onDeleted,
-  onRename,
   onUpdated,
 }: {
   workoutId: string | null
@@ -339,22 +352,17 @@ export function WorkoutDetailModal({
   onUpdated?: (workoutId: string, workout: WorkoutDetail) => void
 }) {
   const { styles, theme } = useStyles(stylesheet)
+  const insets = useSafeAreaInsets()
+  const { showHeaderFade, handleHeaderScroll } = useHeaderFade()
   const [name, setName] = useState('')
   const [dateText, setDateText] = useState('')
   const [editableSets, setEditableSets] = useState<Record<string, EditableSet>>({})
   const [editing, setEditing] = useState(false)
   const [saving, setSaving] = useState(false)
-  const [keyboardHeight, setKeyboardHeight] = useState(0)
   const [showDefaultUnits, setShowDefaultUnits] = useState<Record<string, boolean>>({})
   const [showDeleteDialog, setShowDeleteDialog] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [editError, setEditError] = useState<string | null>(null)
-  const scrollRef = useRef<ScrollView | null>(null)
-  const scrollOffsetRef = useRef(0)
-  const keyboardHeightRef = useRef(0)
-  const keyboardTopRef = useRef(Dimensions.get('window').height)
-  const focusedEditFieldRef = useRef<string | null>(null)
-  const editFieldInputRef = useRef<Record<string, TextInput | null>>({})
 
   useEffect(() => {
     setName(workout?.name || '')
@@ -366,122 +374,12 @@ export function WorkoutDetailModal({
     setShowDefaultUnits({})
   }, [workout])
 
-  const scrollEditFieldIntoView = useCallback((key: string, delay = 40) => {
-    setTimeout(() => {
-      const input = editFieldInputRef.current[key]
-      const scrollView = scrollRef.current
-      if (!input || !scrollView) return
-      const metrics = Keyboard.metrics()
-      if (metrics?.height && metrics.height !== keyboardHeightRef.current) {
-        keyboardHeightRef.current = metrics.height
-        keyboardTopRef.current = metrics.screenY
-        setKeyboardHeight(metrics.height)
-      }
-
-      const nodeHandle = findNodeHandle(input)
-      const keyboardResponder = scrollView.getScrollResponder() as unknown as {
-        scrollResponderScrollNativeHandleToKeyboard?: (
-          nodeHandle: number,
-          additionalOffset?: number,
-          preventNegativeScrollOffset?: boolean,
-        ) => void
-      }
-      if (nodeHandle) {
-        keyboardResponder.scrollResponderScrollNativeHandleToKeyboard?.(
-          nodeHandle,
-          theme.spacing.lg,
-          true,
-        )
-      }
-
-      const measurableScrollView = scrollView as unknown as {
-        measureInWindow: (
-          callback: (
-            x: number,
-            y: number,
-            width: number,
-            height: number,
-          ) => void,
-        ) => void
-      }
-
-      measurableScrollView.measureInWindow((_scrollX, scrollY, _scrollWidth, scrollHeight) => {
-        input.measureInWindow((_inputX, inputY, _inputWidth, inputHeight) => {
-          const windowHeight = Dimensions.get('window').height
-          const liveMetrics = Keyboard.metrics()
-          const knownKeyboardHeight = liveMetrics?.height ?? keyboardHeightRef.current
-          const measuredKeyboardTop = liveMetrics?.screenY ?? keyboardTopRef.current
-          const keyboardTop = knownKeyboardHeight > 0
-            ? measuredKeyboardTop || windowHeight - knownKeyboardHeight
-            : windowHeight
-          const visibleTop = scrollY + theme.spacing.sm
-          const visibleBottom = Math.min(
-            scrollY + scrollHeight,
-            keyboardTop,
-          ) - theme.spacing.lg
-          const inputTop = inputY
-          const inputBottom = inputY + inputHeight
-
-          if (inputBottom > visibleBottom) {
-            scrollView.scrollTo({
-              y: Math.max(0, scrollOffsetRef.current + inputBottom - visibleBottom),
-              animated: true,
-            })
-            return
-          }
-
-          if (inputTop < visibleTop) {
-            scrollView.scrollTo({
-              y: Math.max(0, scrollOffsetRef.current - (visibleTop - inputTop)),
-              animated: true,
-            })
-          }
-        })
-      })
-    }, delay)
-  }, [theme.spacing.lg, theme.spacing.sm])
-
-  function handleEditFieldFocus(key: string) {
-    focusedEditFieldRef.current = key
-    scrollEditFieldIntoView(key, 80)
-    scrollEditFieldIntoView(key, 240)
-    scrollEditFieldIntoView(key, 420)
-  }
-
   function handleDetailScroll(event: NativeSyntheticEvent<NativeScrollEvent>) {
-    scrollOffsetRef.current = event.nativeEvent.contentOffset.y
+    handleHeaderScroll(event)
   }
-
-  useEffect(() => {
-    const showSub = Keyboard.addListener('keyboardDidShow', (event) => {
-      keyboardHeightRef.current = event.endCoordinates.height
-      keyboardTopRef.current = event.endCoordinates.screenY
-      setKeyboardHeight(event.endCoordinates.height)
-      const focusedKey = focusedEditFieldRef.current
-      if (focusedKey) {
-        scrollEditFieldIntoView(focusedKey, 60)
-      }
-    })
-    const hideSub = Keyboard.addListener('keyboardDidHide', () => {
-      keyboardHeightRef.current = 0
-      keyboardTopRef.current = Dimensions.get('window').height
-      setKeyboardHeight(0)
-    })
-    return () => {
-      showSub.remove()
-      hideSub.remove()
-    }
-  }, [scrollEditFieldIntoView])
 
   if (!workoutId) return null
   const detailWorkoutId = workoutId
-
-  function saveName() {
-    if (!workout || !onRename || editing) return
-    updateWorkoutName(detailWorkoutId, name)
-      .then(() => onRename(detailWorkoutId, name))
-      .catch((e) => console.error('Failed to rename workout', e))
-  }
 
   function resetEdits() {
     setName(workout?.name || '')
@@ -603,115 +501,107 @@ export function WorkoutDetailModal({
       statusBarTranslucent
       navigationBarTranslucent
     >
-      <StatusBar translucent backgroundColor="transparent" barStyle="light-content" />
-      <SafeAreaView style={styles.detailRoot} edges={['top', 'bottom']}>
-        <View style={styles.detailHeader}>
-          <TouchableOpacity style={styles.viewButton} onPress={onClose}>
-            <MaterialCommunityIcons name="chevron-left" size={17} color={theme.colors.text} />
-            <Text style={styles.viewButtonText}>Back</Text>
-          </TouchableOpacity>
-          <View style={styles.headerActionRow}>
-            {editing ? (
-              <>
-                <TouchableOpacity
-                  style={styles.viewButton}
-                  onPress={resetEdits}
-                  disabled={saving}
-                >
-                  <Text style={styles.viewButtonText}>Cancel</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={styles.saveEditButton}
-                  onPress={saveWorkoutEdits}
-                  disabled={saving}
-                >
-                  <MaterialCommunityIcons name="check" size={17} color="#FFFFFF" />
-                  <Text style={styles.saveEditButtonText}>
-                    {saving ? 'Saving' : 'Save'}
-                  </Text>
-                </TouchableOpacity>
-              </>
-            ) : (
-              <>
-                <TouchableOpacity
-                  style={styles.viewButton}
-                  onPress={() => setEditing(true)}
-                  disabled={loading || !workout}
-                >
-                  <MaterialCommunityIcons name="pencil-outline" size={17} color={theme.colors.text} />
-                  <Text style={styles.viewButtonText}>Edit</Text>
-                </TouchableOpacity>
-                {onDeleted ? (
-                  <TouchableOpacity
-                    style={styles.deleteButton}
-                    onPress={() => setShowDeleteDialog(true)}
-                    disabled={loading || deleting}
-                  >
-                    <MaterialCommunityIcons name="trash-can-outline" size={17} color={theme.colors.danger} />
-                    <Text style={styles.deleteButtonText}>Delete</Text>
-                  </TouchableOpacity>
-                ) : null}
-              </>
-            )}
-          </View>
-        </View>
+      <StatusBar translucent backgroundColor={theme.colors.bg} barStyle="light-content" />
+      <KeyboardProvider statusBarTranslucent navigationBarTranslucent>
+        <View style={styles.detailRoot}>
+          <ScreenHeader
+            title={name.trim() || workout?.name || 'Workout'}
+            showFade={showHeaderFade}
+            onBack={onClose}
+            afterTitle={
+              <Text style={styles.detailHeaderSubtitle} numberOfLines={1}>
+                {workout ? formatDetailSubtitle(workout) : 'Loading workout...'}
+              </Text>
+            }
+            rightContent={
+              <View style={styles.headerActionRow}>
+                {editing ? (
+                  <>
+                    <TouchableOpacity
+                      style={styles.viewButton}
+                      onPress={resetEdits}
+                      disabled={saving}
+                    >
+                      <Text style={styles.viewButtonText}>Cancel</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={styles.saveEditButton}
+                      onPress={saveWorkoutEdits}
+                      disabled={saving}
+                    >
+                      <MaterialCommunityIcons name="check" size={17} color="#FFFFFF" />
+                      <Text style={styles.saveEditButtonText}>
+                        {saving ? 'Saving' : 'Save'}
+                      </Text>
+                    </TouchableOpacity>
+                  </>
+                ) : (
+                  <>
+                    <TouchableOpacity
+                      style={styles.viewButton}
+                      onPress={() => setEditing(true)}
+                      disabled={loading || !workout}
+                    >
+                      <MaterialCommunityIcons name="pencil-outline" size={17} color={theme.colors.text} />
+                      <Text style={styles.viewButtonText}>Edit</Text>
+                    </TouchableOpacity>
+                    {onDeleted ? (
+                      <TouchableOpacity
+                        style={styles.deleteButton}
+                        onPress={() => setShowDeleteDialog(true)}
+                        disabled={loading || deleting}
+                      >
+                        <MaterialCommunityIcons name="trash-can-outline" size={17} color={theme.colors.danger} />
+                        <Text style={styles.deleteButtonText}>Delete</Text>
+                      </TouchableOpacity>
+                    ) : null}
+                  </>
+                )}
+              </View>
+            }
+          />
 
-        {loading || !workout ? (
-          <View style={styles.detailLoading}>
-            <Text style={styles.emptyText}>Loading workout...</Text>
-          </View>
-        ) : (
-          <ScrollView
-            ref={scrollRef}
-            style={styles.detailScroll}
-            contentContainerStyle={[
-              styles.detailContent,
-              keyboardHeight > 0 && {
-                paddingBottom: keyboardHeight + theme.spacing.lg,
-              },
-            ]}
-            keyboardShouldPersistTaps="handled"
-            keyboardDismissMode="interactive"
-            onScroll={handleDetailScroll}
-            scrollEventThrottle={16}
-          >
-            {onRename ? (
+          {loading || !workout ? (
+            <View style={styles.detailLoading}>
+              <Text style={styles.emptyText}>Loading workout...</Text>
+            </View>
+          ) : (
+            <KeyboardAwareScrollView
+              bottomOffset={theme.spacing.lg}
+              disableScrollOnKeyboardHide
+              style={styles.detailScroll}
+              contentContainerStyle={[
+                styles.detailContent,
+                {
+                  paddingBottom: insets.bottom + theme.spacing.xl,
+                },
+              ]}
+              keyboardShouldPersistTaps="handled"
+              keyboardDismissMode="interactive"
+              onScroll={handleDetailScroll}
+              scrollEventThrottle={16}
+            >
+            {editing ? (
               <View style={styles.renameCard}>
                 <Text style={styles.renameLabel}>Workout Name</Text>
                 <TextInput
-                  ref={(ref) => {
-                    editFieldInputRef.current.name = ref
-                  }}
                   style={styles.renameInput}
                   value={name}
                   onChangeText={setName}
-                  onBlur={saveName}
-                  onFocus={() => handleEditFieldFocus('name')}
-                  onSubmitEditing={saveName}
                   placeholder="Workout"
                   placeholderTextColor={theme.colors.textMuted}
                   returnKeyType="done"
-                  editable={editing}
                 />
               </View>
-            ) : (
-              <View style={styles.renameCard}>
-                <Text style={styles.renameLabel}>Workout Name</Text>
-                <Text style={styles.detailName}>{workout.name || 'Workout'}</Text>
-              </View>
-            )}
+            ) : null}
 
             {editing ? (
               <View style={styles.renameCard}>
                 <Text style={styles.renameLabel}>Workout Date</Text>
                 <TextInput
-                  ref={(ref) => {
-                    editFieldInputRef.current.date = ref
-                  }}
                   style={styles.renameInput}
                   value={dateText}
                   onChangeText={setDateText}
-                  onFocus={() => handleEditFieldFocus('date')}
                   placeholder="YYYY-MM-DD"
                   placeholderTextColor={theme.colors.textMuted}
                   returnKeyType="done"
@@ -725,17 +615,6 @@ export function WorkoutDetailModal({
                 <Text style={styles.editErrorText}>{editError}</Text>
               </View>
             ) : null}
-
-            <Text style={styles.dateTitle}>
-              {new Date(workout.startedAt).toLocaleDateString([], {
-                weekday: 'long',
-                month: 'long',
-                day: 'numeric',
-              })}
-            </Text>
-            <Text style={styles.detailMeta}>
-              {new Date(workout.startedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })} - {formatDuration(workout.startedAt, workout.endedAt)}
-            </Text>
 
             <View style={styles.summaryRow}>
               <View style={styles.summaryItem}>
@@ -834,9 +713,6 @@ export function WorkoutDetailModal({
                               <>
                                 <View style={[styles.editWeightGroup, styles.setWeightCol]}>
                                   <TextInput
-                                    ref={(ref) => {
-                                      editFieldInputRef.current[`${set.id}:weight`] = ref
-                                    }}
                                     style={styles.editSetInput}
                                     value={editSet.weightText}
                                     onChangeText={(value) =>
@@ -845,7 +721,6 @@ export function WorkoutDetailModal({
                                         weightKg: weightInputToKg(value, editSet.weightUnit),
                                       })
                                     }
-                                    onFocus={() => handleEditFieldFocus(`${set.id}:weight`)}
                                     keyboardType="decimal-pad"
                                     selectTextOnFocus
                                   />
@@ -857,9 +732,6 @@ export function WorkoutDetailModal({
                                   </TouchableOpacity>
                                 </View>
                                 <TextInput
-                                  ref={(ref) => {
-                                    editFieldInputRef.current[`${set.id}:reps`] = ref
-                                  }}
                                   style={[styles.editSetInput, styles.editRepsInput, styles.setRepsCol]}
                                   value={editSet.repsText}
                                   onChangeText={(value) =>
@@ -867,7 +739,6 @@ export function WorkoutDetailModal({
                                       repsText: value.replace(/[^0-9]/g, ''),
                                     })
                                   }
-                                  onFocus={() => handleEditFieldFocus(`${set.id}:reps`)}
                                   keyboardType="number-pad"
                                   selectTextOnFocus
                                 />
@@ -901,9 +772,10 @@ export function WorkoutDetailModal({
                 </View>
               )
             })}
-          </ScrollView>
-        )}
-      </SafeAreaView>
+            </KeyboardAwareScrollView>
+          )}
+        </View>
+      </KeyboardProvider>
       <ThemedDialog
         visible={showDeleteDialog}
         title="Delete Workout"
@@ -1094,6 +966,11 @@ const stylesheet = createStyleSheet((theme) => ({
   detailRoot: {
     flex: 1,
     backgroundColor: theme.colors.bg,
+  },
+  detailHeaderSubtitle: {
+    color: theme.colors.textMuted,
+    fontSize: theme.fontSize.sm,
+    fontFamily: theme.fontFamily.semiBold,
   },
   detailHeader: {
     flexDirection: 'row',

@@ -90,10 +90,6 @@ type WorkoutExerciseHeights = Record<string, number>
 
 const LB_PER_KG = 2.20462
 const PR_GOLD = '#D9A441'
-const SHEET_TOP_SWIPE_TOLERANCE = 10
-const SHEET_SWIPE_CAPTURE_DISTANCE = 6
-const SHEET_SWIPE_CLOSE_DISTANCE = 48
-const SHEET_SWIPE_CLOSE_VELOCITY = 0.48
 const WORKOUT_EXERCISE_DEFAULT_HEIGHT = 178
 const WORKOUT_EXERCISE_GAP = 8
 const ACTIVE_WORKOUT_DRAFT_SAVE_DELAY_MS = 250
@@ -395,13 +391,13 @@ export default function ActiveWorkoutSheet() {
     PR_CONFETTI.map(() => new Animated.Value(0)),
   ).current
   const prSpotlightAnimation = useRef(new Animated.Value(0)).current
+  const pullToCloseHintOpacity = useRef(new Animated.Value(0)).current
+  const pullToCloseStartedAtTopRef = useRef(false)
   const restDoneNotifiedRef = useRef(false)
   const handledEndRequestRef = useRef(0)
   const localSetsDraftHydratedForWorkoutRef = useRef<string | null>(null)
   const localSetsRef = useRef(localSets)
   const notificationRestEndsAtRef = useRef<number | null>(null)
-  const sheetScrollAtTopRef = useRef(true)
-  const sheetScrollAtTop = useSharedValue(true)
 
   const activeWorkoutId = useSessionStore((state) => state.activeWorkoutId)
   const startedAt = useSessionStore((state) => state.startedAt)
@@ -746,10 +742,10 @@ export default function ActiveWorkoutSheet() {
     setPickerVisible(false)
     setLocalSets({})
     localSetsDraftHydratedForWorkoutRef.current = null
-    sheetScrollAtTopRef.current = true
-    sheetScrollAtTop.value = true
+    pullToCloseHintOpacity.setValue(0)
+    pullToCloseStartedAtTopRef.current = false
     setDraggingExerciseId(null)
-  }, [activeWorkoutId, sheetScrollAtTop])
+  }, [activeWorkoutId, pullToCloseHintOpacity])
 
   useEffect(() => {
     let cancelled = false
@@ -1011,13 +1007,43 @@ export default function ActiveWorkoutSheet() {
     if (activeWorkoutId) openWorkoutSheet()
   }
 
+  const showPullToCloseHint = useCallback(() => {
+    Animated.timing(pullToCloseHintOpacity, {
+      toValue: 1,
+      duration: 90,
+      easing: Easing.out(Easing.quad),
+      useNativeDriver: true,
+    }).start()
+  }, [pullToCloseHintOpacity])
 
+  const hidePullToCloseHint = useCallback(() => {
+    Animated.timing(pullToCloseHintOpacity, {
+      toValue: 0,
+      duration: 80,
+      easing: Easing.out(Easing.quad),
+      useNativeDriver: true,
+    }).start()
+  }, [pullToCloseHintOpacity])
 
-  function handleScroll(event: NativeSyntheticEvent<NativeScrollEvent>) {
-    const offsetY = event.nativeEvent.contentOffset.y
-    const isAtTop = offsetY <= SHEET_TOP_SWIPE_TOLERANCE
-    sheetScrollAtTopRef.current = isAtTop
-    sheetScrollAtTop.value = isAtTop
+  function handleScrollBeginDrag(event: NativeSyntheticEvent<NativeScrollEvent>) {
+    const startedAtTop = event.nativeEvent.contentOffset.y <= 0
+    pullToCloseStartedAtTopRef.current = startedAtTop
+    if (startedAtTop) {
+      showPullToCloseHint()
+    }
+  }
+
+  function handleScrollEndDrag(event: NativeSyntheticEvent<NativeScrollEvent>) {
+    const shouldClose =
+      pullToCloseStartedAtTopRef.current &&
+      event.nativeEvent.contentOffset.y <= 0
+
+    pullToCloseStartedAtTopRef.current = false
+    hidePullToCloseHint()
+
+    if (shouldClose) {
+      handleCloseSheet()
+    }
   }
 
   function saveWorkoutName() {
@@ -1304,19 +1330,6 @@ export default function ActiveWorkoutSheet() {
     )
   }
 
-  const swipeDownToCloseGesture = Gesture.Pan()
-    .activeOffsetY(SHEET_SWIPE_CAPTURE_DISTANCE)
-    .failOffsetX([-90, 90])
-    .onEnd((event) => {
-      if (!sheetScrollAtTop.value) return
-      if (
-        event.translationY > SHEET_SWIPE_CLOSE_DISTANCE ||
-        event.velocityY > SHEET_SWIPE_CLOSE_VELOCITY * 1000
-      ) {
-        runOnJS(handleCloseSheet)()
-      }
-    })
-
   if (!activeWorkoutId && prCelebration.length === 0) return null
 
   return (
@@ -1333,7 +1346,6 @@ export default function ActiveWorkoutSheet() {
             <GestureHandlerRootView style={styles.gestureRoot}>
               <View style={[styles.root, { paddingTop: topSafeInset }]}>
           {/* Fixed header */}
-          <GestureDetector gesture={swipeDownToCloseGesture}>
             <View style={styles.header}>
               <TouchableOpacity style={styles.iconBtn} onPress={handleCloseSheet}>
                 <MaterialCommunityIcons name="chevron-down" size={17} color={theme.colors.text} />
@@ -1358,9 +1370,33 @@ export default function ActiveWorkoutSheet() {
                 </View>
               </View>
             </View>
-          </GestureDetector>
-
           {/* Scrollable exercise list */}
+          <View style={styles.scrollRegion}>
+            <Animated.View
+              pointerEvents="none"
+              style={[
+                styles.pullToCloseHint,
+                {
+                  opacity: pullToCloseHintOpacity,
+                  transform: [
+                    {
+                      translateY: pullToCloseHintOpacity.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [-18, 0],
+                      }),
+                    },
+                  ],
+                },
+              ]}
+            >
+              <View style={styles.pullToCloseHintIcon}>
+                <MaterialCommunityIcons
+                  name="arrow-down"
+                  size={24}
+                  color={theme.colors.accent}
+                />
+              </View>
+            </Animated.View>
           <KeyboardAwareScrollView
             ScrollViewComponent={KeyboardAwareGestureScrollView}
             bottomOffset={theme.spacing.md}
@@ -1373,7 +1409,8 @@ export default function ActiveWorkoutSheet() {
             ]}
             keyboardShouldPersistTaps="handled"
             keyboardDismissMode="interactive"
-            onScroll={handleScroll}
+            onScrollBeginDrag={handleScrollBeginDrag}
+            onScrollEndDrag={handleScrollEndDrag}
             scrollEnabled={!draggingExerciseId}
           >
             <View style={styles.workoutNameCard}>
@@ -1533,6 +1570,7 @@ export default function ActiveWorkoutSheet() {
               <Text style={styles.addExerciseText}>Add Exercise</Text>
             </TouchableOpacity>
           </KeyboardAwareScrollView>
+          </View>
 
           <View
             style={[
@@ -2126,6 +2164,7 @@ const stylesheet = createStyleSheet((theme) => ({
   },
   // ── Header ──────────────────────────────────────────────
   header: {
+    position: 'relative',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
@@ -2133,6 +2172,24 @@ const stylesheet = createStyleSheet((theme) => ({
     paddingVertical: theme.spacing.sm,
     borderBottomWidth: 1,
     borderBottomColor: theme.colors.border,
+  },
+  pullToCloseHint: {
+    position: 'absolute',
+    top: theme.spacing.sm,
+    left: 0,
+    right: 0,
+    zIndex: 5,
+    alignItems: 'center',
+  },
+  pullToCloseHintIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: theme.radius.full,
+    backgroundColor: theme.colors.surface,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   iconBtn: {
     width: 32,
@@ -2204,6 +2261,11 @@ const stylesheet = createStyleSheet((theme) => ({
   scroll: {
     flex: 1,
     minHeight: 0,
+  },
+  scrollRegion: {
+    flex: 1,
+    minHeight: 0,
+    position: 'relative',
   },
   scrollContent: {
     paddingHorizontal: theme.spacing.sm,

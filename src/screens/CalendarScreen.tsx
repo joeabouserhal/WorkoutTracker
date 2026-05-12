@@ -1,272 +1,314 @@
-import React, { useCallback, useMemo, useRef, useState } from 'react'
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
+import { ScrollView, Text, TouchableOpacity, View } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
+import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
+import { createStyleSheet, useStyles } from 'react-native-unistyles';
+import ScreenHeader, { useHeaderFade } from '@/components/ui/ScreenHeader';
 import {
-  ScrollView,
-  Text,
-  TouchableOpacity,
-  View,
-} from 'react-native'
-import { useFocusEffect } from '@react-navigation/native'
-import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons'
-import { createStyleSheet, useStyles } from 'react-native-unistyles'
-import ScreenHeader, { ScreenHeaderButton, useHeaderFade } from '@/components/ui/ScreenHeader'
-import { WorkoutDetailModal, WorkoutSummaryCard } from '@/components/WorkoutHistory'
+  WorkoutDetailModal,
+  WorkoutSummaryCard,
+} from '@/components/WorkoutHistory';
 import {
+  getCompletedWorkoutsPage,
   getCompletedWorkoutsInRange,
   getWorkoutDetail,
   type WorkoutDetail,
   type WorkoutSummary,
-} from '@/db/workoutHelpers'
-import ThemedDialog, { type ThemedDialogAction } from '@/components/ui/ThemedDialog'
+} from '@/db/workoutHelpers';
 
-type CalendarView = 'daily' | 'weekly' | 'monthly'
+type CalendarView = 'daily' | 'weekly' | 'monthly';
 
-const DAY_MS = 24 * 60 * 60 * 1000
+const DAY_MS = 24 * 60 * 60 * 1000;
+const WORKOUT_PAGE_SIZE = 10;
 
 function startOfDay(date: Date) {
-  return new Date(date.getFullYear(), date.getMonth(), date.getDate())
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
 }
 
 function endOfDay(date: Date) {
-  return new Date(startOfDay(date).getTime() + DAY_MS)
+  return new Date(startOfDay(date).getTime() + DAY_MS);
 }
 
 function startOfWeek(date: Date) {
-  const day = startOfDay(date)
-  const diff = day.getDay()
-  return new Date(day.getTime() - diff * DAY_MS)
+  const day = startOfDay(date);
+  const diff = day.getDay();
+  return new Date(day.getTime() - diff * DAY_MS);
 }
 
 function startOfMonth(date: Date) {
-  return new Date(date.getFullYear(), date.getMonth(), 1)
+  return new Date(date.getFullYear(), date.getMonth(), 1);
 }
 
 function endOfMonth(date: Date) {
-  return new Date(date.getFullYear(), date.getMonth() + 1, 1)
+  return new Date(date.getFullYear(), date.getMonth() + 1, 1);
 }
 
 function formatTime(timestamp: number) {
-  return new Date(timestamp).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+  return new Date(timestamp).toLocaleTimeString([], {
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+}
+
+function formatWorkoutDateSubtitle(timestamp: number) {
+  const date = new Date(timestamp);
+  const today = startOfDay(new Date());
+  const workoutDay = startOfDay(date);
+  const diffDays = Math.round(
+    (today.getTime() - workoutDay.getTime()) / DAY_MS,
+  );
+  const dateLabel = date.toLocaleDateString([], {
+    weekday: 'long',
+    month: 'long',
+    day: 'numeric',
+    year: date.getFullYear() === today.getFullYear() ? undefined : 'numeric',
+  });
+
+  if (diffDays === 0) return `Today - ${dateLabel}`;
+  if (diffDays === 1) return `Yesterday - ${dateLabel}`;
+  return dateLabel;
 }
 
 function formatDateTitle(date: Date, view: CalendarView) {
   if (view === 'daily') {
-    return date.toLocaleDateString([], {
-      weekday: 'long',
-      month: 'long',
-      day: 'numeric',
-    })
+    return 'Workout History';
   }
   if (view === 'weekly') {
-    const start = startOfWeek(date)
-    const end = new Date(start.getTime() + 6 * DAY_MS)
-    return `${start.toLocaleDateString([], { month: 'short', day: 'numeric' })} - ${end.toLocaleDateString([], { month: 'short', day: 'numeric' })}`
+    const start = startOfWeek(date);
+    const end = new Date(start.getTime() + 6 * DAY_MS);
+    return `${start.toLocaleDateString([], {
+      month: 'short',
+      day: 'numeric',
+    })} - ${end.toLocaleDateString([], { month: 'short', day: 'numeric' })}`;
   }
-  return date.toLocaleDateString([], { month: 'long', year: 'numeric' })
+  return date.toLocaleDateString([], { month: 'long', year: 'numeric' });
 }
 
 function getRange(date: Date, view: CalendarView) {
   if (view === 'daily') {
-    const start = startOfDay(date)
-    return { start, end: endOfDay(date) }
+    const start = startOfDay(date);
+    return { start, end: endOfDay(date) };
   }
   if (view === 'weekly') {
-    const start = startOfWeek(date)
-    return { start, end: new Date(start.getTime() + 7 * DAY_MS) }
+    const start = startOfWeek(date);
+    return { start, end: new Date(start.getTime() + 7 * DAY_MS) };
   }
-  return { start: startOfMonth(date), end: endOfMonth(date) }
+  return { start: startOfMonth(date), end: endOfMonth(date) };
 }
 
 export default function CalendarScreen() {
-  const { styles, theme } = useStyles(stylesheet)
-  const { showHeaderFade, handleHeaderScroll } = useHeaderFade()
-  const [view, setView] = useState<CalendarView>('daily')
-  const [selectedDate, setSelectedDate] = useState(() => new Date())
-  const [workouts, setWorkouts] = useState<WorkoutSummary[]>([])
-  const [selectedWorkoutId, setSelectedWorkoutId] = useState<string | null>(null)
-  const [selectedWorkout, setSelectedWorkout] = useState<WorkoutDetail | null>(null)
-  const [workoutDetailLoading, setWorkoutDetailLoading] = useState(false)
-  const [expandedWorkoutIds, setExpandedWorkoutIds] = useState<Record<string, boolean>>({})
-  const [workoutPreviews, setWorkoutPreviews] = useState<Record<string, WorkoutDetail | null>>({})
-  const [previewLoading, setPreviewLoading] = useState<Record<string, boolean>>({})
-  const [loading, setLoading] = useState(true)
-  const workoutDetailRequestRef = useRef(0)
-  const [dialog, setDialog] = useState<{
-    title: string
-    message?: string
-    actions: ThemedDialogAction[]
-  } | null>(null)
+  const { styles, theme } = useStyles(stylesheet);
+  const { showHeaderFade, handleHeaderScroll } = useHeaderFade();
+  const [view, setView] = useState<CalendarView>('daily');
+  const [selectedDate, setSelectedDate] = useState(() => new Date());
+  const [workouts, setWorkouts] = useState<WorkoutSummary[]>([]);
+  const [selectedWorkoutId, setSelectedWorkoutId] = useState<string | null>(
+    null,
+  );
+  const [selectedWorkout, setSelectedWorkout] = useState<WorkoutDetail | null>(
+    null,
+  );
+  const [workoutDetailLoading, setWorkoutDetailLoading] = useState(false);
+  const [expandedWorkoutIds, setExpandedWorkoutIds] = useState<
+    Record<string, boolean>
+  >({});
+  const [workoutPreviews, setWorkoutPreviews] = useState<
+    Record<string, WorkoutDetail | null>
+  >({});
+  const [previewLoading, setPreviewLoading] = useState<Record<string, boolean>>(
+    {},
+  );
+  const [loading, setLoading] = useState(true);
+  const [visibleWorkoutCount, setVisibleWorkoutCount] =
+    useState(WORKOUT_PAGE_SIZE);
+  const [hasMoreDailyWorkouts, setHasMoreDailyWorkouts] = useState(false);
+  const workoutDetailRequestRef = useRef(0);
 
-  const range = useMemo(() => getRange(selectedDate, view), [selectedDate, view])
+  const range = useMemo(
+    () => getRange(selectedDate, view),
+    [selectedDate, view],
+  );
 
   const loadWorkouts = useCallback(async () => {
-    setLoading(true)
+    setLoading(true);
     try {
-      const rows = await getCompletedWorkoutsInRange(range.start.getTime(), range.end.getTime())
-      setWorkouts(rows)
+      if (view === 'daily') {
+        const rows = await getCompletedWorkoutsPage(visibleWorkoutCount + 1);
+        setHasMoreDailyWorkouts(rows.length > visibleWorkoutCount);
+        setWorkouts(rows.slice(0, visibleWorkoutCount));
+      } else {
+        const rows = await getCompletedWorkoutsInRange(
+          range.start.getTime(),
+          range.end.getTime(),
+        );
+        setHasMoreDailyWorkouts(false);
+        setWorkouts(rows);
+      }
     } catch (e) {
-      console.error('Failed to load workouts', e)
-      setWorkouts([])
+      console.error('Failed to load workouts', e);
+      setWorkouts([]);
+      setHasMoreDailyWorkouts(false);
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }, [range.end, range.start])
+  }, [range.end, range.start, view, visibleWorkoutCount]);
+
+  useEffect(() => {
+    setVisibleWorkoutCount(WORKOUT_PAGE_SIZE);
+  }, [view]);
 
   useFocusEffect(
     useCallback(() => {
-      let isActive = true
+      let isActive = true;
       loadWorkouts().finally(() => {
-        if (!isActive) return
-      })
+        if (!isActive) return;
+      });
       return () => {
-        isActive = false
-      }
+        isActive = false;
+      };
     }, [loadWorkouts]),
-  )
+  );
 
   function openWorkout(workoutId: string) {
-    const requestId = workoutDetailRequestRef.current + 1
-    workoutDetailRequestRef.current = requestId
-    setSelectedWorkoutId(workoutId)
-    setSelectedWorkout(null)
-    setWorkoutDetailLoading(true)
+    const requestId = workoutDetailRequestRef.current + 1;
+    workoutDetailRequestRef.current = requestId;
+    setSelectedWorkoutId(workoutId);
+    setSelectedWorkout(null);
+    setWorkoutDetailLoading(true);
 
     getWorkoutDetail(workoutId)
-      .then((detail) => {
-        if (workoutDetailRequestRef.current !== requestId) return
-        setSelectedWorkout(detail)
+      .then(detail => {
+        if (workoutDetailRequestRef.current !== requestId) return;
+        setSelectedWorkout(detail);
       })
-      .catch((e) => {
-        if (workoutDetailRequestRef.current !== requestId) return
-        console.error('Failed to load workout detail', e)
+      .catch(e => {
+        if (workoutDetailRequestRef.current !== requestId) return;
+        console.error('Failed to load workout detail', e);
       })
       .finally(() => {
-        if (workoutDetailRequestRef.current !== requestId) return
-        setWorkoutDetailLoading(false)
-      })
+        if (workoutDetailRequestRef.current !== requestId) return;
+        setWorkoutDetailLoading(false);
+      });
   }
 
   function closeWorkoutDetail() {
-    workoutDetailRequestRef.current += 1
-    setSelectedWorkoutId(null)
-    setSelectedWorkout(null)
-    setWorkoutDetailLoading(false)
+    workoutDetailRequestRef.current += 1;
+    setSelectedWorkoutId(null);
+    setSelectedWorkout(null);
+    setWorkoutDetailLoading(false);
   }
 
   function toggleWorkoutPreview(workoutId: string) {
-    setExpandedWorkoutIds((prev) => ({ ...prev, [workoutId]: !prev[workoutId] }))
-    if (workoutPreviews[workoutId] !== undefined || previewLoading[workoutId]) return
+    setExpandedWorkoutIds(prev => ({ ...prev, [workoutId]: !prev[workoutId] }));
+    if (workoutPreviews[workoutId] !== undefined || previewLoading[workoutId])
+      return;
 
-    setPreviewLoading((prev) => ({ ...prev, [workoutId]: true }))
+    setPreviewLoading(prev => ({ ...prev, [workoutId]: true }));
     getWorkoutDetail(workoutId)
-      .then((detail) => {
-        setWorkoutPreviews((prev) => ({ ...prev, [workoutId]: detail }))
+      .then(detail => {
+        setWorkoutPreviews(prev => ({ ...prev, [workoutId]: detail }));
       })
-      .catch((e) => {
-        console.error('Failed to load workout preview', e)
-        setWorkoutPreviews((prev) => ({ ...prev, [workoutId]: null }))
+      .catch(e => {
+        console.error('Failed to load workout preview', e);
+        setWorkoutPreviews(prev => ({ ...prev, [workoutId]: null }));
       })
       .finally(() => {
-        setPreviewLoading((prev) => ({ ...prev, [workoutId]: false }))
-      })
+        setPreviewLoading(prev => ({ ...prev, [workoutId]: false }));
+      });
   }
 
   function handleWorkoutRenamed(workoutId: string, name: string) {
-    setWorkouts((prev) =>
-      prev.map((workout) =>
-        workout.id === workoutId ? { ...workout, name: name.trim() || null } : workout,
+    setWorkouts(prev =>
+      prev.map(workout =>
+        workout.id === workoutId
+          ? { ...workout, name: name.trim() || null }
+          : workout,
       ),
-    )
-    setSelectedWorkout((prev) =>
+    );
+    setSelectedWorkout(prev =>
       prev?.id === workoutId ? { ...prev, name: name.trim() || null } : prev,
-    )
+    );
   }
 
   function handleWorkoutUpdated(workoutId: string, workout: WorkoutDetail) {
-    setSelectedWorkout(workout)
-    setWorkoutPreviews((prev) => ({ ...prev, [workoutId]: workout }))
-    loadWorkouts().catch(console.error)
+    setSelectedWorkout(workout);
+    setWorkoutPreviews(prev => ({ ...prev, [workoutId]: workout }));
+    loadWorkouts().catch(console.error);
   }
 
   function handleWorkoutDeleted(workoutId: string) {
-    setSelectedWorkoutId(null)
-    setSelectedWorkout(null)
-    setWorkoutDetailLoading(false)
-    setExpandedWorkoutIds((prev) => {
-      const next = { ...prev }
-      delete next[workoutId]
-      return next
-    })
-    setWorkoutPreviews((prev) => {
-      const next = { ...prev }
-      delete next[workoutId]
-      return next
-    })
-    setPreviewLoading((prev) => {
-      const next = { ...prev }
-      delete next[workoutId]
-      return next
-    })
-    loadWorkouts().catch(console.error)
-  }
-
-  function closeDialog() {
-    setDialog(null)
+    setSelectedWorkoutId(null);
+    setSelectedWorkout(null);
+    setWorkoutDetailLoading(false);
+    setExpandedWorkoutIds(prev => {
+      const next = { ...prev };
+      delete next[workoutId];
+      return next;
+    });
+    setWorkoutPreviews(prev => {
+      const next = { ...prev };
+      delete next[workoutId];
+      return next;
+    });
+    setPreviewLoading(prev => {
+      const next = { ...prev };
+      delete next[workoutId];
+      return next;
+    });
+    loadWorkouts().catch(console.error);
   }
 
   function moveDate(direction: -1 | 1) {
-    setSelectedDate((current) => {
+    setSelectedDate(current => {
       if (view === 'daily') {
-        return new Date(current.getTime() + direction * DAY_MS)
+        return new Date(current.getTime() + direction * DAY_MS);
       }
       if (view === 'weekly') {
-        return new Date(current.getTime() + direction * 7 * DAY_MS)
+        return new Date(current.getTime() + direction * 7 * DAY_MS);
       }
-      return new Date(current.getFullYear(), current.getMonth() + direction, 1)
-    })
+      return new Date(current.getFullYear(), current.getMonth() + direction, 1);
+    });
   }
 
-  function showViewPicker() {
-    setDialog({
-      title: 'Calendar View',
-      message: 'Choose how to browse saved workouts.',
-      actions: [
-        {
-          label: 'Daily',
-          variant: view === 'daily' ? 'primary' : 'default',
-          onPress: () => {
-            closeDialog()
-            setView('daily')
-          },
-        },
-        {
-          label: 'Weekly',
-          variant: view === 'weekly' ? 'primary' : 'default',
-          onPress: () => {
-            closeDialog()
-            setView('weekly')
-          },
-        },
-        {
-          label: 'Monthly',
-          variant: view === 'monthly' ? 'primary' : 'default',
-          onPress: () => {
-            closeDialog()
-            setView('monthly')
-          },
-        },
-      ],
-    })
+  function jumpDate(direction: -1 | 1) {
+    setSelectedDate(current => {
+      if (view === 'daily') {
+        return new Date(current.getTime() + direction * 7 * DAY_MS);
+      }
+      if (view === 'weekly') {
+        return new Date(current.getTime() + direction * 28 * DAY_MS);
+      }
+      return new Date(current.getFullYear() + direction, current.getMonth(), 1);
+    });
   }
 
-  const totalSets = workouts.reduce((sum, workout) => sum + workout.setCount, 0)
-  const totalVolume = workouts.reduce((sum, workout) => sum + workout.volume, 0)
+  const totalSets = workouts.reduce(
+    (sum, workout) => sum + workout.setCount,
+    0,
+  );
+  const totalVolume = workouts.reduce(
+    (sum, workout) => sum + workout.volume,
+    0,
+  );
   const listWorkouts = useMemo(() => {
-    if (view !== 'monthly') return workouts
-    const start = startOfDay(selectedDate).getTime()
-    const end = start + DAY_MS
-    return workouts.filter((workout) => workout.startedAt >= start && workout.startedAt < end)
-  }, [selectedDate, view, workouts])
-  const viewLabel = view.charAt(0).toUpperCase() + view.slice(1)
+    if (view === 'daily') return workouts;
+    const start = startOfDay(selectedDate).getTime();
+    const end = start + DAY_MS;
+    return workouts.filter(
+      workout => workout.startedAt >= start && workout.startedAt < end,
+    );
+  }, [selectedDate, view, workouts]);
+  const viewLabel = view.charAt(0).toUpperCase() + view.slice(1);
+  const periodLabel =
+    view === 'daily'
+      ? selectedDate.toLocaleDateString([], { month: 'short', day: 'numeric' })
+      : formatDateTitle(selectedDate, view);
 
   return (
     <View style={styles.container}>
@@ -274,9 +316,6 @@ export default function CalendarScreen() {
         title={formatDateTitle(selectedDate, view)}
         eyebrow="Calendar"
         showFade={showHeaderFade}
-        rightContent={(
-          <ScreenHeaderButton label={viewLabel} onPress={showViewPicker} />
-        )}
       />
 
       <ScrollView
@@ -285,16 +324,98 @@ export default function CalendarScreen() {
         onScroll={handleHeaderScroll}
         scrollEventThrottle={16}
       >
-        <View style={styles.dateNavRow}>
-          <TouchableOpacity style={styles.navButton} onPress={() => moveDate(-1)}>
-            <MaterialCommunityIcons name="chevron-left" size={20} color={theme.colors.text} />
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.todayButton} onPress={() => setSelectedDate(new Date())}>
-            <Text style={styles.todayButtonText}>Today</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.navButton} onPress={() => moveDate(1)}>
-            <MaterialCommunityIcons name="chevron-right" size={20} color={theme.colors.text} />
-          </TouchableOpacity>
+        <View style={styles.viewToggleRow}>
+          {(['daily', 'weekly', 'monthly'] as CalendarView[]).map(item => (
+            <TouchableOpacity
+              key={item}
+              style={[
+                styles.viewToggleButton,
+                view === item && styles.activeViewToggleButton,
+              ]}
+              onPress={() => setView(item)}
+              activeOpacity={0.75}
+            >
+              <Text
+                style={[
+                  styles.viewToggleText,
+                  view === item && styles.activeViewToggleText,
+                ]}
+              >
+                {item.charAt(0).toUpperCase() + item.slice(1)}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+
+        {view !== 'daily' ? (
+          <View style={styles.dateNavRow}>
+            <TouchableOpacity
+              style={styles.navButton}
+              onPress={() => jumpDate(-1)}
+            >
+              <MaterialCommunityIcons
+                name="chevron-double-left"
+                size={19}
+                color={theme.colors.text}
+              />
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.navButton}
+              onPress={() => moveDate(-1)}
+            >
+              <MaterialCommunityIcons
+                name="chevron-left"
+                size={20}
+                color={theme.colors.text}
+              />
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.todayButton}
+              onPress={() => setSelectedDate(new Date())}
+            >
+              <Text style={styles.todayButtonText}>Today</Text>
+              <Text style={styles.periodLabel} numberOfLines={1}>
+                {periodLabel}
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.navButton}
+              onPress={() => moveDate(1)}
+            >
+              <MaterialCommunityIcons
+                name="chevron-right"
+                size={20}
+                color={theme.colors.text}
+              />
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.navButton}
+              onPress={() => jumpDate(1)}
+            >
+              <MaterialCommunityIcons
+                name="chevron-double-right"
+                size={19}
+                color={theme.colors.text}
+              />
+            </TouchableOpacity>
+          </View>
+        ) : null}
+
+        {view === 'daily' ? (
+          <View style={styles.dailyHintRow}>
+            <MaterialCommunityIcons
+              name="sort-clock-descending-outline"
+              size={17}
+              color={theme.colors.textMuted}
+            />
+            <Text style={styles.dailyHintText}>
+              Newest saved workouts first
+            </Text>
+          </View>
+        ) : null}
+
+        <View style={styles.currentViewRow}>
+          <Text style={styles.currentViewText}>{viewLabel}</Text>
         </View>
 
         <View style={styles.summaryRow}>
@@ -323,9 +444,13 @@ export default function CalendarScreen() {
 
         <View style={styles.listHeader}>
           <Text style={styles.listTitle}>
-            {view === 'monthly'
-              ? selectedDate.toLocaleDateString([], { month: 'short', day: 'numeric' })
-              : 'Saved Workouts'}
+            {view === 'daily'
+              ? 'All Workouts'
+              : selectedDate.toLocaleDateString([], {
+                  weekday: 'short',
+                  month: 'short',
+                  day: 'numeric',
+                })}
           </Text>
         </View>
 
@@ -333,22 +458,58 @@ export default function CalendarScreen() {
           <Text style={styles.emptyText}>Loading workouts...</Text>
         ) : listWorkouts.length === 0 ? (
           <Text style={styles.emptyText}>
-            No saved workouts for this {view === 'monthly' ? 'day' : view} view.
+            {view === 'daily'
+              ? 'No saved workouts yet.'
+              : 'No saved workouts for this day.'}
           </Text>
         ) : (
-          listWorkouts.map((workout) => (
-            <WorkoutSummaryCard
-              key={workout.id}
-              workout={workout}
-              title={workout.name || `${formatTime(workout.startedAt)} workout`}
-              expanded={Boolean(expandedWorkoutIds[workout.id])}
-              preview={workoutPreviews[workout.id]}
-              previewLoading={Boolean(previewLoading[workout.id])}
-              onOpen={() => openWorkout(workout.id)}
-              onToggle={() => toggleWorkoutPreview(workout.id)}
-            />
-          ))
+          listWorkouts.map((workout, index) => {
+            const previousWorkout = listWorkouts[index - 1];
+            const showDateSubtitle =
+              view === 'daily' &&
+              (!previousWorkout ||
+                startOfDay(new Date(previousWorkout.startedAt)).getTime() !==
+                  startOfDay(new Date(workout.startedAt)).getTime());
+
+            return (
+              <View key={workout.id} style={styles.workoutListItem}>
+                {showDateSubtitle ? (
+                  <Text style={styles.workoutDateSubtitle}>
+                    {formatWorkoutDateSubtitle(workout.startedAt)}
+                  </Text>
+                ) : null}
+                <WorkoutSummaryCard
+                  workout={workout}
+                  title={
+                    workout.name || `${formatTime(workout.startedAt)} workout`
+                  }
+                  expanded={Boolean(expandedWorkoutIds[workout.id])}
+                  preview={workoutPreviews[workout.id]}
+                  previewLoading={Boolean(previewLoading[workout.id])}
+                  onOpen={() => openWorkout(workout.id)}
+                  onToggle={() => toggleWorkoutPreview(workout.id)}
+                />
+              </View>
+            );
+          })
         )}
+
+        {!loading && view === 'daily' && hasMoreDailyWorkouts ? (
+          <TouchableOpacity
+            style={styles.showMoreButton}
+            onPress={() =>
+              setVisibleWorkoutCount(count => count + WORKOUT_PAGE_SIZE)
+            }
+            activeOpacity={0.75}
+          >
+            <Text style={styles.showMoreButtonText}>Show 10 More</Text>
+            <MaterialCommunityIcons
+              name="chevron-down"
+              size={18}
+              color={theme.colors.accent}
+            />
+          </TouchableOpacity>
+        ) : null}
       </ScrollView>
 
       <WorkoutDetailModal
@@ -360,15 +521,8 @@ export default function CalendarScreen() {
         onRename={handleWorkoutRenamed}
         onUpdated={handleWorkoutUpdated}
       />
-
-      <ThemedDialog
-        visible={!!dialog}
-        title={dialog?.title ?? ''}
-        message={dialog?.message}
-        actions={dialog?.actions ?? []}
-      />
     </View>
-  )
+  );
 }
 
 function CalendarStrip({
@@ -377,59 +531,87 @@ function CalendarStrip({
   workouts,
   onSelectDate,
 }: {
-  view: CalendarView
-  selectedDate: Date
-  workouts: WorkoutSummary[]
-  onSelectDate: (date: Date) => void
+  view: CalendarView;
+  selectedDate: Date;
+  workouts: WorkoutSummary[];
+  onSelectDate: (date: Date) => void;
 }) {
-  const { styles } = useStyles(stylesheet)
+  const { styles } = useStyles(stylesheet);
+  const weekDays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
   const days = useMemo(() => {
     if (view === 'weekly') {
-      const start = startOfWeek(selectedDate)
-      return Array.from({ length: 7 }, (_, index) => new Date(start.getTime() + index * DAY_MS))
+      const start = startOfWeek(selectedDate);
+      return Array.from(
+        { length: 7 },
+        (_, index) => new Date(start.getTime() + index * DAY_MS),
+      );
     }
-    const monthStart = startOfMonth(selectedDate)
-    const gridStart = startOfWeek(monthStart)
-    return Array.from({ length: 35 }, (_, index) => new Date(gridStart.getTime() + index * DAY_MS))
-  }, [selectedDate, view])
+    const monthStart = startOfMonth(selectedDate);
+    const gridStart = startOfWeek(monthStart);
+    return Array.from(
+      { length: 42 },
+      (_, index) => new Date(gridStart.getTime() + index * DAY_MS),
+    );
+  }, [selectedDate, view]);
 
   function countForDay(day: Date) {
-    const start = startOfDay(day).getTime()
-    const end = start + DAY_MS
-    return workouts.filter((workout) => workout.startedAt >= start && workout.startedAt < end).length
+    const start = startOfDay(day).getTime();
+    const end = start + DAY_MS;
+    return workouts.filter(
+      workout => workout.startedAt >= start && workout.startedAt < end,
+    ).length;
   }
 
   return (
-    <View style={styles.calendarGrid}>
-      {days.map((day) => {
-        const count = countForDay(day)
-        const isToday = startOfDay(day).getTime() === startOfDay(new Date()).getTime()
-        const isSelected = startOfDay(day).getTime() === startOfDay(selectedDate).getTime()
-        const isCurrentMonth = day.getMonth() === selectedDate.getMonth()
-        return (
-          <TouchableOpacity
-            key={day.toISOString()}
-            style={[
-              styles.dayCell,
-              isToday && styles.todayCell,
-              isSelected && styles.selectedDayCell,
-              view === 'monthly' && !isCurrentMonth && styles.outsideMonthCell,
-            ]}
-            onPress={() => onSelectDate(day)}
-            activeOpacity={0.75}
-          >
-            <Text style={[styles.dayText, isToday && styles.todayText]}>
-              {day.getDate()}
-            </Text>
-            {count > 0 ? <View style={styles.workoutDot} /> : null}
-          </TouchableOpacity>
-        )
-      })}
+    <View style={styles.calendarShell}>
+      <View style={styles.weekdayRow}>
+        {weekDays.map(day => (
+          <Text key={day} style={styles.weekdayText}>
+            {day}
+          </Text>
+        ))}
+      </View>
+      <View style={styles.calendarGrid}>
+        {days.map(day => {
+          const count = countForDay(day);
+          const isToday =
+            startOfDay(day).getTime() === startOfDay(new Date()).getTime();
+          const isSelected =
+            startOfDay(day).getTime() === startOfDay(selectedDate).getTime();
+          const isCurrentMonth = day.getMonth() === selectedDate.getMonth();
+          return (
+            <TouchableOpacity
+              key={day.toISOString()}
+              style={styles.dayCell}
+              onPress={() => onSelectDate(day)}
+              activeOpacity={0.75}
+            >
+              <View
+                style={[
+                  styles.dayCellInner,
+                  isToday && styles.todayCell,
+                  isSelected && styles.selectedDayCell,
+                  view === 'monthly' &&
+                    !isCurrentMonth &&
+                    styles.outsideMonthCell,
+                ]}
+              >
+                <Text style={[styles.dayText, isToday && styles.todayText]}>
+                  {day.getDate()}
+                </Text>
+                <View style={styles.workoutMarkerSlot}>
+                  {count > 0 ? <View style={styles.workoutDot} /> : null}
+                </View>
+              </View>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
     </View>
-  )
+  );
 }
 
-const stylesheet = createStyleSheet((theme) => ({
+const stylesheet = createStyleSheet(theme => ({
   container: {
     flex: 1,
     backgroundColor: theme.colors.bg,
@@ -447,10 +629,37 @@ const stylesheet = createStyleSheet((theme) => ({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: theme.spacing.sm,
+    gap: theme.spacing.xs,
+  },
+  viewToggleRow: {
+    flexDirection: 'row',
+    backgroundColor: theme.colors.surface,
+    borderRadius: theme.radius.full,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    padding: 3,
+  },
+  viewToggleButton: {
+    flex: 1,
+    minHeight: 34,
+    borderRadius: theme.radius.full,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: theme.spacing.sm,
+  },
+  activeViewToggleButton: {
+    backgroundColor: theme.colors.accent,
+  },
+  viewToggleText: {
+    color: theme.colors.textMuted,
+    fontSize: theme.fontSize.sm,
+    fontFamily: theme.fontFamily.bold,
+  },
+  activeViewToggleText: {
+    color: '#FFFFFF',
   },
   navButton: {
-    width: 38,
+    width: 36,
     height: 38,
     borderRadius: theme.radius.full,
     backgroundColor: theme.colors.surface,
@@ -461,18 +670,46 @@ const stylesheet = createStyleSheet((theme) => ({
   },
   todayButton: {
     minHeight: 38,
+    flex: 1,
     borderRadius: theme.radius.full,
     backgroundColor: theme.colors.surface,
     borderWidth: 1,
     borderColor: theme.colors.border,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: theme.spacing.md,
+    paddingHorizontal: theme.spacing.sm,
   },
   todayButtonText: {
     color: theme.colors.text,
     fontSize: theme.fontSize.sm,
     fontFamily: theme.fontFamily.bold,
+  },
+  periodLabel: {
+    color: theme.colors.textMuted,
+    fontSize: theme.fontSize.xxs,
+    fontFamily: theme.fontFamily.semiBold,
+    marginTop: 1,
+  },
+  dailyHintRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: theme.spacing.xs,
+  },
+  dailyHintText: {
+    color: theme.colors.textMuted,
+    fontSize: theme.fontSize.xs,
+    fontFamily: theme.fontFamily.semiBold,
+  },
+  currentViewRow: {
+    alignItems: 'center',
+  },
+  currentViewText: {
+    color: theme.colors.textMuted,
+    fontSize: theme.fontSize.xs,
+    fontFamily: theme.fontFamily.bold,
+    textTransform: 'uppercase',
+    letterSpacing: 1,
   },
   summaryRow: {
     flexDirection: 'row',
@@ -497,30 +734,47 @@ const stylesheet = createStyleSheet((theme) => ({
     fontFamily: theme.fontFamily.semiBold,
     marginTop: 2,
   },
-  calendarGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
+  calendarShell: {
     backgroundColor: theme.colors.surface,
     borderRadius: theme.radius.md,
     borderWidth: 1,
     borderColor: theme.colors.border,
     padding: theme.spacing.sm,
   },
+  weekdayRow: {
+    flexDirection: 'row',
+    marginBottom: 4,
+  },
+  weekdayText: {
+    width: '14.285%',
+    color: theme.colors.textMuted,
+    fontSize: theme.fontSize.xxs,
+    fontFamily: theme.fontFamily.extraBold,
+    textAlign: 'center',
+    textTransform: 'uppercase',
+  },
+  calendarGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+  },
   dayCell: {
     width: '14.285%',
-    height: 40,
+    height: 46,
+    padding: 2,
+  },
+  dayCellInner: {
+    flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 3,
+    borderRadius: theme.radius.md,
+    borderWidth: 1,
+    borderColor: 'transparent',
     opacity: 1,
   },
   todayCell: {
     backgroundColor: theme.colors.accentMuted,
-    borderRadius: theme.radius.md,
   },
   selectedDayCell: {
-    borderRadius: theme.radius.md,
-    borderWidth: 1,
     borderColor: theme.colors.accent,
   },
   outsideMonthCell: {
@@ -533,6 +787,12 @@ const stylesheet = createStyleSheet((theme) => ({
   },
   todayText: {
     color: theme.colors.accent,
+  },
+  workoutMarkerSlot: {
+    height: 7,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 2,
   },
   workoutDot: {
     width: 5,
@@ -550,10 +810,34 @@ const stylesheet = createStyleSheet((theme) => ({
     textTransform: 'uppercase',
     letterSpacing: 1,
   },
+  workoutListItem: {
+    gap: theme.spacing.xs,
+  },
+  workoutDateSubtitle: {
+    color: theme.colors.textMuted,
+    fontSize: theme.fontSize.sm,
+    fontFamily: theme.fontFamily.extraBold,
+  },
   emptyText: {
     color: theme.colors.textMuted,
     textAlign: 'center',
     paddingVertical: theme.spacing.xl,
     fontSize: theme.fontSize.sm,
   },
-}))
+  showMoreButton: {
+    minHeight: 42,
+    borderRadius: theme.radius.full,
+    backgroundColor: theme.colors.surface,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: theme.spacing.xs,
+  },
+  showMoreButtonText: {
+    color: theme.colors.accent,
+    fontSize: theme.fontSize.sm,
+    fontFamily: theme.fontFamily.extraBold,
+  },
+}));

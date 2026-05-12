@@ -548,6 +548,35 @@ export async function getRecentCompletedWorkouts(limit = 3): Promise<WorkoutSumm
   return enrichWorkoutSummariesWithWeightPrs(rows as WorkoutSummary[])
 }
 
+export async function getCompletedWorkoutsPage(
+  limit = 10,
+  offset = 0,
+): Promise<WorkoutSummary[]> {
+  await ensureTable()
+  await ensureExerciseTables()
+  const safeLimit = Math.max(1, Math.trunc(limit))
+  const safeOffset = Math.max(0, Math.trunc(offset))
+  const rows = await db
+    .select({
+      id: workoutsTable.id,
+      name: workoutsTable.name,
+      startedAt: workoutsTable.startedAt,
+      endedAt: workoutsTable.endedAt,
+      exerciseCount: sql<number>`COUNT(DISTINCT ${workoutExercisesTable.id})`,
+      setCount: sql<number>`COUNT(${setsTable.id})`,
+      volume: sql<number>`COALESCE(SUM(${setsTable.volume}), 0)`,
+    })
+    .from(workoutsTable)
+    .leftJoin(workoutExercisesTable, eq(workoutExercisesTable.workoutId, workoutsTable.id))
+    .leftJoin(setsTable, eq(setsTable.workoutExerciseId, workoutExercisesTable.id))
+    .where(isNotNull(workoutsTable.endedAt))
+    .groupBy(workoutsTable.id)
+    .orderBy(desc(workoutsTable.startedAt))
+    .limit(safeLimit)
+    .offset(safeOffset)
+  return enrichWorkoutSummariesWithWeightPrs(rows as WorkoutSummary[])
+}
+
 export async function getWorkoutDetail(workoutId: string): Promise<WorkoutDetail | null> {
   await ensureTable()
   await ensureExerciseTables()

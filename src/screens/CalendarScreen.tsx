@@ -23,6 +23,7 @@ import {
 } from '@/db/workoutHelpers';
 
 type CalendarView = 'daily' | 'weekly' | 'monthly';
+type DailyMode = 'all' | 'day';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const WORKOUT_PAGE_SIZE = 10;
@@ -75,6 +76,21 @@ function formatWorkoutDateSubtitle(timestamp: number) {
   return dateLabel;
 }
 
+function formatSummaryDate(timestamp: number | undefined) {
+  if (!timestamp) return '-';
+  const date = new Date(timestamp);
+  const today = startOfDay(new Date());
+  const day = startOfDay(date);
+  const diffDays = Math.round((today.getTime() - day.getTime()) / DAY_MS);
+
+  if (diffDays === 0) return 'Today';
+  if (diffDays === 1) return 'Yesterday';
+  return date.toLocaleDateString([], {
+    month: 'short',
+    day: 'numeric',
+  });
+}
+
 function formatDateTitle(date: Date, view: CalendarView) {
   if (view === 'daily') {
     return 'Workout History';
@@ -106,6 +122,7 @@ export default function CalendarScreen() {
   const { styles, theme } = useStyles(stylesheet);
   const { showHeaderFade, handleHeaderScroll } = useHeaderFade();
   const [view, setView] = useState<CalendarView>('daily');
+  const [dailyMode, setDailyMode] = useState<DailyMode>('all');
   const [selectedDate, setSelectedDate] = useState(() => new Date());
   const [workouts, setWorkouts] = useState<WorkoutSummary[]>([]);
   const [selectedWorkoutId, setSelectedWorkoutId] = useState<string | null>(
@@ -138,7 +155,7 @@ export default function CalendarScreen() {
   const loadWorkouts = useCallback(async () => {
     setLoading(true);
     try {
-      if (view === 'daily') {
+      if (view === 'daily' && dailyMode === 'all') {
         const rows = await getCompletedWorkoutsPage(visibleWorkoutCount + 1);
         setHasMoreDailyWorkouts(rows.length > visibleWorkoutCount);
         setWorkouts(rows.slice(0, visibleWorkoutCount));
@@ -157,11 +174,11 @@ export default function CalendarScreen() {
     } finally {
       setLoading(false);
     }
-  }, [range.end, range.start, view, visibleWorkoutCount]);
+  }, [dailyMode, range.end, range.start, view, visibleWorkoutCount]);
 
   useEffect(() => {
     setVisibleWorkoutCount(WORKOUT_PAGE_SIZE);
-  }, [view]);
+  }, [dailyMode, view]);
 
   useFocusEffect(
     useCallback(() => {
@@ -296,6 +313,46 @@ export default function CalendarScreen() {
     (sum, workout) => sum + workout.volume,
     0,
   );
+  const allDailySummaryItems = useMemo(() => {
+    const newestWorkout = workouts[0];
+    const oldestShownWorkout = workouts[workouts.length - 1];
+    return [
+      {
+        value: String(workouts.length),
+        label: hasMoreDailyWorkouts ? 'Shown so far' : 'Shown',
+      },
+      {
+        value: formatSummaryDate(newestWorkout?.startedAt),
+        label: 'Newest',
+      },
+      {
+        value: formatSummaryDate(oldestShownWorkout?.startedAt),
+        label: hasMoreDailyWorkouts ? 'Loaded through' : 'Oldest',
+      },
+    ];
+  }, [hasMoreDailyWorkouts, workouts]);
+  const selectedDaySummaryItems = useMemo(
+    () => [
+      { value: String(workouts.length), label: 'Workouts' },
+      { value: String(totalSets), label: 'Sets' },
+      { value: String(Math.round(totalVolume)), label: 'kg volume' },
+    ],
+    [totalSets, totalVolume, workouts.length],
+  );
+  const periodSummaryItems = useMemo(
+    () => [
+      { value: String(workouts.length), label: 'Workouts' },
+      { value: String(totalSets), label: 'Sets' },
+      { value: String(Math.round(totalVolume)), label: 'kg volume' },
+    ],
+    [totalSets, totalVolume, workouts.length],
+  );
+  const summaryItems =
+    view === 'daily'
+      ? dailyMode === 'all'
+        ? allDailySummaryItems
+        : selectedDaySummaryItems
+      : periodSummaryItems;
   const listWorkouts = useMemo(() => {
     if (view === 'daily') return workouts;
     const start = startOfDay(selectedDate).getTime();
@@ -347,7 +404,7 @@ export default function CalendarScreen() {
           ))}
         </View>
 
-        {view !== 'daily' ? (
+        {view !== 'daily' || dailyMode === 'day' ? (
           <View style={styles.dateNavRow}>
             <TouchableOpacity
               style={styles.navButton}
@@ -402,15 +459,48 @@ export default function CalendarScreen() {
         ) : null}
 
         {view === 'daily' ? (
-          <View style={styles.dailyHintRow}>
-            <MaterialCommunityIcons
-              name="sort-clock-descending-outline"
-              size={17}
-              color={theme.colors.textMuted}
-            />
-            <Text style={styles.dailyHintText}>
-              Newest saved workouts first
-            </Text>
+          <View style={styles.dailyModeBlock}>
+            <View style={styles.dailyModeToggleRow}>
+              {([
+                ['all', 'All'],
+                ['day', 'Day by day'],
+              ] as Array<[DailyMode, string]>).map(([mode, label]) => (
+                <TouchableOpacity
+                  key={mode}
+                  style={[
+                    styles.dailyModeButton,
+                    dailyMode === mode && styles.activeDailyModeButton,
+                  ]}
+                  onPress={() => setDailyMode(mode)}
+                  activeOpacity={0.75}
+                >
+                  <Text
+                    style={[
+                      styles.dailyModeText,
+                      dailyMode === mode && styles.activeDailyModeText,
+                    ]}
+                  >
+                    {label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+            <View style={styles.dailyHintRow}>
+              <MaterialCommunityIcons
+                name={
+                  dailyMode === 'all'
+                    ? 'sort-clock-descending-outline'
+                    : 'calendar-today-outline'
+                }
+                size={17}
+                color={theme.colors.textMuted}
+              />
+              <Text style={styles.dailyHintText}>
+                {dailyMode === 'all'
+                  ? 'Newest saved workouts first'
+                  : 'Showing workouts for the selected day'}
+              </Text>
+            </View>
           </View>
         ) : null}
 
@@ -419,18 +509,16 @@ export default function CalendarScreen() {
         </View>
 
         <View style={styles.summaryRow}>
-          <View style={styles.summaryItem}>
-            <Text style={styles.summaryValue}>{workouts.length}</Text>
-            <Text style={styles.summaryLabel}>Workouts</Text>
-          </View>
-          <View style={styles.summaryItem}>
-            <Text style={styles.summaryValue}>{totalSets}</Text>
-            <Text style={styles.summaryLabel}>Sets</Text>
-          </View>
-          <View style={styles.summaryItem}>
-            <Text style={styles.summaryValue}>{Math.round(totalVolume)}</Text>
-            <Text style={styles.summaryLabel}>kg volume</Text>
-          </View>
+          {summaryItems.map(item => (
+            <View key={item.label} style={styles.summaryItem}>
+              <Text style={styles.summaryValue} numberOfLines={1}>
+                {item.value}
+              </Text>
+              <Text style={styles.summaryLabel} numberOfLines={1}>
+                {item.label}
+              </Text>
+            </View>
+          ))}
         </View>
 
         {view !== 'daily' ? (
@@ -445,7 +533,13 @@ export default function CalendarScreen() {
         <View style={styles.listHeader}>
           <Text style={styles.listTitle}>
             {view === 'daily'
-              ? 'All Workouts'
+              ? dailyMode === 'all'
+                ? 'All Workouts'
+                : selectedDate.toLocaleDateString([], {
+                    weekday: 'short',
+                    month: 'short',
+                    day: 'numeric',
+                  })
               : selectedDate.toLocaleDateString([], {
                   weekday: 'short',
                   month: 'short',
@@ -459,7 +553,9 @@ export default function CalendarScreen() {
         ) : listWorkouts.length === 0 ? (
           <Text style={styles.emptyText}>
             {view === 'daily'
-              ? 'No saved workouts yet.'
+              ? dailyMode === 'all'
+                ? 'No saved workouts yet.'
+                : 'No saved workouts for this day.'
               : 'No saved workouts for this day.'}
           </Text>
         ) : (
@@ -467,6 +563,7 @@ export default function CalendarScreen() {
             const previousWorkout = listWorkouts[index - 1];
             const showDateSubtitle =
               view === 'daily' &&
+              dailyMode === 'all' &&
               (!previousWorkout ||
                 startOfDay(new Date(previousWorkout.startedAt)).getTime() !==
                   startOfDay(new Date(workout.startedAt)).getTime());
@@ -494,7 +591,10 @@ export default function CalendarScreen() {
           })
         )}
 
-        {!loading && view === 'daily' && hasMoreDailyWorkouts ? (
+        {!loading &&
+        view === 'daily' &&
+        dailyMode === 'all' &&
+        hasMoreDailyWorkouts ? (
           <TouchableOpacity
             style={styles.showMoreButton}
             onPress={() =>
@@ -689,6 +789,37 @@ const stylesheet = createStyleSheet(theme => ({
     fontSize: theme.fontSize.xxs,
     fontFamily: theme.fontFamily.semiBold,
     marginTop: 1,
+  },
+  dailyModeBlock: {
+    gap: theme.spacing.xs,
+  },
+  dailyModeToggleRow: {
+    flexDirection: 'row',
+    backgroundColor: theme.colors.surface,
+    borderRadius: theme.radius.full,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    padding: 3,
+  },
+  dailyModeButton: {
+    flex: 1,
+    minHeight: 30,
+    borderRadius: theme.radius.full,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: theme.spacing.sm,
+  },
+  activeDailyModeButton: {
+    backgroundColor: theme.colors.surface2,
+  },
+  dailyModeText: {
+    color: theme.colors.textMuted,
+    fontSize: theme.fontSize.xs,
+    fontFamily: theme.fontFamily.bold,
+  },
+  activeDailyModeText: {
+    color: theme.colors.text,
+    fontFamily: theme.fontFamily.extraBold,
   },
   dailyHintRow: {
     flexDirection: 'row',

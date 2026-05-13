@@ -27,6 +27,7 @@ import ScheduleScreen from '../screens/ScheduleScreen'
 import AboutScreen from '../screens/AboutScreen'
 import BackupScreen from '../screens/BackupScreen'
 import DebugScreen from '../screens/DebugScreen'
+import PostWorkoutScreen, { type PostWorkoutRouteParams } from '../screens/PostWorkoutScreen'
 import ActiveWorkoutSheet from '../components/ActiveWorkoutSheet'
 import { useSessionStore } from '@/store/sessionStore'
 import { formatRestTimer } from '@/services/restTimerSettings'
@@ -37,6 +38,7 @@ export type HomeStackParamList = {
   Home: undefined
   Templates: undefined
   TemplateDetail: { templateId: string; initialEdit?: boolean }
+  PostWorkout: PostWorkoutRouteParams
 }
 const HomeStack = createNativeStackNavigator<HomeStackParamList>()
 const CalendarStack = createNativeStackNavigator()
@@ -55,6 +57,7 @@ export type ProfileStackParamList = {
   Schedule: undefined
   About: undefined
   Debug: undefined
+  PostWorkout: PostWorkoutRouteParams
 }
 const ProfileStack = createNativeStackNavigator<ProfileStackParamList>()
 
@@ -64,6 +67,7 @@ function HomeStackScreen() {
       <HomeStack.Screen name="Home" component={HomeScreen} />
       <HomeStack.Screen name="Templates" component={TemplatesScreen} />
       <HomeStack.Screen name="TemplateDetail" component={TemplateDetailScreen} />
+      <HomeStack.Screen name="PostWorkout" component={PostWorkoutScreen} />
     </HomeStack.Navigator>
   )
 }
@@ -109,6 +113,7 @@ function ProfileStackScreen() {
       <ProfileStack.Screen name="Schedule" component={ScheduleScreen} />
       <ProfileStack.Screen name="About" component={AboutScreen} />
       <ProfileStack.Screen name="Debug" component={DebugScreen} />
+      <ProfileStack.Screen name="PostWorkout" component={PostWorkoutScreen} />
     </ProfileStack.Navigator>
   )
 }

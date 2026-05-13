@@ -200,6 +200,48 @@ export default function DebugScreen({ navigation }: Props) {
           </View>
         </TouchableOpacity>
 
+        <TouchableOpacity
+          style={styles.utilityButton}
+          onPress={() => navigation.navigate('PostWorkout', { debugVariant: 'standard' })}
+          activeOpacity={0.75}
+          disabled={busyAction !== null}
+        >
+          <View style={styles.utilityIconBadge}>
+            <MaterialCommunityIcons
+              name="clipboard-pulse-outline"
+              size={17}
+              color={theme.colors.accent}
+            />
+          </View>
+          <View style={styles.buttonTextBlock}>
+            <Text style={styles.utilityButtonTitle}>Preview post workout</Text>
+            <Text style={styles.buttonDescription}>
+              Opens the post workout screen with dummy session data.
+            </Text>
+          </View>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.utilityButton}
+          onPress={() => navigation.navigate('PostWorkout', { debugVariant: 'celebration' })}
+          activeOpacity={0.75}
+          disabled={busyAction !== null}
+        >
+          <View style={styles.utilityIconBadge}>
+            <MaterialCommunityIcons
+              name="trophy-outline"
+              size={17}
+              color={theme.colors.accent}
+            />
+          </View>
+          <View style={styles.buttonTextBlock}>
+            <Text style={styles.utilityButtonTitle}>Preview PR post workout</Text>
+            <Text style={styles.buttonDescription}>
+              Opens the post workout screen with the celebratory PR section.
+            </Text>
+          </View>
+        </TouchableOpacity>
+
         <Text style={styles.sectionTitle}>Destructive Actions</Text>
 
         <TouchableOpacity

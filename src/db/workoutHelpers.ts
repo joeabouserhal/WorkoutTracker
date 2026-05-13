@@ -315,7 +315,10 @@ export type WorkoutSummary = {
 export type WorkoutDetail = WorkoutSummary & {
   exercises: Array<{
     id: string
+    exerciseTypeId: string
     exerciseName: string
+    sectionName: string
+    targetMuscles: string[]
     methodName: string
     defaultWeightUnit: string
     hasWeightPr: boolean
@@ -741,6 +744,7 @@ export async function getMuscleGroupFatigue(
 export async function getWorkoutDetail(workoutId: string): Promise<WorkoutDetail | null> {
   await ensureTable()
   await ensureExerciseTables()
+  await ensureLibraryTables()
   const workout = (await db
     .select({
       id: workoutsTable.id,
@@ -763,6 +767,8 @@ export async function getWorkoutDetail(workoutId: string): Promise<WorkoutDetail
     .select({
       workoutExerciseId: workoutExercisesTable.id,
       exerciseTypeId: exerciseTypesTable.id,
+      sectionName: sectionsTable.name,
+      subMuscleIdsRaw: exerciseTypesTable.subMuscleIds,
       exerciseName: exerciseTypesTable.name,
       methodName: methodsTable.name,
       methodId: exercisesTable.methodId,
@@ -778,12 +784,15 @@ export async function getWorkoutDetail(workoutId: string): Promise<WorkoutDetail
     .from(workoutExercisesTable)
     .innerJoin(exercisesTable, eq(exercisesTable.id, workoutExercisesTable.exerciseId))
     .innerJoin(exerciseTypesTable, eq(exerciseTypesTable.id, exercisesTable.exerciseTypeId))
+    .innerJoin(sectionsTable, eq(sectionsTable.id, exerciseTypesTable.sectionId))
     .innerJoin(methodsTable, eq(methodsTable.id, exercisesTable.methodId))
     .leftJoin(setsTable, eq(setsTable.workoutExerciseId, workoutExercisesTable.id))
     .where(eq(workoutExercisesTable.workoutId, workoutId))
     .orderBy(asc(workoutExercisesTable.orderIndex), asc(setsTable.completedAt)) as Array<{
     workoutExerciseId: string
     exerciseTypeId: string
+    sectionName: string
+    subMuscleIdsRaw: string | null
     exerciseName: string
     methodName: string
     methodId: string
@@ -806,7 +815,13 @@ export async function getWorkoutDetail(workoutId: string): Promise<WorkoutDetail
     if (!exercise) {
       exercise = {
         id: row.workoutExerciseId,
+        exerciseTypeId: row.exerciseTypeId,
         exerciseName: row.exerciseName,
+        sectionName: row.sectionName,
+        targetMuscles: getFatigueTargetNames(
+          row.sectionName,
+          parseSubMuscleIds(row.subMuscleIdsRaw),
+        ),
         methodName: row.methodName,
         defaultWeightUnit: row.defaultWeightUnit === 'lb' ? 'lb' : 'kg',
         hasWeightPr: false,

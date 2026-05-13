@@ -9,9 +9,12 @@ import {
   Alert,
   Animated,
   Easing,
+  LayoutAnimation,
+  Platform,
   ScrollView,
   Text,
   TouchableOpacity,
+  UIManager,
   View,
 } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
@@ -191,6 +194,29 @@ const FRONT_BODY_MUSCLES = FRONT_MUSCLES.filter(muscle =>
 const BACK_BODY_MUSCLES = BACK_MUSCLES.filter(muscle =>
   Object.prototype.hasOwnProperty.call(BODY_MUSCLE_GROUP_BY_ID, muscle.id),
 );
+
+const FATIGUE_CARD_ANIMATION_MS = 220;
+
+if (Platform.OS === 'android') {
+  UIManager.setLayoutAnimationEnabledExperimental?.(true);
+}
+
+function animateFatigueCardLayout() {
+  LayoutAnimation.configureNext({
+    duration: FATIGUE_CARD_ANIMATION_MS,
+    create: {
+      type: LayoutAnimation.Types.easeInEaseOut,
+      property: LayoutAnimation.Properties.opacity,
+    },
+    update: {
+      type: LayoutAnimation.Types.easeInEaseOut,
+    },
+    delete: {
+      type: LayoutAnimation.Types.easeInEaseOut,
+      property: LayoutAnimation.Properties.opacity,
+    },
+  });
+}
 
 export default function HomeScreen() {
   const { styles, theme } = useStyles(stylesheet);
@@ -628,7 +654,9 @@ function MuscleRecoveryCard({
 }) {
   const { styles, theme } = useStyles(stylesheet);
   const [expanded, setExpanded] = useState(false);
+  const [renderExpandedCard, setRenderExpandedCard] = useState(false);
   const collapseProgress = useRef(new Animated.Value(0)).current;
+  const collapseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fatigueByName = useMemo(
     () => Object.fromEntries(fatigue.map(group => [group.name, group])),
     [fatigue],
@@ -668,11 +696,40 @@ function MuscleRecoveryCard({
   useEffect(() => {
     Animated.timing(collapseProgress, {
       toValue: expanded ? 1 : 0,
-      duration: 220,
+      duration: FATIGUE_CARD_ANIMATION_MS,
       easing: Easing.out(Easing.cubic),
       useNativeDriver: false,
     }).start();
   }, [collapseProgress, expanded]);
+
+  useEffect(
+    () => () => {
+      if (collapseTimerRef.current) {
+        clearTimeout(collapseTimerRef.current);
+      }
+    },
+    [],
+  );
+
+  function expandCard() {
+    if (collapseTimerRef.current) {
+      clearTimeout(collapseTimerRef.current);
+      collapseTimerRef.current = null;
+    }
+    animateFatigueCardLayout();
+    setRenderExpandedCard(true);
+    setExpanded(true);
+  }
+
+  function collapseCard() {
+    animateFatigueCardLayout();
+    setExpanded(false);
+    collapseTimerRef.current = setTimeout(() => {
+      animateFatigueCardLayout();
+      setRenderExpandedCard(false);
+      collapseTimerRef.current = null;
+    }, FATIGUE_CARD_ANIMATION_MS);
+  }
 
   function getMuscleColors(names: string | string[]) {
     const candidateNames = Array.isArray(names) ? names : [names];
@@ -707,11 +764,11 @@ function MuscleRecoveryCard({
     };
   }
 
-  if (!expanded) {
+  if (!renderExpandedCard) {
     return (
       <TouchableOpacity
         style={styles.fatigueMiniCard}
-        onPress={() => setExpanded(true)}
+        onPress={expandCard}
         activeOpacity={0.78}
       >
         <View style={styles.fatigueMiniIcon}>
@@ -755,7 +812,7 @@ function MuscleRecoveryCard({
     <View style={[styles.fatigueCard, styles.fatigueCardExpanded]}>
       <TouchableOpacity
         style={styles.fatigueHeader}
-        onPress={() => setExpanded(current => !current)}
+        onPress={expanded ? collapseCard : expandCard}
         activeOpacity={0.78}
       >
         <View style={styles.fatigueHeaderIcon}>

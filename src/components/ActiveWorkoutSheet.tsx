@@ -15,7 +15,6 @@ import {
   type LayoutChangeEvent,
   type NativeScrollEvent,
   type NativeSyntheticEvent,
-  ScrollView as RNScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -41,6 +40,7 @@ import Reanimated, {
   withTiming,
 } from 'react-native-reanimated';
 import notifee, { EventType } from '@notifee/react-native';
+import { useNavigation } from '@react-navigation/native';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import { createStyleSheet, useStyles } from 'react-native-unistyles';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -57,10 +57,8 @@ import {
   deleteWorkout,
   deleteWorkoutExercise,
   finishWorkout,
-  getWorkoutWeightPrAchievements,
   getWorkoutName,
   isExerciseTypeMethodLocked,
-  type WorkoutWeightPrAchievement,
   updateWorkoutExerciseOrder,
   updateWorkoutName,
 } from '@/db/workoutHelpers';
@@ -94,32 +92,10 @@ type WorkoutExercisePositions = Record<string, number>;
 type WorkoutExerciseHeights = Record<string, number>;
 
 const LB_PER_KG = 2.20462;
-const PR_GOLD = '#D9A441';
 const WORKOUT_EXERCISE_DEFAULT_HEIGHT = 178;
 const WORKOUT_EXERCISE_GAP = 8;
 const ACTIVE_WORKOUT_DRAFT_SAVE_DELAY_MS = 250;
 const DELETE_SWIPE_DRAG_OFFSET = 18;
-const PR_CONFETTI_COLORS = [
-  PR_GOLD,
-  '#F7D774',
-  '#FFFFFF',
-  '#75C7E6',
-  '#8FE3B0',
-];
-const PR_CONFETTI = Array.from({ length: 22 }, (_, index) => {
-  const column = index % 11;
-  const row = Math.floor(index / 11);
-  return {
-    left: `${6 + column * 8.8}%`,
-    top: 72 + row * 18,
-    size: 6 + (index % 3) * 2,
-    color: PR_CONFETTI_COLORS[index % PR_CONFETTI_COLORS.length],
-    translateX: (column - 5) * (7 + row * 3),
-    translateY: 92 + (index % 5) * 14,
-    rotate: column % 2 === 0 ? 160 : -160,
-    delay: index * 16,
-  };
-});
 const KeyboardAwareGestureScrollView = Reanimated.createAnimatedComponent(
   GestureScrollView,
 ) as NonNullable<KeyboardAwareScrollViewProps['ScrollViewComponent']>;
@@ -392,16 +368,10 @@ function formatVolumeKg(value: number): string {
   return `${Math.round(value)} kg`;
 }
 
-function formatPrWeight(weightKg: number, unit: string): string {
-  if (unit === 'lb') {
-    return `${formatConvertedWeight(weightKg * LB_PER_KG)} lb`;
-  }
-  return `${formatConvertedWeight(weightKg)} kg`;
-}
-
 export default function ActiveWorkoutSheet() {
   const { styles, theme } = useStyles(stylesheet);
   const insets = useSafeAreaInsets();
+  const navigation = useNavigation<any>();
   const topSafeInset = Math.max(insets.top, StatusBar.currentHeight ?? 0);
   const bottomSafeInset = Math.max(insets.bottom, 0);
   const [pickerVisible, setPickerVisible] = useState(false);
@@ -422,18 +392,11 @@ export default function ActiveWorkoutSheet() {
   const [methodLockedByExerciseType, setMethodLockedByExerciseType] = useState<
     Record<string, boolean>
   >({});
-  const [prCelebration, setPrCelebration] = useState<
-    WorkoutWeightPrAchievement[]
-  >([]);
   const [draggingExerciseId, setDraggingExerciseId] = useState<string | null>(
     null,
   );
   const elapsedRef = useRef(0);
   const startedAtRef = useRef<number | null>(null);
-  const prConfettiAnimations = useRef(
-    PR_CONFETTI.map(() => new Animated.Value(0)),
-  ).current;
-  const prSpotlightAnimation = useRef(new Animated.Value(0)).current;
   const pullToCloseHintOpacity = useRef(new Animated.Value(0)).current;
   const pullToCloseStartedAtTopRef = useRef(false);
   const restDoneNotifiedRef = useRef(false);
@@ -520,68 +483,25 @@ export default function ActiveWorkoutSheet() {
   }, []);
 
   const doEndWorkout = useCallback(async () => {
-    let achievements: WorkoutWeightPrAchievement[] = [];
-    if (activeWorkoutId) {
-      await updateWorkoutName(activeWorkoutId, workoutName);
-      await finishWorkout(activeWorkoutId);
-      achievements = (
-        await getWorkoutWeightPrAchievements(activeWorkoutId)
-      ).filter(
-        achievement =>
-          achievement.previousWeightKg !== null &&
-          achievement.hasPriorExerciseHistory,
-      );
-      await maybeRunAutoBackup();
-    }
-    if (achievements.length > 0) {
-      await cancelWorkoutNotification();
-      setPrCelebration(achievements);
-      return;
-    }
+    if (!activeWorkoutId) return;
+
+    const completedWorkoutId = activeWorkoutId;
+    await updateWorkoutName(completedWorkoutId, workoutName);
+    await finishWorkout(completedWorkoutId);
+    await maybeRunAutoBackup();
+    await cancelWorkoutNotification();
     endWorkout();
-  }, [activeWorkoutId, endWorkout, maybeRunAutoBackup, workoutName]);
-
-  const dismissPrCelebration = useCallback(() => {
-    setPrCelebration([]);
-    endWorkout();
-  }, [endWorkout]);
-
-  useEffect(() => {
-    prConfettiAnimations.forEach(animation => animation.setValue(0));
-    prSpotlightAnimation.stopAnimation();
-    prSpotlightAnimation.setValue(0);
-    if (prCelebration.length === 0) return;
-
-    Animated.parallel(
-      prConfettiAnimations.map((animation, index) =>
-        Animated.timing(animation, {
-          toValue: 1,
-          duration: 980 + (index % 4) * 80,
-          delay: PR_CONFETTI[index].delay,
-          easing: Easing.out(Easing.cubic),
-          useNativeDriver: true,
-        }),
-      ),
-    ).start();
-    const breatheAnimation = Animated.loop(
-      Animated.sequence([
-        Animated.timing(prSpotlightAnimation, {
-          toValue: 1,
-          duration: 1650,
-          easing: Easing.inOut(Easing.sin),
-          useNativeDriver: true,
-        }),
-        Animated.timing(prSpotlightAnimation, {
-          toValue: 0,
-          duration: 1650,
-          easing: Easing.inOut(Easing.sin),
-          useNativeDriver: true,
-        }),
-      ]),
-    );
-    breatheAnimation.start();
-    return () => breatheAnimation.stop();
-  }, [prCelebration.length, prConfettiAnimations, prSpotlightAnimation]);
+    navigation.navigate('HomeTab', {
+      screen: 'PostWorkout',
+      params: { workoutId: completedWorkoutId },
+    });
+  }, [
+    activeWorkoutId,
+    endWorkout,
+    maybeRunAutoBackup,
+    navigation,
+    workoutName,
+  ]);
 
   const discardWorkout = useCallback(async () => {
     if (activeWorkoutId) await deleteWorkout(activeWorkoutId);
@@ -1501,7 +1421,7 @@ export default function ActiveWorkoutSheet() {
     );
   }
 
-  if (!activeWorkoutId && prCelebration.length === 0) return null;
+  if (!activeWorkoutId) return null;
 
   return (
     <>
@@ -2020,187 +1940,6 @@ export default function ActiveWorkoutSheet() {
           </GestureHandlerRootView>
         </Modal>
       ) : null}
-
-      <Modal
-        visible={prCelebration.length > 0}
-        animationType="fade"
-        onRequestClose={dismissPrCelebration}
-        statusBarTranslucent
-        navigationBarTranslucent
-      >
-        <View
-          style={[
-            styles.prCelebrationRoot,
-            {
-              paddingTop: insets.top + theme.spacing.lg,
-              paddingBottom: insets.bottom + theme.spacing.lg,
-            },
-          ]}
-        >
-          <View pointerEvents="none" style={styles.prConfettiLayer}>
-            {PR_CONFETTI.map((piece, index) => {
-              const animation = prConfettiAnimations[index];
-              return (
-                <Animated.View
-                  key={`${piece.left}-${index}`}
-                  style={[
-                    styles.prConfettiPiece,
-                    {
-                      left: piece.left as `${number}%`,
-                      top: piece.top,
-                      width: piece.size,
-                      height: piece.size * 1.45,
-                      backgroundColor: piece.color,
-                      opacity: animation.interpolate({
-                        inputRange: [0, 0.12, 0.72, 1],
-                        outputRange: [0, 1, 1, 0],
-                      }),
-                      transform: [
-                        {
-                          translateX: animation.interpolate({
-                            inputRange: [0, 1],
-                            outputRange: [0, piece.translateX],
-                          }),
-                        },
-                        {
-                          translateY: animation.interpolate({
-                            inputRange: [0, 1],
-                            outputRange: [0, piece.translateY],
-                          }),
-                        },
-                        {
-                          rotate: animation.interpolate({
-                            inputRange: [0, 1],
-                            outputRange: ['0deg', `${piece.rotate}deg`],
-                          }),
-                        },
-                      ],
-                    },
-                  ]}
-                />
-              );
-            })}
-          </View>
-          <View style={styles.prCelebrationCard}>
-            <View style={styles.prHero}>
-              <View style={styles.prCelebrationIconHalo}>
-                <Animated.View
-                  pointerEvents="none"
-                  style={[
-                    styles.prCelebrationGlow,
-                    {
-                      opacity: prSpotlightAnimation.interpolate({
-                        inputRange: [0, 1],
-                        outputRange: [0.45, 0.9],
-                      }),
-                      transform: [
-                        {
-                          scale: prSpotlightAnimation.interpolate({
-                            inputRange: [0, 1],
-                            outputRange: [0.86, 1.18],
-                          }),
-                        },
-                      ],
-                    },
-                  ]}
-                />
-                <View style={styles.prCelebrationIcon}>
-                  <MaterialCommunityIcons
-                    name="trophy-variant-outline"
-                    size={38}
-                    color={PR_GOLD}
-                  />
-                </View>
-              </View>
-              <Text style={styles.prCelebrationEyebrow}>
-                New Personal Record
-              </Text>
-              <Text style={styles.prCelebrationTitle}>That one counts.</Text>
-              <Text style={styles.prCelebrationMessage}>
-                You pushed your top weight higher this workout.
-              </Text>
-              <View style={styles.prSummaryPill}>
-                <MaterialCommunityIcons
-                  name="weight-lifter"
-                  size={14}
-                  color={PR_GOLD}
-                />
-                <Text style={styles.prSummaryPillText}>
-                  {prCelebration.length === 1
-                    ? '1 weight PR'
-                    : `${prCelebration.length} weight PRs`}
-                </Text>
-              </View>
-            </View>
-
-            <RNScrollView
-              style={styles.prList}
-              contentContainerStyle={styles.prListContent}
-              showsVerticalScrollIndicator={false}
-            >
-              {prCelebration.map(achievement => (
-                <View key={achievement.setId} style={styles.prResultCard}>
-                  <View style={styles.prResultHeader}>
-                    <View style={styles.prResultTitleBlock}>
-                      <Text style={styles.prExerciseName} numberOfLines={1}>
-                        {achievement.exerciseName}
-                      </Text>
-                      <Text style={styles.prMethodName} numberOfLines={1}>
-                        {achievement.methodName}
-                      </Text>
-                    </View>
-                    <View style={styles.prMiniBadge}>
-                      <Text style={styles.prMiniBadgeText}>
-                        {achievement.isCurrentWeightPr ? 'Current PR' : 'PR'}
-                      </Text>
-                    </View>
-                  </View>
-
-                  <View style={styles.prValuesRow}>
-                    <View style={styles.prValueBox}>
-                      <Text style={styles.prValueLabel}>Previous</Text>
-                      <Text style={styles.prPreviousValue}>
-                        {achievement.previousWeightKg === null
-                          ? 'No previous PR'
-                          : formatPrWeight(
-                              achievement.previousWeightKg,
-                              achievement.weightUnit,
-                            )}
-                      </Text>
-                    </View>
-                    <MaterialCommunityIcons
-                      name="arrow-right"
-                      size={18}
-                      color={theme.colors.textMuted}
-                    />
-                    <View style={[styles.prValueBox, styles.prNewValueBox]}>
-                      <Text style={styles.prValueLabel}>Now</Text>
-                      <Text style={styles.prNewValue}>
-                        {formatPrWeight(
-                          achievement.newWeightKg,
-                          achievement.weightUnit,
-                        )}
-                        <Text style={styles.prRepsText}>
-                          {' '}
-                          x {achievement.reps}
-                        </Text>
-                      </Text>
-                    </View>
-                  </View>
-                </View>
-              ))}
-            </RNScrollView>
-
-            <TouchableOpacity
-              style={styles.prDoneButton}
-              onPress={dismissPrCelebration}
-              activeOpacity={0.78}
-            >
-              <Text style={styles.prDoneButtonText}>Nice</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
 
       {activeWorkoutId ? (
         <ExercisePickerModal
@@ -3146,226 +2885,5 @@ const stylesheet = createStyleSheet(theme => ({
   },
   dialogDangerButtonText: {
     color: theme.colors.danger,
-  },
-  prCelebrationRoot: {
-    flex: 1,
-    backgroundColor: theme.colors.bg,
-    paddingHorizontal: theme.spacing.md,
-    justifyContent: 'center',
-  },
-  prConfettiLayer: {
-    position: 'absolute',
-    top: 0,
-    right: 0,
-    bottom: 0,
-    left: 0,
-    zIndex: 2,
-  },
-  prConfettiPiece: {
-    position: 'absolute',
-    borderRadius: 2,
-  },
-  prCelebrationCard: {
-    maxHeight: '92%',
-    backgroundColor: theme.colors.surface,
-    borderRadius: theme.radius.lg,
-    borderWidth: 1,
-    borderColor: PR_GOLD + '44',
-    padding: theme.spacing.lg,
-    gap: theme.spacing.md,
-    position: 'relative',
-    overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.24,
-    shadowRadius: 20,
-    elevation: 10,
-  },
-  prCelebrationGlow: {
-    position: 'absolute',
-    width: 104,
-    height: 104,
-    borderRadius: theme.radius.full,
-    backgroundColor: PR_GOLD + '2A',
-    zIndex: 0,
-  },
-  prHero: {
-    alignItems: 'center',
-    gap: theme.spacing.xs,
-    paddingTop: theme.spacing.xs,
-    zIndex: 1,
-  },
-  prCelebrationIconHalo: {
-    width: 88,
-    height: 88,
-    borderRadius: theme.radius.full,
-    alignItems: 'center',
-    justifyContent: 'center',
-    overflow: 'visible',
-    backgroundColor: PR_GOLD + '14',
-    borderWidth: 1,
-    borderColor: PR_GOLD + '2E',
-    marginBottom: theme.spacing.xs,
-  },
-  prCelebrationIcon: {
-    width: 66,
-    height: 66,
-    borderRadius: theme.radius.full,
-    alignItems: 'center',
-    justifyContent: 'center',
-    alignSelf: 'center',
-    backgroundColor: theme.colors.surface,
-    borderWidth: 1,
-    borderColor: PR_GOLD + '77',
-    zIndex: 1,
-    shadowColor: PR_GOLD,
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.38,
-    shadowRadius: 16,
-    elevation: 5,
-  },
-  prCelebrationEyebrow: {
-    color: PR_GOLD,
-    fontSize: theme.fontSize.xs,
-    fontFamily: theme.fontFamily.black,
-    letterSpacing: 1,
-    textAlign: 'center',
-    textTransform: 'uppercase',
-  },
-  prCelebrationTitle: {
-    color: theme.colors.text,
-    fontSize: theme.fontSize.xxl,
-    fontFamily: theme.fontFamily.black,
-    textAlign: 'center',
-    marginTop: -2,
-  },
-  prCelebrationMessage: {
-    color: theme.colors.textMuted,
-    fontSize: theme.fontSize.md,
-    fontFamily: theme.fontFamily.semiBold,
-    lineHeight: 22,
-    textAlign: 'center',
-  },
-  prSummaryPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    borderRadius: theme.radius.full,
-    borderWidth: 1,
-    borderColor: PR_GOLD + '66',
-    backgroundColor: PR_GOLD + '18',
-    paddingHorizontal: theme.spacing.md,
-    paddingVertical: 7,
-    marginTop: theme.spacing.xs,
-  },
-  prSummaryPillText: {
-    color: PR_GOLD,
-    fontSize: theme.fontSize.xs,
-    fontFamily: theme.fontFamily.black,
-  },
-  prList: {
-    maxHeight: 320,
-    zIndex: 1,
-  },
-  prListContent: {
-    gap: theme.spacing.sm,
-  },
-  prResultCard: {
-    backgroundColor: theme.colors.surface2,
-    borderRadius: theme.radius.md,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    padding: theme.spacing.md,
-    gap: theme.spacing.sm,
-  },
-  prResultHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: theme.spacing.sm,
-  },
-  prResultTitleBlock: {
-    flex: 1,
-    minWidth: 0,
-  },
-  prExerciseName: {
-    color: theme.colors.text,
-    fontSize: theme.fontSize.md,
-    fontFamily: theme.fontFamily.extraBold,
-  },
-  prMethodName: {
-    color: theme.colors.textMuted,
-    fontSize: theme.fontSize.xs,
-    fontFamily: theme.fontFamily.bold,
-    marginTop: 2,
-  },
-  prMiniBadge: {
-    borderRadius: theme.radius.full,
-    borderWidth: 1,
-    borderColor: PR_GOLD,
-    backgroundColor: PR_GOLD + '22',
-    paddingHorizontal: theme.spacing.sm,
-    paddingVertical: 3,
-  },
-  prMiniBadgeText: {
-    color: PR_GOLD,
-    fontSize: theme.fontSize.xs,
-    fontFamily: theme.fontFamily.black,
-  },
-  prValuesRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: theme.spacing.sm,
-  },
-  prValueBox: {
-    flex: 1,
-    minHeight: 62,
-    borderRadius: theme.radius.md,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    backgroundColor: theme.colors.surface,
-    padding: theme.spacing.sm,
-    justifyContent: 'center',
-  },
-  prNewValueBox: {
-    borderColor: PR_GOLD + '66',
-    backgroundColor: PR_GOLD + '18',
-  },
-  prValueLabel: {
-    color: theme.colors.textMuted,
-    fontSize: theme.fontSize.xs,
-    fontFamily: theme.fontFamily.extraBold,
-    textTransform: 'uppercase',
-    marginBottom: 3,
-  },
-  prPreviousValue: {
-    color: theme.colors.text,
-    fontSize: theme.fontSize.sm,
-    fontFamily: theme.fontFamily.extraBold,
-  },
-  prNewValue: {
-    color: PR_GOLD,
-    fontSize: theme.fontSize.md,
-    fontFamily: theme.fontFamily.black,
-  },
-  prRepsText: {
-    color: theme.colors.textMuted,
-    fontSize: theme.fontSize.sm,
-    fontFamily: theme.fontFamily.extraBold,
-  },
-  prDoneButton: {
-    minHeight: 48,
-    borderRadius: theme.radius.md,
-    backgroundColor: theme.colors.accent,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.28)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    zIndex: 1,
-  },
-  prDoneButtonText: {
-    color: '#FFFFFF',
-    fontSize: theme.fontSize.md,
-    fontFamily: theme.fontFamily.black,
   },
 }));

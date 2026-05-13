@@ -524,9 +524,9 @@ export default function LibraryScreen() {
 
     return (
       <View style={styles.prBadge}>
-        <MaterialCommunityIcons name="trophy-outline" size={13} color={PR_GOLD} />
-        <Text style={styles.prBadgeText}>
-          Current PR {formatPrWeight(weightKg, displayUnit)}{suffix ? ` - ${suffix}` : ''}
+        <MaterialCommunityIcons name="trophy-outline" size={11} color={PR_GOLD} />
+        <Text style={styles.prBadgeText} numberOfLines={1}>
+          PR {formatPrWeight(weightKg, displayUnit)}{suffix ? ` - ${suffix}` : ''}
         </Text>
         <TouchableOpacity
           style={styles.prUnitToggle}
@@ -619,7 +619,7 @@ export default function LibraryScreen() {
             <View style={styles.rowIcon}>
               <MaterialCommunityIcons name="folder-outline" size={18} color={theme.colors.accent} />
             </View>
-            <Text style={styles.rowText}>{section.name}</Text>
+            <Text style={styles.rowText} numberOfLines={1}>{section.name}</Text>
           </View>
           <View style={styles.rowChevron}>
             <MaterialCommunityIcons name="chevron-right" size={16} color={theme.colors.textMuted} />
@@ -643,7 +643,7 @@ export default function LibraryScreen() {
                 <MaterialCommunityIcons name="dumbbell" size={18} color={theme.colors.accent} />
               </View>
               <View style={styles.rowTextWrap}>
-                <Text style={styles.rowText}>{exerciseType.name}</Text>
+                <Text style={styles.rowText} numberOfLines={1}>{exerciseType.name}</Text>
                 <View style={styles.badgeRow}>
                   {exerciseType.isCustom ? (
                     <View style={styles.badge}>
@@ -652,7 +652,7 @@ export default function LibraryScreen() {
                   ) : null}
                   {exerciseType.methodLocked ? (
                     <View style={styles.badgeMuted}>
-                      <Text style={styles.badgeMutedText}>single method</Text>
+                      <Text style={styles.badgeMutedText}>single</Text>
                     </View>
                   ) : null}
                   {hasPrValue(prSummary?.weightKg)
@@ -667,7 +667,8 @@ export default function LibraryScreen() {
               </View>
             </View>
             <View style={styles.rowActions}>
-              {exerciseType.isCustom && getSubsectionsForSection(selectedSection?.name ?? '').length > 0 ? (
+              {getSubsectionsForSection(selectedSection?.name ?? '').length > 0 ? (
+                exerciseType.isCustom ? (
                 <TouchableOpacity
                   style={styles.editSubMuscleButton}
                   onPress={(event) => openSubMuscleEditor(exerciseType, event)}
@@ -675,6 +676,9 @@ export default function LibraryScreen() {
                 >
                   <MaterialCommunityIcons name="pencil-outline" size={15} color={theme.colors.accent} />
                 </TouchableOpacity>
+                ) : (
+                  <View style={styles.editSubMuscleButtonPlaceholder} />
+                )
               ) : null}
               <View style={styles.rowChevron}>
                 <MaterialCommunityIcons name="chevron-right" size={16} color={theme.colors.textMuted} />
@@ -714,7 +718,7 @@ export default function LibraryScreen() {
               <MaterialCommunityIcons name="shape-outline" size={18} color={theme.colors.accent} />
             </View>
             <View style={styles.rowTextWrap}>
-              <Text style={styles.rowText}>{method.name}</Text>
+              <Text style={styles.rowText} numberOfLines={1}>{method.name}</Text>
               <View style={styles.badgeRow}>
                 {method.isCustom ? (
                   <View style={styles.badge}>
@@ -723,7 +727,7 @@ export default function LibraryScreen() {
                 ) : null}
                 {selectedExerciseType?.methodLocked && method.name === lockedMethodName ? (
                   <View style={styles.badgeMuted}>
-                    <Text style={styles.badgeMutedText}>only method</Text>
+                    <Text style={styles.badgeMutedText}>only</Text>
                   </View>
                 ) : null}
                 {hasPrValue(prSummary?.weightKg)
@@ -1341,9 +1345,9 @@ const stylesheet = createStyleSheet((theme) => ({
     borderWidth: 1,
     borderColor: theme.colors.border,
     paddingHorizontal: theme.spacing.sm,
-    paddingVertical: theme.spacing.sm,
-    minHeight: 58,
-    gap: theme.spacing.sm,
+    paddingVertical: 7,
+    minHeight: 56,
+    gap: theme.spacing.xs,
   },
   swipeableRow: {
     borderRadius: 0,
@@ -1354,11 +1358,11 @@ const stylesheet = createStyleSheet((theme) => ({
     minWidth: 0,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: theme.spacing.sm,
+    gap: theme.spacing.xs,
   },
   rowIcon: {
-    width: 36,
-    height: 36,
+    width: 32,
+    height: 32,
     borderRadius: theme.radius.full,
     backgroundColor: theme.colors.accentMuted,
     alignItems: 'center',
@@ -1377,13 +1381,15 @@ const stylesheet = createStyleSheet((theme) => ({
     justifyContent: 'center',
   },
   rowActions: {
+    width: 62,
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'flex-end',
     gap: theme.spacing.xs,
   },
   editSubMuscleButton: {
-    width: 28,
-    height: 28,
+    width: 26,
+    height: 26,
     borderRadius: theme.radius.full,
     backgroundColor: theme.colors.accentMuted,
     borderWidth: 1,
@@ -1391,79 +1397,97 @@ const stylesheet = createStyleSheet((theme) => ({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  editSubMuscleButtonPlaceholder: {
+    width: 26,
+    height: 26,
+  },
   rowTextWrap: {
     flex: 1,
     minWidth: 0,
-    gap: 4,
+    gap: 3,
   },
   rowText: {
     flexShrink: 1,
     color: theme.colors.text,
-    fontSize: theme.fontSize.md,
+    fontSize: theme.fontSize.sm,
     fontFamily: theme.fontFamily.extraBold,
+    lineHeight: 18,
+    includeFontPadding: false,
   },
   badgeRow: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 5,
+    flexWrap: 'nowrap',
+    alignItems: 'center',
+    gap: 4,
+    minWidth: 0,
   },
   badge: {
     backgroundColor: theme.colors.accentMuted,
     borderRadius: theme.radius.full,
     borderWidth: 1,
     borderColor: theme.colors.border,
-    paddingHorizontal: 7,
-    paddingVertical: 2,
+    paddingHorizontal: 5,
+    paddingVertical: 1,
   },
   badgeText: {
     color: theme.colors.accent,
-    fontSize: theme.fontSize.xs,
+    fontSize: 9,
+    lineHeight: 12,
     fontFamily: theme.fontFamily.bold,
+    includeFontPadding: false,
   },
   badgeMuted: {
     backgroundColor: theme.colors.surface2,
     borderRadius: theme.radius.full,
     borderWidth: 1,
     borderColor: theme.colors.border,
-    paddingHorizontal: 7,
-    paddingVertical: 2,
+    paddingHorizontal: 5,
+    paddingVertical: 1,
   },
   badgeMutedText: {
     color: theme.colors.textMuted,
-    fontSize: theme.fontSize.xs,
+    fontSize: 9,
+    lineHeight: 12,
     fontFamily: theme.fontFamily.bold,
+    includeFontPadding: false,
   },
   prBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 3,
+    gap: 2,
+    maxWidth: 150,
     backgroundColor: PR_GOLD + '26',
     borderRadius: theme.radius.full,
     borderWidth: 1,
     borderColor: PR_GOLD + '55',
-    paddingHorizontal: theme.spacing.sm,
-    paddingVertical: 2,
+    paddingLeft: 5,
+    paddingRight: 3,
+    paddingVertical: 1,
   },
   prBadgeText: {
     flexShrink: 1,
     color: PR_GOLD,
-    fontSize: theme.fontSize.xs,
+    fontSize: 9,
+    lineHeight: 12,
     fontFamily: theme.fontFamily.extraBold,
+    includeFontPadding: false,
   },
   prUnitToggle: {
-    minHeight: 20,
+    minHeight: 16,
     borderRadius: theme.radius.full,
     borderWidth: 1,
     borderColor: PR_GOLD + '66',
     backgroundColor: theme.colors.surface,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 6,
+    paddingHorizontal: 5,
   },
   prUnitToggleText: {
     color: PR_GOLD,
-    fontSize: 10,
+    fontSize: 9,
+    lineHeight: 11,
     fontFamily: theme.fontFamily.black,
+    includeFontPadding: false,
   },
   emptyText: {
     color: theme.colors.textMuted,

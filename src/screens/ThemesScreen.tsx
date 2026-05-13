@@ -130,31 +130,6 @@ export default function ThemesScreen({ navigation }: Props) {
                   </Text>
                 </View>
 
-<<<<<<< HEAD
-=======
-          return (
-            <TouchableOpacity
-              key={item.key}
-              style={[
-                styles.themeRow,
-                isActive && styles.themeRowActive,
-                {
-                  borderColor: isActive
-                    ? item.accent
-                    : theme.colors.border,
-                },
-              ]}
-              onPress={() => handleThemeChange(item.key)}
-              activeOpacity={0.82}
-            >
-              <View style={styles.themeRowLeft}>
-                <View
-                  style={[
-                    styles.themeAccentDot,
-                    { backgroundColor: item.accent },
-                  ]}
-                />
->>>>>>> c984b03dfacd46b99c09dc4340b3d59474db26a9
                 <Text
                   style={[
                     styles.themeStatus,

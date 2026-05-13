@@ -667,34 +667,6 @@ function MuscleRecoveryCard({
     if (fatiguedGroups.length === 0) return 'fully recovered';
     return fatiguedGroups.map(group => group.name).join(', ');
   }, [fatiguedGroups, loading]);
-<<<<<<< HEAD
-  useEffect(() => {
-    Animated.timing(collapseProgress, {
-      toValue: expanded ? 1 : 0,
-      duration: FATIGUE_CARD_ANIMATION_MS,
-      easing: Easing.out(Easing.cubic),
-      useNativeDriver: false,
-    }).start();
-  }, [collapseProgress, expanded]);
-
-  useEffect(
-    () => () => {
-      if (collapseTimerRef.current) {
-        clearTimeout(collapseTimerRef.current);
-      }
-    },
-    [],
-  );
-=======
-  const fatigueGridRows = useMemo(() => {
-    const rows: MuscleGroupFatigue[][] = [];
-
-    for (let index = 0; index < fatiguedGroups.length; index += 2) {
-      rows.push(fatiguedGroups.slice(index, index + 2));
-    }
-
-    return rows;
-  }, [fatiguedGroups]);
   const fatigueFrameStyle = useAnimatedStyle(() => ({
     maxHeight:
       FATIGUE_COLLAPSED_HEIGHT +
@@ -712,7 +684,6 @@ function MuscleRecoveryCard({
       },
     ],
   }));
->>>>>>> c984b03dfacd46b99c09dc4340b3d59474db26a9
 
   function expandCard() {
     setRenderExpandedCard(true);
@@ -774,38 +745,6 @@ function MuscleRecoveryCard({
 
   if (!renderExpandedCard) {
     return (
-<<<<<<< HEAD
-      <TouchableOpacity
-        style={styles.fatigueMiniCard}
-        onPress={expandCard}
-        activeOpacity={0.78}
-      >
-        <View style={styles.fatigueMiniIcon}>
-          <MaterialCommunityIcons
-            name="battery-medium"
-            size={21}
-            color={theme.colors.accent}
-          />
-        </View>
-        <View style={styles.fatigueMiniTextBlock}>
-          <Text style={styles.fatigueMiniTitle} numberOfLines={1}>
-            Muscle Fatigue
-          </Text>
-          <View style={styles.fatigueMiniMetaRow}>
-            <View
-              style={[
-                styles.fatigueMiniDot,
-                peakFatigue && styles.fatigueMiniDotActive,
-              ]}
-            />
-            <Text style={styles.fatigueMiniMuscles} numberOfLines={1}>
-              {collapsedSummary}
-            </Text>
-          </View>
-        </View>
-        {peakFatigue ? (
-          <View style={styles.fatigueMiniTime}>
-=======
       <View style={styles.fatigueAnimationFrame}>
         <TouchableOpacity
           style={styles.fatigueMiniCard}
@@ -813,26 +752,28 @@ function MuscleRecoveryCard({
           activeOpacity={0.82}
         >
           <View style={styles.fatigueMiniIcon}>
->>>>>>> c984b03dfacd46b99c09dc4340b3d59474db26a9
             <MaterialCommunityIcons
-              name="human-male"
-              size={15}
-              color={peakFatigue ? theme.colors.accent : theme.colors.textMuted}
+              name="battery-medium"
+              size={21}
+              color={theme.colors.accent}
             />
           </View>
-          <View style={styles.fatigueMiniTextRail}>
+          <View style={styles.fatigueMiniTextBlock}>
             <Text style={styles.fatigueMiniTitle} numberOfLines={1}>
               Muscle Fatigue
             </Text>
-            <View style={styles.fatigueMiniDivider} />
-            <Text style={styles.fatigueMiniMuscles} numberOfLines={1}>
-              {collapsedSummary}
-            </Text>
+            <View style={styles.fatigueMiniMetaRow}>
+              <View
+                style={[
+                  styles.fatigueMiniDot,
+                  peakFatigue && styles.fatigueMiniDotActive,
+                ]}
+              />
+              <Text style={styles.fatigueMiniMuscles} numberOfLines={1}>
+                {collapsedSummary}
+              </Text>
+            </View>
           </View>
-<<<<<<< HEAD
-        ) : null}
-        <View style={styles.fatigueChevronButton}>
-=======
           {peakFatigue ? (
             <View style={styles.fatigueMiniTime}>
               <MaterialCommunityIcons
@@ -845,131 +786,125 @@ function MuscleRecoveryCard({
               </Text>
             </View>
           ) : null}
->>>>>>> c984b03dfacd46b99c09dc4340b3d59474db26a9
-          <MaterialCommunityIcons
-            name="chevron-down"
-            size={17}
-            color={theme.colors.textMuted}
-          />
-<<<<<<< HEAD
-        </View>
-      </TouchableOpacity>
-=======
+          <View style={styles.fatigueChevronButton}>
+            <MaterialCommunityIcons
+              name="chevron-down"
+              size={17}
+              color={theme.colors.textMuted}
+            />
+          </View>
         </TouchableOpacity>
       </View>
->>>>>>> c984b03dfacd46b99c09dc4340b3d59474db26a9
     );
   }
 
   return (
-    <Reanimated.View
-      style={[styles.fatigueAnimationFrame, fatigueFrameStyle]}
-    >
-    <View style={[styles.fatigueCard, styles.fatigueCardExpanded]}>
-      <TouchableOpacity
-        style={styles.fatigueHeader}
-        onPress={expanded ? collapseCard : expandCard}
-        activeOpacity={0.82}
-      >
-        <View style={styles.fatigueHeaderIcon}>
-          <MaterialCommunityIcons
-            name="battery-medium"
-            size={21}
-            color={theme.colors.accent}
-          />
-        </View>
-        <View style={styles.fatigueTitleBlock}>
-          <Text style={styles.fatigueTitle} numberOfLines={1}>
-            Muscle Fatigue
-          </Text>
-          <Text style={styles.fatigueSummaryText} numberOfLines={2}>
-            {summary}
-          </Text>
-        </View>
-        {peakFatigue ? (
-          <View style={styles.recoveryPill}>
+    <Reanimated.View style={[styles.fatigueAnimationFrame, fatigueFrameStyle]}>
+      <View style={[styles.fatigueCard, styles.fatigueCardExpanded]}>
+        <TouchableOpacity
+          style={styles.fatigueHeader}
+          onPress={expanded ? collapseCard : expandCard}
+          activeOpacity={0.82}
+        >
+          <View style={styles.fatigueHeaderIcon}>
             <MaterialCommunityIcons
-              name="timer-sand"
-              size={11}
+              name="battery-medium"
+              size={21}
               color={theme.colors.accent}
             />
-            <Text style={styles.recoveryPillText}>
-              {formatRecoveryHours(peakFatigue.restHoursRemaining)}
+          </View>
+          <View style={styles.fatigueTitleBlock}>
+            <Text style={styles.fatigueTitle} numberOfLines={1}>
+              Muscle Fatigue
+            </Text>
+            <Text style={styles.fatigueSummaryText} numberOfLines={2}>
+              {summary}
             </Text>
           </View>
-        ) : null}
-        <View style={styles.fatigueChevronButton}>
-          <MaterialCommunityIcons
-            name={expanded ? 'chevron-up' : 'chevron-down'}
-            size={17}
-            color={theme.colors.textMuted}
-          />
-        </View>
-      </TouchableOpacity>
-
-      <Reanimated.View
-        pointerEvents={expanded ? 'auto' : 'none'}
-        style={[styles.fatigueExpandable, fatigueContentStyle]}
-      >
-        <View style={styles.fatigueExpandedContent}>
-          <View style={styles.fatigueVisualPanel}>
-            <View style={styles.bodyMapPair}>
-              <BodyFatigueDiagram
-                side="front"
-                getMuscleColors={getMuscleColors}
+          {peakFatigue ? (
+            <View style={styles.recoveryPill}>
+              <MaterialCommunityIcons
+                name="timer-sand"
+                size={11}
+                color={theme.colors.accent}
               />
-              <BodyFatigueDiagram
-                side="back"
-                getMuscleColors={getMuscleColors}
-              />
-            </View>
-
-            <View style={styles.fatigueLegend}>
-              <View style={styles.legendItem}>
-                <View style={[styles.legendDot, getLegendStyle(10)]} />
-                <Text style={styles.legendText}>Recent</Text>
-              </View>
-              <View style={styles.legendItem}>
-                <View style={[styles.legendDot, getLegendStyle(5)]} />
-                <Text style={styles.legendText}>Recovering</Text>
-              </View>
-              <View style={styles.legendItem}>
-                <View style={[styles.legendDot, getLegendStyle(1)]} />
-                <Text style={styles.legendText}>Nearly ready</Text>
-              </View>
-            </View>
-          </View>
-
-          <View style={styles.fatigueRecoveryPanel}>
-            {loading ? (
-              <Text style={styles.fatigueEmptyText}>Loading recovery...</Text>
-            ) : fatiguedGroups.length === 0 ? (
-              <Text style={styles.fatigueEmptyText}>
-                Body is fully recovered.
+              <Text style={styles.recoveryPillText}>
+                {formatRecoveryHours(peakFatigue.restHoursRemaining)}
               </Text>
-            ) : (
-              <View style={styles.fatigueList}>
-                {fatiguedGroups.map(group => (
-                  <View key={group.name} style={styles.fatigueRow}>
-                    <View style={styles.fatigueRowNameBlock}>
-                      <Text
-                        style={styles.fatigueMuscleName}
-                        numberOfLines={1}
-                      >
-                        {group.name}
+            </View>
+          ) : null}
+          <View style={styles.fatigueChevronButton}>
+            <MaterialCommunityIcons
+              name={expanded ? 'chevron-up' : 'chevron-down'}
+              size={17}
+              color={theme.colors.textMuted}
+            />
+          </View>
+        </TouchableOpacity>
+
+        <Reanimated.View
+          pointerEvents={expanded ? 'auto' : 'none'}
+          style={[styles.fatigueExpandable, fatigueContentStyle]}
+        >
+          <View style={styles.fatigueExpandedContent}>
+            <View style={styles.fatigueVisualPanel}>
+              <View style={styles.bodyMapPair}>
+                <BodyFatigueDiagram
+                  side="front"
+                  getMuscleColors={getMuscleColors}
+                />
+                <BodyFatigueDiagram
+                  side="back"
+                  getMuscleColors={getMuscleColors}
+                />
+              </View>
+
+              <View style={styles.fatigueLegend}>
+                <View style={styles.legendItem}>
+                  <View style={[styles.legendDot, getLegendStyle(10)]} />
+                  <Text style={styles.legendText}>Recent</Text>
+                </View>
+                <View style={styles.legendItem}>
+                  <View style={[styles.legendDot, getLegendStyle(5)]} />
+                  <Text style={styles.legendText}>Recovering</Text>
+                </View>
+                <View style={styles.legendItem}>
+                  <View style={[styles.legendDot, getLegendStyle(1)]} />
+                  <Text style={styles.legendText}>Nearly ready</Text>
+                </View>
+              </View>
+            </View>
+
+            <View style={styles.fatigueRecoveryPanel}>
+              {loading ? (
+                <Text style={styles.fatigueEmptyText}>Loading recovery...</Text>
+              ) : fatiguedGroups.length === 0 ? (
+                <Text style={styles.fatigueEmptyText}>
+                  Body is fully recovered.
+                </Text>
+              ) : (
+                <View style={styles.fatigueList}>
+                  {fatiguedGroups.map(group => (
+                    <View key={group.name} style={styles.fatigueRow}>
+                      <View style={styles.fatigueRowNameBlock}>
+                        <Text
+                          style={styles.fatigueMuscleName}
+                          numberOfLines={1}
+                        >
+                          {group.name}
+                        </Text>
+                      </View>
+                      <Text style={styles.fatigueTime}>
+                        {formatRecoveryHours(group.restHoursRemaining)}
                       </Text>
                     </View>
-                    <Text style={styles.fatigueTime}>
-                      {formatRecoveryHours(group.restHoursRemaining)}
-                    </Text>
-                  </View>
-                ))}
-              </View>
-            )}
+                  ))}
+                </View>
+              )}
+            </View>
           </View>
-        </View>
-      </Reanimated.View>
-    </View>
+        </Reanimated.View>
+      </View>
     </Reanimated.View>
   );
 }

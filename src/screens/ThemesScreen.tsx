@@ -108,6 +108,7 @@ export default function ThemesScreen({ navigation }: Props) {
                 },
               ]}
               onPress={() => handleThemeChange(item.key)}
+              activeOpacity={0.82}
             >
               <View style={styles.themeRowLeft}>
                 <View
@@ -169,7 +170,7 @@ const stylesheet = createStyleSheet((theme) => ({
     alignItems: 'center',
     justifyContent: 'space-between',
     backgroundColor: theme.colors.surface,
-    borderRadius: theme.radius.lg,
+    borderRadius: theme.radius.md,
     borderWidth: 1,
     paddingVertical: theme.spacing.sm,
     paddingHorizontal: theme.spacing.md,

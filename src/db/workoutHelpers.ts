@@ -2512,34 +2512,106 @@ export async function createWorkoutFromTemplate(
 ): Promise<ActiveWorkoutSession> {
   const template = await getWorkoutTemplateDetail(templateId)
   if (!template) throw new Error('Template not found')
+  return createWorkoutFromTemplateDetail(template)
+}
+
+export async function createWorkoutFromTemplateDetail(
+  template: WorkoutTemplateDetail,
+): Promise<ActiveWorkoutSession> {
   if (template.exercises.length === 0) {
     throw new Error('Add exercises before starting this template.')
   }
 
-  const workoutId = await createWorkout()
-  await updateWorkoutName(workoutId, template.name)
-  const startedAt = Date.now()
-  const exercises: ActiveWorkoutSession['exercises'] = []
+  await ensureTable()
+  await ensureExerciseTables()
+  await ensureLibraryTables()
 
-  for (const [index, exercise] of template.exercises.entries()) {
-    const workoutExerciseId = await addExerciseToWorkout({
+  const workoutId = `workout_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
+  const startedAt = Date.now()
+  const uniquePairs = Array.from(
+    new Map(
+      template.exercises.map((exercise) => [
+        `${exercise.exerciseTypeId}:${exercise.methodId}`,
+        {
+          exerciseTypeId: exercise.exerciseTypeId,
+          methodId: exercise.methodId,
+        },
+      ]),
+    ).values(),
+  )
+  const existingExerciseRows = await db
+    .select({
+      id: exercisesTable.id,
+      exerciseTypeId: exercisesTable.exerciseTypeId,
+      methodId: exercisesTable.methodId,
+    })
+    .from(exercisesTable)
+    .where(or(
+      ...uniquePairs.map((pair) =>
+        and(
+          eq(exercisesTable.exerciseTypeId, pair.exerciseTypeId),
+          eq(exercisesTable.methodId, pair.methodId),
+        ),
+      ),
+    ))
+  const exerciseIdByPair = new Map(
+    existingExerciseRows.map((row) => [
+      `${row.exerciseTypeId}:${row.methodId}`,
+      row.id,
+    ]),
+  )
+  const missingExerciseRows = uniquePairs.flatMap((pair) => {
+    const key = `${pair.exerciseTypeId}:${pair.methodId}`
+    if (exerciseIdByPair.has(key)) return []
+    const id = `ex_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
+    exerciseIdByPair.set(key, id)
+    return [{
+      id,
+      exerciseTypeId: pair.exerciseTypeId,
+      methodId: pair.methodId,
+      defaultUnit: 'kg',
+    }]
+  })
+
+  const workoutExerciseRows = template.exercises.map((exercise, index) => {
+    const exerciseId = exerciseIdByPair.get(`${exercise.exerciseTypeId}:${exercise.methodId}`)
+    if (!exerciseId) {
+      throw new Error(`Could not prepare exercise: ${exercise.exerciseTypeName}`)
+    }
+    return {
+      id: `we_${Date.now()}_${index}_${Math.random().toString(36).slice(2, 8)}`,
       workoutId,
-      exerciseTypeId: exercise.exerciseTypeId,
-      methodId: exercise.methodId,
-      weightUnit: 'kg',
+      exerciseId,
       orderIndex: index,
+    }
+  })
+  const exercises: ActiveWorkoutSession['exercises'] = template.exercises.map((exercise, index) => ({
+    workoutExerciseId: workoutExerciseRows[index].id,
+    exerciseTypeId: exercise.exerciseTypeId,
+    exerciseTypeName: exercise.exerciseTypeName,
+    methodLocked: exercise.methodLocked,
+    methodId: exercise.methodId,
+    methodName: exercise.methodName,
+    weightUnit: 'kg',
+    plannedSetCount: exercise.setCount,
+    sets: [],
+  }))
+
+  await db.$client.execute('BEGIN IMMEDIATE TRANSACTION')
+  try {
+    await db.insert(workoutsTable).values({
+      id: workoutId,
+      name: template.name,
+      startedAt,
     })
-    exercises.push({
-      workoutExerciseId,
-      exerciseTypeId: exercise.exerciseTypeId,
-      exerciseTypeName: exercise.exerciseTypeName,
-      methodLocked: exercise.methodLocked,
-      methodId: exercise.methodId,
-      methodName: exercise.methodName,
-      weightUnit: 'kg',
-      plannedSetCount: exercise.setCount,
-      sets: [],
-    })
+    if (missingExerciseRows.length > 0) {
+      await db.insert(exercisesTable).values(missingExerciseRows)
+    }
+    await db.insert(workoutExercisesTable).values(workoutExerciseRows)
+    await db.$client.execute('COMMIT')
+  } catch (error) {
+    await db.$client.execute('ROLLBACK')
+    throw error
   }
 
   return {

@@ -7,14 +7,9 @@ import React, {
 } from 'react';
 import {
   Alert,
-  Animated,
-  Easing,
-  LayoutAnimation,
-  Platform,
   ScrollView,
   Text,
   TouchableOpacity,
-  UIManager,
   View,
 } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
@@ -26,6 +21,13 @@ import {
   type MuscleDef,
 } from 'body-muscles';
 import { Canvas, Group, Path } from '@shopify/react-native-skia';
+import Reanimated, {
+  Easing as ReanimatedEasing,
+  runOnJS,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from 'react-native-reanimated';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import { createStyleSheet, useStyles } from 'react-native-unistyles';
 import ScreenHeader, { useHeaderFade } from '@/components/ui/ScreenHeader';
@@ -195,28 +197,10 @@ const BACK_BODY_MUSCLES = BACK_MUSCLES.filter(muscle =>
   Object.prototype.hasOwnProperty.call(BODY_MUSCLE_GROUP_BY_ID, muscle.id),
 );
 
-const FATIGUE_CARD_ANIMATION_MS = 220;
-
-if (Platform.OS === 'android') {
-  UIManager.setLayoutAnimationEnabledExperimental?.(true);
-}
-
-function animateFatigueCardLayout() {
-  LayoutAnimation.configureNext({
-    duration: FATIGUE_CARD_ANIMATION_MS,
-    create: {
-      type: LayoutAnimation.Types.easeInEaseOut,
-      property: LayoutAnimation.Properties.opacity,
-    },
-    update: {
-      type: LayoutAnimation.Types.easeInEaseOut,
-    },
-    delete: {
-      type: LayoutAnimation.Types.easeInEaseOut,
-      property: LayoutAnimation.Properties.opacity,
-    },
-  });
-}
+const FATIGUE_COLLAPSED_HEIGHT = 38;
+const FATIGUE_EXPANDED_MAX_HEIGHT = 540;
+const FATIGUE_EXPAND_MS = 260;
+const FATIGUE_COLLAPSE_MS = 190;
 
 export default function HomeScreen() {
   const { styles, theme } = useStyles(stylesheet);
@@ -516,6 +500,7 @@ export default function HomeScreen() {
         <TouchableOpacity
           style={styles.templatesButton}
           onPress={handleTemplatesPress}
+          activeOpacity={0.82}
         >
           <View style={styles.secondaryIcon}>
             <MaterialCommunityIcons
@@ -562,7 +547,7 @@ export default function HomeScreen() {
                           templateId: template.id,
                         })
                       }
-                      activeOpacity={0.78}
+                      activeOpacity={0.82}
                     >
                       <View style={styles.favoriteTemplateIcon}>
                         <MaterialCommunityIcons
@@ -655,8 +640,7 @@ function MuscleRecoveryCard({
   const { styles, theme } = useStyles(stylesheet);
   const [expanded, setExpanded] = useState(false);
   const [renderExpandedCard, setRenderExpandedCard] = useState(false);
-  const collapseProgress = useRef(new Animated.Value(0)).current;
-  const collapseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cardProgress = useSharedValue(0);
   const fatigueByName = useMemo(
     () => Object.fromEntries(fatigue.map(group => [group.name, group])),
     [fatigue],
@@ -692,43 +676,47 @@ function MuscleRecoveryCard({
 
     return rows;
   }, [fatiguedGroups]);
-
-  useEffect(() => {
-    Animated.timing(collapseProgress, {
-      toValue: expanded ? 1 : 0,
-      duration: FATIGUE_CARD_ANIMATION_MS,
-      easing: Easing.out(Easing.cubic),
-      useNativeDriver: false,
-    }).start();
-  }, [collapseProgress, expanded]);
-
-  useEffect(
-    () => () => {
-      if (collapseTimerRef.current) {
-        clearTimeout(collapseTimerRef.current);
-      }
-    },
-    [],
-  );
+  const fatigueFrameStyle = useAnimatedStyle(() => ({
+    maxHeight:
+      FATIGUE_COLLAPSED_HEIGHT +
+      (FATIGUE_EXPANDED_MAX_HEIGHT - FATIGUE_COLLAPSED_HEIGHT) *
+        cardProgress.value,
+  }));
+  const fatigueContentStyle = useAnimatedStyle(() => ({
+    opacity: cardProgress.value,
+    transform: [
+      {
+        translateY: -8 + cardProgress.value * 8,
+      },
+      {
+        scale: 0.985 + cardProgress.value * 0.015,
+      },
+    ],
+  }));
 
   function expandCard() {
-    if (collapseTimerRef.current) {
-      clearTimeout(collapseTimerRef.current);
-      collapseTimerRef.current = null;
-    }
-    animateFatigueCardLayout();
     setRenderExpandedCard(true);
     setExpanded(true);
+    cardProgress.value = withTiming(1, {
+      duration: FATIGUE_EXPAND_MS,
+      easing: ReanimatedEasing.out(ReanimatedEasing.cubic),
+    });
   }
 
   function collapseCard() {
-    animateFatigueCardLayout();
     setExpanded(false);
-    collapseTimerRef.current = setTimeout(() => {
-      animateFatigueCardLayout();
-      setRenderExpandedCard(false);
-      collapseTimerRef.current = null;
-    }, FATIGUE_CARD_ANIMATION_MS);
+    cardProgress.value = withTiming(
+      0,
+      {
+        duration: FATIGUE_COLLAPSE_MS,
+        easing: ReanimatedEasing.out(ReanimatedEasing.quad),
+      },
+      finished => {
+        if (finished) {
+          runOnJS(setRenderExpandedCard)(false);
+        }
+      },
+    );
   }
 
   function getMuscleColors(names: string | string[]) {
@@ -766,54 +754,59 @@ function MuscleRecoveryCard({
 
   if (!renderExpandedCard) {
     return (
-      <TouchableOpacity
-        style={styles.fatigueMiniCard}
-        onPress={expandCard}
-        activeOpacity={0.78}
-      >
-        <View style={styles.fatigueMiniIcon}>
-          <MaterialCommunityIcons
-            name="human-male"
-            size={15}
-            color={peakFatigue ? theme.colors.accent : theme.colors.textMuted}
-          />
-        </View>
-        <View style={styles.fatigueMiniTextRail}>
-          <Text style={styles.fatigueMiniTitle} numberOfLines={1}>
-            Muscle Fatigue
-          </Text>
-          <View style={styles.fatigueMiniDivider} />
-          <Text style={styles.fatigueMiniMuscles} numberOfLines={1}>
-            {collapsedSummary}
-          </Text>
-        </View>
-        {peakFatigue ? (
-          <View style={styles.fatigueMiniTime}>
+      <View style={styles.fatigueAnimationFrame}>
+        <TouchableOpacity
+          style={styles.fatigueMiniCard}
+          onPress={expandCard}
+          activeOpacity={0.82}
+        >
+          <View style={styles.fatigueMiniIcon}>
             <MaterialCommunityIcons
-              name="timer-sand"
-              size={11}
-              color={theme.colors.accent}
+              name="human-male"
+              size={15}
+              color={peakFatigue ? theme.colors.accent : theme.colors.textMuted}
             />
-            <Text style={styles.fatigueMiniTimeText}>
-              {formatRecoveryHours(peakFatigue.restHoursRemaining)}
+          </View>
+          <View style={styles.fatigueMiniTextRail}>
+            <Text style={styles.fatigueMiniTitle} numberOfLines={1}>
+              Muscle Fatigue
+            </Text>
+            <View style={styles.fatigueMiniDivider} />
+            <Text style={styles.fatigueMiniMuscles} numberOfLines={1}>
+              {collapsedSummary}
             </Text>
           </View>
-        ) : null}
-        <MaterialCommunityIcons
-          name="chevron-down"
-          size={17}
-          color={theme.colors.textMuted}
-        />
-      </TouchableOpacity>
+          {peakFatigue ? (
+            <View style={styles.fatigueMiniTime}>
+              <MaterialCommunityIcons
+                name="timer-sand"
+                size={11}
+                color={theme.colors.accent}
+              />
+              <Text style={styles.fatigueMiniTimeText}>
+                {formatRecoveryHours(peakFatigue.restHoursRemaining)}
+              </Text>
+            </View>
+          ) : null}
+          <MaterialCommunityIcons
+            name="chevron-down"
+            size={17}
+            color={theme.colors.textMuted}
+          />
+        </TouchableOpacity>
+      </View>
     );
   }
 
   return (
+    <Reanimated.View
+      style={[styles.fatigueAnimationFrame, fatigueFrameStyle]}
+    >
     <View style={[styles.fatigueCard, styles.fatigueCardExpanded]}>
       <TouchableOpacity
         style={styles.fatigueHeader}
         onPress={expanded ? collapseCard : expandCard}
-        activeOpacity={0.78}
+        activeOpacity={0.82}
       >
         <View style={styles.fatigueHeaderIcon}>
           <MaterialCommunityIcons
@@ -849,26 +842,9 @@ function MuscleRecoveryCard({
         />
       </TouchableOpacity>
 
-      <Animated.View
+      <Reanimated.View
         pointerEvents={expanded ? 'auto' : 'none'}
-        style={[
-          styles.fatigueExpandable,
-          {
-            maxHeight: collapseProgress.interpolate({
-              inputRange: [0, 1],
-              outputRange: [0, 640],
-            }),
-            opacity: collapseProgress,
-            transform: [
-              {
-                translateY: collapseProgress.interpolate({
-                  inputRange: [0, 1],
-                  outputRange: [-6, 0],
-                }),
-              },
-            ],
-          },
-        ]}
+        style={[styles.fatigueExpandable, fatigueContentStyle]}
       >
         <View style={styles.fatigueExpandedContent}>
           <View style={styles.bodyMapPair}>
@@ -932,8 +908,9 @@ function MuscleRecoveryCard({
             </View>
           )}
         </View>
-      </Animated.View>
+      </Reanimated.View>
     </View>
+    </Reanimated.View>
   );
 }
 
@@ -1017,6 +994,10 @@ const stylesheet = createStyleSheet(theme => ({
     backgroundColor: theme.colors.accentMuted,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  fatigueAnimationFrame: {
+    width: '100%',
+    overflow: 'hidden',
   },
   fatigueMiniCard: {
     height: 38,

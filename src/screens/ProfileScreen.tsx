@@ -181,7 +181,7 @@ export default function ProfileScreen({ navigation }: Props) {
       <TouchableOpacity
         style={styles.settingsButton}
         onPress={() => navigation.navigate('Backup')}
-        activeOpacity={0.75}
+        activeOpacity={0.82}
       >
         <View style={styles.settingsIconBadge}>
           <MaterialCommunityIcons name="cloud-sync-outline" size={19} color={theme.colors.accent} />
@@ -192,7 +192,7 @@ export default function ProfileScreen({ navigation }: Props) {
             Back up and restore your data with Google Drive.
           </Text>
         </View>
-        <Text style={styles.settingsChevron}>›</Text>
+        <MaterialCommunityIcons name="chevron-right" size={20} color={theme.colors.textMuted} />
       </TouchableOpacity>
 
       <Text style={styles.sectionTitle}>Settings</Text>
@@ -200,7 +200,7 @@ export default function ProfileScreen({ navigation }: Props) {
       <TouchableOpacity
         style={styles.settingsButton}
         onPress={() => navigation.navigate('EditProfile')}
-        activeOpacity={0.75}
+        activeOpacity={0.82}
       >
         <View style={styles.settingsIconBadge}>
           <MaterialCommunityIcons name="account-edit-outline" size={19} color={theme.colors.accent} />
@@ -211,13 +211,13 @@ export default function ProfileScreen({ navigation }: Props) {
             Update your personal information.
           </Text>
         </View>
-        <Text style={styles.settingsChevron}>›</Text>
+        <MaterialCommunityIcons name="chevron-right" size={20} color={theme.colors.textMuted} />
       </TouchableOpacity>
 
       <TouchableOpacity
         style={styles.settingsButton}
         onPress={() => navigation.navigate('Settings')}
-        activeOpacity={0.75}
+        activeOpacity={0.82}
       >
         <View style={styles.settingsIconBadge}>
           <MaterialCommunityIcons name="cog-outline" size={19} color={theme.colors.accent} />
@@ -228,13 +228,13 @@ export default function ProfileScreen({ navigation }: Props) {
             Manage default units, rest timers, and recovery.
           </Text>
         </View>
-        <Text style={styles.settingsChevron}>›</Text>
+        <MaterialCommunityIcons name="chevron-right" size={20} color={theme.colors.textMuted} />
       </TouchableOpacity>
 
       <TouchableOpacity
         style={styles.settingsButton}
         onPress={() => navigation.navigate('Themes')}
-        activeOpacity={0.75}
+        activeOpacity={0.82}
       >
         <View style={styles.settingsIconBadge}>
           <MaterialCommunityIcons name="palette-outline" size={19} color={theme.colors.accent} />
@@ -245,13 +245,13 @@ export default function ProfileScreen({ navigation }: Props) {
             Choose the look and feel of the app.
           </Text>
         </View>
-        <Text style={styles.settingsChevron}>›</Text>
+        <MaterialCommunityIcons name="chevron-right" size={20} color={theme.colors.textMuted} />
       </TouchableOpacity>
 
       <TouchableOpacity
         style={styles.settingsButton}
         onPress={() => navigation.navigate('Schedule')}
-        activeOpacity={0.75}
+        activeOpacity={0.82}
       >
         <View style={styles.settingsIconBadge}>
           <MaterialCommunityIcons name="calendar-clock" size={19} color={theme.colors.accent} />
@@ -262,13 +262,13 @@ export default function ProfileScreen({ navigation }: Props) {
             Plan workout days and reminders.
           </Text>
         </View>
-        <Text style={styles.settingsChevron}>›</Text>
+        <MaterialCommunityIcons name="chevron-right" size={20} color={theme.colors.textMuted} />
       </TouchableOpacity>
 
       <TouchableOpacity
         style={styles.settingsButton}
         onPress={() => navigation.navigate('About')}
-        activeOpacity={0.75}
+        activeOpacity={0.82}
       >
         <View style={styles.settingsIconBadge}>
           <MaterialCommunityIcons name="information-outline" size={19} color={theme.colors.accent} />
@@ -279,7 +279,7 @@ export default function ProfileScreen({ navigation }: Props) {
             Learn why this app exists.
           </Text>
         </View>
-        <Text style={styles.settingsChevron}>›</Text>
+        <MaterialCommunityIcons name="chevron-right" size={20} color={theme.colors.textMuted} />
       </TouchableOpacity>
 
       <Text style={styles.sectionTitle}>Debug</Text>
@@ -287,7 +287,7 @@ export default function ProfileScreen({ navigation }: Props) {
       <TouchableOpacity
         style={[styles.settingsButton, styles.debugButton]}
         onPress={confirmDebugNavigation}
-        activeOpacity={0.75}
+        activeOpacity={0.82}
       >
         <View style={styles.debugIconBadge}>
           <MaterialCommunityIcons name="alert-octagon-outline" size={19} color={theme.colors.danger} />
@@ -298,7 +298,7 @@ export default function ProfileScreen({ navigation }: Props) {
             Dangerous data cleanup tools.
           </Text>
         </View>
-        <Text style={styles.debugChevron}>›</Text>
+        <MaterialCommunityIcons name="chevron-right" size={20} color={theme.colors.danger} />
       </TouchableOpacity>
       </ScrollView>
 
@@ -346,16 +346,11 @@ const stylesheet = createStyleSheet((theme) => ({
   },
   profileCard: {
     backgroundColor: theme.colors.surface,
-    borderRadius: theme.radius.lg,
+    borderRadius: theme.radius.md,
     borderWidth: 1,
     borderColor: theme.colors.border,
     padding: theme.spacing.md,
     gap: theme.spacing.md,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 5,
-    elevation: 2,
   },
   profileHeader: {
     flexDirection: 'row',
@@ -465,11 +460,6 @@ const stylesheet = createStyleSheet((theme) => ({
     color: theme.colors.textMuted,
     fontSize: theme.fontSize.sm,
   },
-  settingsChevron: {
-    color: theme.colors.accent,
-    fontSize: theme.fontSize.xl,
-    fontFamily: theme.fontFamily.bold,
-  },
   debugButton: {
     borderColor: theme.colors.danger + '55',
   },
@@ -488,10 +478,5 @@ const stylesheet = createStyleSheet((theme) => ({
     fontSize: theme.fontSize.md,
     fontFamily: theme.fontFamily.extraBold,
     marginBottom: 2,
-  },
-  debugChevron: {
-    color: theme.colors.danger,
-    fontSize: theme.fontSize.xl,
-    fontFamily: theme.fontFamily.bold,
   },
 }))

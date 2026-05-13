@@ -180,7 +180,7 @@ export default function DebugScreen({ navigation }: Props) {
         <TouchableOpacity
           style={[styles.utilityButton, busyAction === 'reseed' && styles.disabledButton]}
           onPress={confirmReseedDefaults}
-          activeOpacity={0.75}
+          activeOpacity={0.82}
           disabled={busyAction !== null}
         >
           <View style={styles.utilityIconBadge}>
@@ -203,7 +203,7 @@ export default function DebugScreen({ navigation }: Props) {
         <TouchableOpacity
           style={styles.utilityButton}
           onPress={() => navigation.navigate('PostWorkout', { debugVariant: 'standard' })}
-          activeOpacity={0.75}
+          activeOpacity={0.82}
           disabled={busyAction !== null}
         >
           <View style={styles.utilityIconBadge}>
@@ -224,7 +224,7 @@ export default function DebugScreen({ navigation }: Props) {
         <TouchableOpacity
           style={styles.utilityButton}
           onPress={() => navigation.navigate('PostWorkout', { debugVariant: 'celebration' })}
-          activeOpacity={0.75}
+          activeOpacity={0.82}
           disabled={busyAction !== null}
         >
           <View style={styles.utilityIconBadge}>
@@ -247,7 +247,7 @@ export default function DebugScreen({ navigation }: Props) {
         <TouchableOpacity
           style={[styles.dangerButton, busyAction === 'methods' && styles.disabledButton]}
           onPress={confirmDeleteMethods}
-          activeOpacity={0.75}
+          activeOpacity={0.82}
           disabled={busyAction !== null}
         >
           <View style={styles.dangerIconBadge}>
@@ -270,7 +270,7 @@ export default function DebugScreen({ navigation }: Props) {
         <TouchableOpacity
           style={[styles.dangerButton, busyAction === 'exercises' && styles.disabledButton]}
           onPress={confirmDeleteExercises}
-          activeOpacity={0.75}
+          activeOpacity={0.82}
           disabled={busyAction !== null}
         >
           <View style={styles.dangerIconBadge}>

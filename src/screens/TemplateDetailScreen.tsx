@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ActivityIndicator,
   Alert,
+  InteractionManager,
   ScrollView,
   Text,
   TextInput,
@@ -25,7 +26,7 @@ import ThemedDialog from '@/components/ui/ThemedDialog'
 import ExercisePickerModal from '@/components/ExercisePickerModal'
 import {
   addExerciseToWorkoutTemplate,
-  createWorkoutFromTemplate,
+  createWorkoutFromTemplateDetail,
   deleteWorkoutTemplate,
   getWorkoutTemplateDetail,
   replaceWorkoutTemplateExercises,
@@ -41,8 +42,8 @@ import type { HomeStackParamList } from '../navigation/TabNavigator'
 type Props = NativeStackScreenProps<HomeStackParamList, 'TemplateDetail'>
 type TemplateExercise = WorkoutTemplateDetail['exercises'][number]
 type TemplateExercisePositions = Record<string, number>
-const TEMPLATE_EXERCISE_ROW_HEIGHT = 56
-const TEMPLATE_EXERCISE_ROW_GAP = 6
+const TEMPLATE_EXERCISE_ROW_HEIGHT = 68
+const TEMPLATE_EXERCISE_ROW_GAP = 8
 const TEMPLATE_EXERCISE_SLOT_HEIGHT = TEMPLATE_EXERCISE_ROW_HEIGHT + TEMPLATE_EXERCISE_ROW_GAP
 
 function buildExercisePositions(exercises: TemplateExercise[]): TemplateExercisePositions {
@@ -68,12 +69,20 @@ export default function TemplateDetailScreen({ navigation, route }: Props) {
   const [pickerVisible, setPickerVisible] = useState(false)
   const [deleteVisible, setDeleteVisible] = useState(false)
   const [cancelVisible, setCancelVisible] = useState(false)
+  const [startingTemplate, setStartingTemplate] = useState(false)
   const [editSnapshot, setEditSnapshot] = useState<WorkoutTemplateDetail | null>(null)
   const [draggingExerciseId, setDraggingExerciseId] = useState<string | null>(null)
   const templateRef = useRef<WorkoutTemplateDetail | null>(null)
   const activeWorkoutId = useSessionStore((s) => s.activeWorkoutId)
   const restoreWorkoutSession = useSessionStore((s) => s.restoreWorkoutSession)
+  const openWorkoutSheet = useSessionStore((s) => s.openWorkoutSheet)
   const templateId = route.params.templateId
+
+  useEffect(() => {
+    if (!activeWorkoutId) {
+      setStartingTemplate(false)
+    }
+  }, [activeWorkoutId])
 
   const loadTemplate = useCallback(async () => {
     setLoading(true)
@@ -269,18 +278,27 @@ export default function TemplateDetailScreen({ navigation, route }: Props) {
       Alert.alert('Workout already active', 'Finish or cancel it before starting a template.')
       return
     }
+    if (!template?.exercises.length) {
+      setMessage('Add exercises to this template before starting it.')
+      return
+    }
+    setStartingTemplate(true)
     try {
-      const session = await createWorkoutFromTemplate(templateId)
+      const session = await createWorkoutFromTemplateDetail(template)
       restoreWorkoutSession({
         workoutId: session.id,
         startedAt: session.startedAt,
         exercises: session.exercises,
-        openSheet: true,
+        openSheet: false,
       })
       navigation.navigate('Home')
+      InteractionManager.runAfterInteractions(() => {
+        openWorkoutSheet()
+      })
     } catch (e) {
       console.error('Could not start template', e)
       setMessage('Add exercises to this template before starting it.')
+      setStartingTemplate(false)
     }
   }
 
@@ -295,7 +313,7 @@ export default function TemplateDetailScreen({ navigation, route }: Props) {
     }
   }
 
-  const canStart = Boolean(template?.exercises.length && !activeWorkoutId)
+  const canStart = Boolean(template?.exercises.length && !activeWorkoutId && !startingTemplate)
   const hasUnsavedChanges = useMemo(() => {
     if (!editSnapshot || !template) return false
     if (draftName.trim() !== editSnapshot.name.trim()) return true
@@ -405,9 +423,18 @@ export default function TemplateDetailScreen({ navigation, route }: Props) {
               </View>
             ) : null}
 
+            {!editMode ? (
+              <TemplateSummaryPanel template={template} />
+            ) : null}
+
             <View style={styles.exerciseCard}>
               <View style={styles.exerciseHeader}>
-                <Text style={styles.sectionTitle}>Exercises</Text>
+                <View style={styles.exerciseHeaderText}>
+                  <Text style={styles.sectionTitle}>Exercises</Text>
+                  <Text style={styles.sectionSubtitle}>
+                    {editMode ? 'Hold and drag to reorder your plan.' : 'Planned in the order they will start.'}
+                  </Text>
+                </View>
                 {editMode ? (
                   <TouchableOpacity style={styles.addButton} onPress={() => setPickerVisible(true)}>
                     <MaterialCommunityIcons name="plus" size={16} color={theme.colors.accent} />
@@ -430,10 +457,12 @@ export default function TemplateDetailScreen({ navigation, route }: Props) {
                 />
               ) : (
                 <View style={styles.exerciseList}>
-                  {template.exercises.map((exercise) => (
+                  {template.exercises.map((exercise, index) => (
                     <TemplateExerciseRow
                       key={exercise.id}
                       exercise={exercise}
+                      index={index}
+                      isLast={index === template.exercises.length - 1}
                     />
                   ))}
                 </View>
@@ -452,11 +481,15 @@ export default function TemplateDetailScreen({ navigation, route }: Props) {
             activeOpacity={0.82}
           >
             <View style={styles.startIcon}>
-              <MaterialCommunityIcons name="play" size={18} color={theme.colors.accent} />
+              {startingTemplate ? (
+                <ActivityIndicator size="small" color={theme.colors.accent} />
+              ) : (
+                <MaterialCommunityIcons name="play" size={18} color={theme.colors.accent} />
+              )}
             </View>
             <View style={styles.startTextBlock}>
               <Text style={styles.startButtonText}>
-                {activeWorkoutId ? 'Workout Active' : 'Start Workout'}
+                {startingTemplate ? 'Starting...' : activeWorkoutId ? 'Workout Active' : 'Start Workout'}
               </Text>
             </View>
             <MaterialCommunityIcons name="chevron-right" size={18} color={theme.colors.textMuted} />
@@ -487,6 +520,58 @@ export default function TemplateDetailScreen({ navigation, route }: Props) {
           { label: 'Discard', variant: 'danger', onPress: cancelEdit },
         ]}
       />
+    </View>
+  )
+}
+
+function TemplateSummaryPanel({
+  template,
+}: {
+  template: WorkoutTemplateDetail
+}) {
+  const { styles, theme } = useStyles(stylesheet)
+
+  return (
+    <View style={styles.summaryPanel}>
+      <View style={styles.summaryIcon}>
+        <MaterialCommunityIcons name="clipboard-text-outline" size={21} color={theme.colors.text} />
+      </View>
+      <View style={styles.summaryContent}>
+        <Text style={styles.summaryEyebrow}>Template plan</Text>
+        <View style={styles.summaryStats}>
+          <TemplateSummaryStat
+            iconName="dumbbell"
+            value={String(template.exerciseCount)}
+            label={template.exerciseCount === 1 ? 'Exercise' : 'Exercises'}
+          />
+          <View style={styles.summaryDivider} />
+          <TemplateSummaryStat
+            iconName="format-list-numbered"
+            value={String(template.totalSetCount)}
+            label={template.totalSetCount === 1 ? 'Planned set' : 'Planned sets'}
+          />
+        </View>
+      </View>
+    </View>
+  )
+}
+
+function TemplateSummaryStat({
+  iconName,
+  value,
+  label,
+}: {
+  iconName: string
+  value: string
+  label: string
+}) {
+  const { styles, theme } = useStyles(stylesheet)
+
+  return (
+    <View style={styles.summaryStat}>
+      <MaterialCommunityIcons name={iconName} size={15} color={theme.colors.textMuted} />
+      <Text style={styles.summaryStatValue}>{value}</Text>
+      <Text style={styles.summaryStatLabel} numberOfLines={1}>{label}</Text>
     </View>
   )
 }
@@ -665,6 +750,11 @@ function SortableTemplateExerciseRow({
         animatedRowStyle,
       ]}
     >
+      <View style={styles.sortableIndexBadge}>
+        <Text style={styles.sortableIndexText}>
+          {String(index + 1).padStart(2, '0')}
+        </Text>
+      </View>
       <GestureDetector gesture={rowGesture}>
         <View
           style={[
@@ -680,9 +770,12 @@ function SortableTemplateExerciseRow({
           {exercise.exerciseTypeName}
         </Text>
         {!exercise.methodLocked ? (
-          <Text style={styles.exerciseMethod} numberOfLines={1}>
-            {exercise.methodName}
-          </Text>
+          <View style={styles.exerciseMethodLine}>
+            <MaterialCommunityIcons name="tune-variant" size={12} color={theme.colors.textMuted} />
+            <Text style={styles.exerciseMethod} numberOfLines={1}>
+              {exercise.methodName}
+            </Text>
+          </View>
         ) : null}
       </View>
 
@@ -715,26 +808,44 @@ function SortableTemplateExerciseRow({
 
 function TemplateExerciseRow({
   exercise,
+  index,
+  isLast,
 }: {
   exercise: TemplateExercise
+  index: number
+  isLast: boolean
 }) {
-  const { styles } = useStyles(stylesheet)
+  const { styles, theme } = useStyles(stylesheet)
 
   return (
-    <View style={styles.exerciseRow}>
+    <View style={[styles.previewExerciseRow, !isLast && styles.previewExerciseRowDivider]}>
+      <View style={styles.previewIndexBadge}>
+        <Text style={styles.previewIndexText}>
+          {String(index + 1).padStart(2, '0')}
+        </Text>
+      </View>
       <View style={styles.exerciseTextBlock}>
         <Text style={styles.exerciseName} numberOfLines={1}>
           {exercise.exerciseTypeName}
         </Text>
         {!exercise.methodLocked ? (
-          <Text style={styles.exerciseMethod} numberOfLines={1}>
-            {exercise.methodName}
-          </Text>
+          <View style={styles.exerciseMethodLine}>
+            <MaterialCommunityIcons name="tune-variant" size={12} color={theme.colors.textMuted} />
+            <Text style={styles.exerciseMethod} numberOfLines={1}>
+              {exercise.methodName}
+            </Text>
+          </View>
         ) : null}
       </View>
-      <Text style={styles.previewSetCount}>
-        {exercise.setCount} {exercise.setCount === 1 ? 'set' : 'sets'}
-      </Text>
+      <View style={styles.previewSetBadge}>
+        <MaterialCommunityIcons name="format-list-numbered" size={13} color={theme.colors.textMuted} />
+        <Text style={styles.previewSetCount}>
+          {exercise.setCount}
+        </Text>
+        <Text style={styles.previewSetLabel}>
+          {exercise.setCount === 1 ? 'set' : 'sets'}
+        </Text>
+      </View>
     </View>
   )
 }
@@ -818,12 +929,74 @@ const stylesheet = createStyleSheet((theme) => ({
     fontFamily: theme.fontFamily.extraBold,
     paddingHorizontal: theme.spacing.md,
   },
-  exerciseCard: {
+  summaryPanel: {
+    minHeight: 76,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: theme.spacing.sm,
     backgroundColor: theme.colors.surface,
     borderRadius: theme.radius.md,
     borderWidth: 1,
+    borderColor: theme.colors.borderStrong,
+    padding: theme.spacing.sm,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.14,
+    shadowRadius: 12,
+    elevation: 2,
+  },
+  summaryIcon: {
+    width: 46,
+    height: 46,
+    borderRadius: theme.radius.md,
+    backgroundColor: theme.colors.surface2,
+    borderWidth: 1,
     borderColor: theme.colors.border,
-    padding: theme.spacing.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  summaryContent: {
+    flex: 1,
+    minWidth: 0,
+    gap: theme.spacing.xs,
+  },
+  summaryEyebrow: {
+    color: theme.colors.textMuted,
+    fontSize: theme.fontSize.xs,
+    fontFamily: theme.fontFamily.bold,
+    textTransform: 'uppercase',
+  },
+  summaryStats: {
+    minHeight: 30,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  summaryStat: {
+    flex: 1,
+    minWidth: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: theme.spacing.xs,
+  },
+  summaryStatValue: {
+    color: theme.colors.text,
+    fontSize: theme.fontSize.md,
+    fontFamily: theme.fontFamily.extraBold,
+  },
+  summaryStatLabel: {
+    flex: 1,
+    minWidth: 0,
+    color: theme.colors.textMuted,
+    fontSize: theme.fontSize.xs,
+    fontFamily: theme.fontFamily.semiBold,
+  },
+  summaryDivider: {
+    width: 1,
+    height: 24,
+    marginHorizontal: theme.spacing.sm,
+    backgroundColor: theme.colors.border,
+  },
+  exerciseCard: {
     gap: theme.spacing.sm,
   },
   exerciseHeader: {
@@ -831,11 +1004,22 @@ const stylesheet = createStyleSheet((theme) => ({
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: theme.spacing.sm,
+    paddingHorizontal: 2,
+  },
+  exerciseHeaderText: {
+    flex: 1,
+    minWidth: 0,
+    gap: 2,
   },
   sectionTitle: {
     color: theme.colors.text,
     fontSize: theme.fontSize.lg,
     fontFamily: theme.fontFamily.extraBold,
+  },
+  sectionSubtitle: {
+    color: theme.colors.textMuted,
+    fontSize: theme.fontSize.xs,
+    fontFamily: theme.fontFamily.semiBold,
   },
   addButton: {
     minHeight: 34,
@@ -855,7 +1039,11 @@ const stylesheet = createStyleSheet((theme) => ({
     fontFamily: theme.fontFamily.bold,
   },
   exerciseList: {
-    gap: theme.spacing.xs,
+    overflow: 'hidden',
+    borderRadius: theme.radius.md,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.surface,
   },
   sortableExerciseList: {
     position: 'relative',
@@ -868,16 +1056,21 @@ const stylesheet = createStyleSheet((theme) => ({
     height: TEMPLATE_EXERCISE_ROW_HEIGHT,
   },
   exerciseRow: {
-    minHeight: 52,
+    minHeight: TEMPLATE_EXERCISE_ROW_HEIGHT,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: theme.spacing.xs,
-    backgroundColor: theme.colors.surface2,
+    gap: theme.spacing.sm,
+    backgroundColor: theme.colors.surface,
     borderRadius: theme.radius.md,
     borderWidth: 1,
-    borderColor: theme.colors.border,
+    borderColor: theme.colors.borderStrong,
     paddingHorizontal: theme.spacing.sm,
-    paddingVertical: 5,
+    paddingVertical: theme.spacing.sm,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 1,
   },
   exerciseRowDragging: {
     zIndex: 5,
@@ -888,13 +1081,28 @@ const stylesheet = createStyleSheet((theme) => ({
   exerciseRowDropTarget: {
     borderColor: theme.colors.accent,
   },
+  sortableIndexBadge: {
+    width: 32,
+    height: 32,
+    borderRadius: theme.radius.full,
+    backgroundColor: theme.colors.surface2,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  sortableIndexText: {
+    color: theme.colors.textMuted,
+    fontSize: theme.fontSize.xs,
+    fontFamily: theme.fontFamily.extraBold,
+  },
   dragButton: {
-    width: 30,
-    height: 30,
+    width: 32,
+    height: 32,
     borderRadius: theme.radius.full,
     borderWidth: 1,
     borderColor: theme.colors.border,
-    backgroundColor: theme.colors.surface,
+    backgroundColor: theme.colors.surface2,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -907,8 +1115,15 @@ const stylesheet = createStyleSheet((theme) => ({
   },
   exerciseName: {
     color: theme.colors.text,
-    fontSize: theme.fontSize.sm,
+    fontSize: theme.fontSize.md,
     fontFamily: theme.fontFamily.extraBold,
+  },
+  exerciseMethodLine: {
+    minHeight: 18,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: 2,
   },
   exerciseMethod: {
     color: theme.colors.textMuted,
@@ -928,7 +1143,7 @@ const stylesheet = createStyleSheet((theme) => ({
     borderRadius: theme.radius.full,
     borderWidth: 1,
     borderColor: theme.colors.border,
-    backgroundColor: theme.colors.surface,
+    backgroundColor: theme.colors.surface2,
     overflow: 'hidden',
   },
   stepperButton: {
@@ -950,16 +1165,60 @@ const stylesheet = createStyleSheet((theme) => ({
     borderRadius: theme.radius.full,
     borderWidth: 1,
     borderColor: theme.colors.border,
-    backgroundColor: theme.colors.surface,
+    backgroundColor: theme.colors.surface2,
     alignItems: 'center',
     justifyContent: 'center',
   },
+  previewExerciseRow: {
+    minHeight: 70,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: theme.spacing.sm,
+    backgroundColor: theme.colors.surface,
+    paddingHorizontal: theme.spacing.sm,
+    paddingVertical: 10,
+  },
+  previewExerciseRowDivider: {
+    borderBottomWidth: 1,
+    borderBottomColor: theme.colors.border,
+  },
+  previewIndexBadge: {
+    width: 36,
+    height: 36,
+    borderRadius: theme.radius.full,
+    backgroundColor: theme.colors.bg,
+    borderWidth: 1,
+    borderColor: theme.colors.borderStrong,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  previewIndexText: {
+    color: theme.colors.textMuted,
+    fontSize: theme.fontSize.xs,
+    fontFamily: theme.fontFamily.extraBold,
+  },
+  previewSetBadge: {
+    minWidth: 76,
+    minHeight: 34,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 3,
+    borderRadius: theme.radius.full,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.surface2,
+    paddingHorizontal: theme.spacing.sm,
+  },
   previewSetCount: {
-    minWidth: 58,
-    color: theme.colors.accent,
+    color: theme.colors.text,
     fontSize: theme.fontSize.sm,
     fontFamily: theme.fontFamily.extraBold,
-    textAlign: 'right',
+  },
+  previewSetLabel: {
+    color: theme.colors.textMuted,
+    fontSize: theme.fontSize.xs,
+    fontFamily: theme.fontFamily.bold,
   },
   emptyCard: {
     minHeight: 116,

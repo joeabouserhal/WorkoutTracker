@@ -975,11 +975,10 @@ const stylesheet = createStyleSheet((theme) => ({
   statGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    marginHorizontal: -4,
-    gap: 8,
+    gap: theme.spacing.sm,
   },
   statTile: {
-    width: '48.7%',
+    width: '48.6%',
     minHeight: 74,
     borderRadius: theme.radius.sm,
     borderWidth: 1,

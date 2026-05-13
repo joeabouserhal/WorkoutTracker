@@ -76,6 +76,17 @@ def enableProguardInReleaseBuilds = false
  */
 def jscFlavor = 'io.github.react-native-community:jsc-android:2026004.+'
 
+def reactNativeArchitectures() {
+    def value = project.findProperty("reactNativeArchitectures")
+    if (value == null || value.toString().trim().isEmpty()) {
+        return ["armeabi-v7a", "arm64-v8a"]
+    }
+    return value.toString().split(",").collect { it.trim() }.findAll { !it.isEmpty() }
+}
+
+def enableSeparateBuildPerCPUArchitecture =
+        (project.findProperty("enableSeparateBuildPerCPUArchitecture") ?: "false").toString().toBoolean()
+
 android {
     ndkVersion rootProject.ext.ndkVersion
     buildToolsVersion rootProject.ext.buildToolsVersion
@@ -88,6 +99,19 @@ android {
         targetSdkVersion 35
         versionCode 1
         versionName "1.0"
+        if (!enableSeparateBuildPerCPUArchitecture) {
+            ndk {
+                abiFilters(*reactNativeArchitectures())
+            }
+        }
+    }
+    splits {
+        abi {
+            reset()
+            enable enableSeparateBuildPerCPUArchitecture
+            universalApk false
+            include(*reactNativeArchitectures())
+        }
     }
     signingConfigs {
         debug {

@@ -53,6 +53,7 @@ export default function ThemedDialog({ visible, title, message, actions }: Props
                   action.variant === 'danger' && styles.dangerButton,
                 ]}
                 onPress={action.onPress}
+                activeOpacity={0.82}
               >
                 <Text
                   style={[
@@ -75,7 +76,7 @@ export default function ThemedDialog({ visible, title, message, actions }: Props
 const stylesheet = createStyleSheet((theme) => ({
   overlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.58)',
+    backgroundColor: 'rgba(0, 0, 0, 0.64)',
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: theme.spacing.lg,
@@ -84,10 +85,10 @@ const stylesheet = createStyleSheet((theme) => ({
     width: '100%',
     maxWidth: 360,
     backgroundColor: theme.colors.surface,
-    borderRadius: theme.radius.lg,
-    borderWidth: 1.5,
+    borderRadius: theme.radius.md,
+    borderWidth: 1,
     borderColor: theme.colors.border,
-    padding: theme.spacing.lg,
+    padding: theme.spacing.md,
     gap: theme.spacing.md,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 14 },
@@ -98,20 +99,15 @@ const stylesheet = createStyleSheet((theme) => ({
   header: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    gap: theme.spacing.md,
-    borderRadius: theme.radius.md,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    backgroundColor: theme.colors.surface2,
-    padding: theme.spacing.md,
+    gap: theme.spacing.sm,
   },
   iconBadge: {
-    width: 42,
-    height: 42,
+    width: 36,
+    height: 36,
     borderRadius: theme.radius.full,
     borderWidth: 1,
     borderColor: theme.colors.border,
-    backgroundColor: theme.colors.surface,
+    backgroundColor: theme.colors.surface2,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -135,7 +131,7 @@ const stylesheet = createStyleSheet((theme) => ({
     gap: theme.spacing.sm,
   },
   button: {
-    minHeight: 48,
+    minHeight: 44,
     borderRadius: theme.radius.md,
     borderWidth: 1,
     borderColor: theme.colors.border,

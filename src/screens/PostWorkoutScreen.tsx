@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Animated,
   Easing,
@@ -6,49 +6,41 @@ import {
   Text,
   TouchableOpacity,
   View,
-} from 'react-native'
-import { useNavigation, useRoute } from '@react-navigation/native'
-import { Canvas, Group, Path } from '@shopify/react-native-skia'
+} from 'react-native';
+import { useNavigation, useRoute } from '@react-navigation/native';
+import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
+import { createStyleSheet, useStyles } from 'react-native-unistyles';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
-  BACK_MUSCLES,
-  FRONT_MUSCLES,
-  getMuscleColor,
-  type MuscleDef,
-} from 'body-muscles'
-import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons'
-import { createStyleSheet, useStyles } from 'react-native-unistyles'
-import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import ScreenHeader, { useHeaderFade } from '@/components/ui/ScreenHeader'
+  MuscleTargetBodyPair,
+  buildTargetIntensityMap,
+  buildWorkoutTargetStats,
+} from '@/components/MuscleTargetBodyMap';
+import ScreenHeader, { useHeaderFade } from '@/components/ui/ScreenHeader';
 import {
   getWorkoutDetail,
   getWorkoutWeightPrAchievements,
   type WorkoutDetail,
   type WorkoutWeightPrAchievement,
-} from '@/db/workoutHelpers'
+} from '@/db/workoutHelpers';
 
 export type PostWorkoutRouteParams = {
-  workoutId?: string
-  debugVariant?: 'standard' | 'celebration'
-}
+  workoutId?: string;
+  debugVariant?: 'standard' | 'celebration';
+};
 
-type TargetStat = {
-  name: string
-  setCount: number
-  exerciseCount: number
-}
-
-const LB_PER_KG = 2.20462
-const PR_GOLD = '#D9A441'
+const LB_PER_KG = 2.20462;
+const PR_GOLD = '#D9A441';
 const PR_CONFETTI_COLORS = [
   PR_GOLD,
   '#F7D774',
   '#FFFFFF',
   '#75C7E6',
   '#8FE3B0',
-]
+];
 const PR_CONFETTI = Array.from({ length: 28 }, (_, index) => {
-  const column = index % 14
-  const row = Math.floor(index / 14)
+  const column = index % 14;
+  const row = Math.floor(index / 14);
   return {
     left: `${3 + column * 7.2}%`,
     top: 20 + row * 16,
@@ -58,115 +50,15 @@ const PR_CONFETTI = Array.from({ length: 28 }, (_, index) => {
     translateY: 118 + (index % 5) * 15,
     rotate: column % 2 === 0 ? 170 : -170,
     delay: index * 14,
-  }
-})
-
-const BODY_MUSCLE_GROUP_BY_ID: Record<string, string[]> = {
-  head: [],
-  face: [],
-  'head-back': [],
-  'neck-left': [],
-  'neck-right': [],
-  nape: [],
-  'shoulder-front-left': ['Front Delts', 'Shoulders'],
-  'shoulder-side-left': ['Side Delts', 'Shoulders'],
-  'shoulder-front-right': ['Front Delts', 'Shoulders'],
-  'shoulder-side-right': ['Side Delts', 'Shoulders'],
-  'deltoid-rear-left': ['Rear Delts', 'Shoulders'],
-  'deltoid-rear-right': ['Rear Delts', 'Shoulders'],
-  'traps-upper-left': ['Traps', 'Upper Back', 'Back'],
-  'traps-mid-left': ['Traps', 'Upper Back', 'Back'],
-  'traps-lower-left': ['Traps', 'Upper Back', 'Back'],
-  'traps-upper-right': ['Traps', 'Upper Back', 'Back'],
-  'traps-mid-right': ['Traps', 'Upper Back', 'Back'],
-  'traps-lower-right': ['Traps', 'Upper Back', 'Back'],
-  'biceps-left': ['Biceps'],
-  'biceps-right': ['Biceps'],
-  'elbow-left': [],
-  'elbow-right': [],
-  'triceps-long-left': ['Triceps'],
-  'triceps-lateral-left': ['Triceps'],
-  'triceps-long-right': ['Triceps'],
-  'triceps-lateral-right': ['Triceps'],
-  'hand-left': [],
-  'hand-right': [],
-  'hand-back-left': [],
-  'hand-back-right': [],
-  'forearm-left': ['Forearms'],
-  'forearm-right': ['Forearms'],
-  'forearm-flexors-left': ['Forearms'],
-  'forearm-extensors-left': ['Forearms'],
-  'forearm-flexors-right': ['Forearms'],
-  'forearm-extensors-right': ['Forearms'],
-  'chest-upper-left': ['Upper Chest', 'Chest'],
-  'chest-lower-left': ['Mid Chest', 'Chest'],
-  'chest-upper-right': ['Upper Chest', 'Chest'],
-  'chest-lower-right': ['Mid Chest', 'Chest'],
-  'abs-upper-left': ['Abs', 'Core'],
-  'abs-upper-right': ['Abs', 'Core'],
-  'abs-lower-left': ['Abs', 'Core'],
-  'abs-lower-right': ['Abs', 'Core'],
-  'serratus-anterior-left': ['Obliques', 'Core'],
-  'serratus-anterior-right': ['Obliques', 'Core'],
-  'obliques-left': ['Obliques', 'Core'],
-  'obliques-right': ['Obliques', 'Core'],
-  'hip-flexor-left': ['Core'],
-  'hip-flexor-right': ['Core'],
-  spine: ['Upper Back', 'Lower Back', 'Back'],
-  'lats-upper-left': ['Lats', 'Back'],
-  'lats-mid-left': ['Lats', 'Back'],
-  'lats-lower-left': ['Lats', 'Back'],
-  'lats-upper-right': ['Lats', 'Back'],
-  'lats-mid-right': ['Lats', 'Back'],
-  'lats-lower-right': ['Lats', 'Back'],
-  'lower-back-erectors-left': ['Lower Back', 'Back'],
-  'lower-back-ql-left': ['Lower Back', 'Back'],
-  'lower-back-erectors-right': ['Lower Back', 'Back'],
-  'lower-back-ql-right': ['Lower Back', 'Back'],
-  'gluteus-medius-left': ['Abductors', 'Glutes'],
-  'gluteus-maximus-left': ['Glutes'],
-  'gluteus-medius-right': ['Abductors', 'Glutes'],
-  'gluteus-maximus-right': ['Glutes'],
-  'quads-left': ['Quads', 'Legs'],
-  'quads-right': ['Quads', 'Legs'],
-  'adductors-left': ['Adductors', 'Legs'],
-  'adductors-right': ['Adductors', 'Legs'],
-  'knee-left': [],
-  'knee-right': [],
-  'knee-back-left': [],
-  'knee-back-right': [],
-  'tibialis-anterior-left': ['Legs'],
-  'tibialis-anterior-right': ['Legs'],
-  'foot-left': [],
-  'foot-right': [],
-  'foot-back-left': [],
-  'foot-back-right': [],
-  'hamstrings-medial-left': ['Hamstrings', 'Legs'],
-  'hamstrings-lateral-left': ['Hamstrings', 'Legs'],
-  'hamstrings-medial-right': ['Hamstrings', 'Legs'],
-  'hamstrings-lateral-right': ['Hamstrings', 'Legs'],
-  'calves-gastroc-medial-left': ['Calves', 'Legs'],
-  'calves-gastroc-lateral-left': ['Calves', 'Legs'],
-  'calves-soleus-left': ['Calves', 'Legs'],
-  'calves-gastroc-medial-right': ['Calves', 'Legs'],
-  'calves-gastroc-lateral-right': ['Calves', 'Legs'],
-  'calves-soleus-right': ['Calves', 'Legs'],
-}
-
-const FRONT_BODY_MUSCLES = FRONT_MUSCLES.filter((muscle) =>
-  Object.prototype.hasOwnProperty.call(BODY_MUSCLE_GROUP_BY_ID, muscle.id),
-)
-
-const BACK_BODY_MUSCLES = BACK_MUSCLES.filter((muscle) =>
-  Object.prototype.hasOwnProperty.call(BODY_MUSCLE_GROUP_BY_ID, muscle.id),
-)
+  };
+});
 
 function formatDuration(startedAt: number, endedAt: number) {
-  const minutes = Math.max(1, Math.round((endedAt - startedAt) / 60000))
-  const hours = Math.floor(minutes / 60)
-  const mins = minutes % 60
-  if (hours > 0) return `${hours}h ${mins}m`
-  return `${minutes}m`
+  const minutes = Math.max(1, Math.round((endedAt - startedAt) / 60000));
+  const hours = Math.floor(minutes / 60);
+  const mins = minutes % 60;
+  if (hours > 0) return `${hours}h ${mins}m`;
+  return `${minutes}m`;
 }
 
 function formatDate(timestamp: number) {
@@ -174,59 +66,21 @@ function formatDate(timestamp: number) {
     weekday: 'long',
     month: 'short',
     day: 'numeric',
-  })
+  });
 }
 
 function formatCompactNumber(value: number) {
-  return Number.parseFloat(value.toFixed(2)).toString()
+  return Number.parseFloat(value.toFixed(2)).toString();
 }
 
 function formatPrWeight(weightKg: number, unit: string): string {
-  if (unit === 'lb') return `${formatCompactNumber(weightKg * LB_PER_KG)} lb`
-  return `${formatCompactNumber(weightKg)} kg`
-}
-
-function buildTargetStats(workout: WorkoutDetail): TargetStat[] {
-  const stats = new Map<string, TargetStat>()
-
-  for (const exercise of workout.exercises) {
-    const setCount = exercise.sets.length
-    if (setCount === 0) continue
-
-    for (const targetName of exercise.targetMuscles) {
-      const current = stats.get(targetName) ?? {
-        name: targetName,
-        setCount: 0,
-        exerciseCount: 0,
-      }
-      current.setCount += setCount
-      current.exerciseCount += 1
-      stats.set(targetName, current)
-    }
-  }
-
-  return [...stats.values()].sort((a, b) =>
-    b.setCount === a.setCount
-      ? a.name.localeCompare(b.name)
-      : b.setCount - a.setCount,
-  )
-}
-
-function buildTargetIntensityMap(targetStats: TargetStat[]) {
-  const maxSetCount = Math.max(1, ...targetStats.map((target) => target.setCount))
-
-  return targetStats.reduce<Record<string, number>>((acc, target) => {
-    acc[target.name.toLowerCase()] = Math.max(
-      3,
-      Math.min(10, Math.ceil((target.setCount / maxSetCount) * 10)),
-    )
-    return acc
-  }, {})
+  if (unit === 'lb') return `${formatCompactNumber(weightKg * LB_PER_KG)} lb`;
+  return `${formatCompactNumber(weightKg)} kg`;
 }
 
 function getDebugWorkout(): WorkoutDetail {
-  const endedAt = Date.now()
-  const startedAt = endedAt - 74 * 60 * 1000
+  const endedAt = Date.now();
+  const startedAt = endedAt - 74 * 60 * 1000;
 
   return {
     id: 'debug_post_workout',
@@ -328,7 +182,7 @@ function getDebugWorkout(): WorkoutDetail {
         })),
       },
     ],
-  }
+  };
 }
 
 function getDebugAchievements(): WorkoutWeightPrAchievement[] {
@@ -355,80 +209,85 @@ function getDebugAchievements(): WorkoutWeightPrAchievement[] {
       isCurrentWeightPr: true,
       hasPriorExerciseHistory: true,
     },
-  ]
+  ];
 }
 
 export default function PostWorkoutScreen() {
-  const { styles, theme } = useStyles(stylesheet)
-  const insets = useSafeAreaInsets()
-  const navigation = useNavigation()
-  const route = useRoute()
-  const params = (route.params ?? {}) as PostWorkoutRouteParams
-  const { showHeaderFade, handleHeaderScroll } = useHeaderFade()
-  const [workout, setWorkout] = useState<WorkoutDetail | null>(null)
-  const [achievements, setAchievements] = useState<WorkoutWeightPrAchievement[]>([])
-  const [loading, setLoading] = useState(true)
-  const confettiAnimations = useRef(PR_CONFETTI.map(() => new Animated.Value(0))).current
-  const spotlightAnimation = useRef(new Animated.Value(0)).current
+  const { styles, theme } = useStyles(stylesheet);
+  const insets = useSafeAreaInsets();
+  const navigation = useNavigation();
+  const route = useRoute();
+  const params = (route.params ?? {}) as PostWorkoutRouteParams;
+  const { showHeaderFade, handleHeaderScroll } = useHeaderFade();
+  const [workout, setWorkout] = useState<WorkoutDetail | null>(null);
+  const [achievements, setAchievements] = useState<
+    WorkoutWeightPrAchievement[]
+  >([]);
+  const [loading, setLoading] = useState(true);
+  const confettiAnimations = useRef(
+    PR_CONFETTI.map(() => new Animated.Value(0)),
+  ).current;
+  const spotlightAnimation = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
-    let cancelled = false
+    let cancelled = false;
 
     async function loadPostWorkout() {
-      setLoading(true)
+      setLoading(true);
       try {
         if (params.debugVariant) {
-          if (cancelled) return
-          setWorkout(getDebugWorkout())
+          if (cancelled) return;
+          setWorkout(getDebugWorkout());
           setAchievements(
             params.debugVariant === 'celebration' ? getDebugAchievements() : [],
-          )
-          return
+          );
+          return;
         }
 
         if (!params.workoutId) {
           if (!cancelled) {
-            setWorkout(null)
-            setAchievements([])
+            setWorkout(null);
+            setAchievements([]);
           }
-          return
+          return;
         }
 
         const [detail, prs] = await Promise.all([
           getWorkoutDetail(params.workoutId),
           getWorkoutWeightPrAchievements(params.workoutId),
-        ])
-        if (cancelled) return
-        setWorkout(detail)
+        ]);
+        if (cancelled) return;
+        setWorkout(detail);
         setAchievements(
-          prs.filter((achievement) =>
-            achievement.previousWeightKg !== null &&
-            achievement.hasPriorExerciseHistory,
+          prs.filter(
+            achievement =>
+              achievement.previousWeightKg !== null &&
+              achievement.hasPriorExerciseHistory,
           ),
-        )
+        );
       } catch (e) {
-        console.error('Could not load post workout screen', e)
+        console.error('Could not load post workout screen', e);
         if (!cancelled) {
-          setWorkout(null)
-          setAchievements([])
+          setWorkout(null);
+          setAchievements([]);
         }
       } finally {
-        if (!cancelled) setLoading(false)
+        if (!cancelled) setLoading(false);
       }
     }
 
-    loadPostWorkout().catch(console.error)
+    loadPostWorkout().catch(console.error);
 
     return () => {
-      cancelled = true
-    }
-  }, [params.debugVariant, params.workoutId])
+      cancelled = true;
+    };
+  }, [params.debugVariant, params.workoutId]);
 
   useEffect(() => {
-    confettiAnimations.forEach((animation) => animation.setValue(0))
-    spotlightAnimation.stopAnimation()
-    spotlightAnimation.setValue(0)
-    if (achievements.length === 0) return
+    confettiAnimations.forEach(animation => animation.setValue(0));
+    spotlightAnimation.stopAnimation();
+    spotlightAnimation.setValue(0);
+    if (achievements.length === 0) return;
 
     Animated.parallel(
       confettiAnimations.map((animation, index) =>
@@ -440,7 +299,7 @@ export default function PostWorkoutScreen() {
           useNativeDriver: true,
         }),
       ),
-    ).start()
+    ).start();
 
     const breatheAnimation = Animated.loop(
       Animated.sequence([
@@ -457,22 +316,22 @@ export default function PostWorkoutScreen() {
           useNativeDriver: true,
         }),
       ]),
-    )
-    breatheAnimation.start()
-    return () => breatheAnimation.stop()
-  }, [achievements.length, confettiAnimations, spotlightAnimation])
+    );
+    breatheAnimation.start();
+    return () => breatheAnimation.stop();
+  }, [achievements.length, confettiAnimations, spotlightAnimation]);
 
   const targetStats = useMemo(
-    () => (workout ? buildTargetStats(workout) : []),
+    () => (workout ? buildWorkoutTargetStats(workout) : []),
     [workout],
-  )
+  );
   const targetIntensityByName = useMemo(
     () => buildTargetIntensityMap(targetStats),
     [targetStats],
-  )
+  );
 
   function handleDone() {
-    navigation.goBack()
+    navigation.goBack();
   }
 
   return (
@@ -480,7 +339,7 @@ export default function PostWorkoutScreen() {
       {achievements.length > 0 ? (
         <View pointerEvents="none" style={styles.confettiLayer}>
           {PR_CONFETTI.map((piece, index) => {
-            const animation = confettiAnimations[index]
+            const animation = confettiAnimations[index];
             return (
               <Animated.View
                 key={`${piece.left}-${index}`}
@@ -519,7 +378,7 @@ export default function PostWorkoutScreen() {
                   },
                 ]}
               />
-            )
+            );
           })}
         </View>
       ) : null}
@@ -610,14 +469,10 @@ export default function PostWorkoutScreen() {
                 </Text>
               </View>
 
-              <View style={styles.bodyPair}>
-                <TargetBodyDiagram
-                  side="front"
+              <View style={styles.bodyVisualPanel}>
+                <MuscleTargetBodyPair
                   targetIntensityByName={targetIntensityByName}
-                />
-                <TargetBodyDiagram
-                  side="back"
-                  targetIntensityByName={targetIntensityByName}
+                  bottomSafe
                 />
               </View>
 
@@ -625,7 +480,7 @@ export default function PostWorkoutScreen() {
                 <Text style={styles.emptyText}>No targeted muscles found.</Text>
               ) : (
                 <View style={styles.targetGrid}>
-                  {targetStats.map((target) => (
+                  {targetStats.map(target => (
                     <View key={target.name} style={styles.targetPill}>
                       <Text style={styles.targetName} numberOfLines={1}>
                         {target.name}
@@ -642,16 +497,22 @@ export default function PostWorkoutScreen() {
             <View style={styles.exerciseCard}>
               <View style={styles.sectionHeader}>
                 <Text style={styles.sectionTitle}>Exercise Breakdown</Text>
-                <Text style={styles.sectionHint}>{workout.exercises.length}</Text>
+                <Text style={styles.sectionHint}>
+                  {workout.exercises.length}
+                </Text>
               </View>
               <View style={styles.exerciseList}>
-                {workout.exercises.map((exercise) => (
+                {workout.exercises.map(exercise => (
                   <View key={exercise.id} style={styles.exerciseRow}>
                     <View style={styles.exerciseIcon}>
                       <MaterialCommunityIcons
-                        name={exercise.hasWeightPr ? 'trophy-outline' : 'dumbbell'}
+                        name={
+                          exercise.hasWeightPr ? 'trophy-outline' : 'dumbbell'
+                        }
                         size={15}
-                        color={exercise.hasWeightPr ? PR_GOLD : theme.colors.accent}
+                        color={
+                          exercise.hasWeightPr ? PR_GOLD : theme.colors.accent
+                        }
                       />
                     </View>
                     <View style={styles.exerciseTextBlock}>
@@ -664,7 +525,10 @@ export default function PostWorkoutScreen() {
                     </View>
                     <Text style={styles.exerciseVolume}>
                       {Math.round(
-                        exercise.sets.reduce((total, set) => total + set.volume, 0),
+                        exercise.sets.reduce(
+                          (total, set) => total + set.volume,
+                          0,
+                        ),
                       )}{' '}
                       kg
                     </Text>
@@ -684,7 +548,7 @@ export default function PostWorkoutScreen() {
         )}
       </ScrollView>
     </View>
-  )
+  );
 }
 
 function StatTile({
@@ -692,11 +556,11 @@ function StatTile({
   value,
   icon,
 }: {
-  label: string
-  value: string
-  icon: string
+  label: string;
+  value: string;
+  icon: string;
 }) {
-  const { styles, theme } = useStyles(stylesheet)
+  const { styles, theme } = useStyles(stylesheet);
 
   return (
     <View style={styles.statTile}>
@@ -710,17 +574,17 @@ function StatTile({
       </Text>
       <Text style={styles.statLabel}>{label}</Text>
     </View>
-  )
+  );
 }
 
 function PrCelebrationBlock({
   achievements,
   spotlightAnimation,
 }: {
-  achievements: WorkoutWeightPrAchievement[]
-  spotlightAnimation: Animated.Value
+  achievements: WorkoutWeightPrAchievement[];
+  spotlightAnimation: Animated.Value;
 }) {
-  const { styles, theme } = useStyles(stylesheet)
+  const { styles, theme } = useStyles(stylesheet);
 
   return (
     <View style={styles.prCard}>
@@ -760,7 +624,11 @@ function PrCelebrationBlock({
           You pushed your top weight higher this workout.
         </Text>
         <View style={styles.prSummaryPill}>
-          <MaterialCommunityIcons name="weight-lifter" size={14} color={PR_GOLD} />
+          <MaterialCommunityIcons
+            name="weight-lifter"
+            size={14}
+            color={PR_GOLD}
+          />
           <Text style={styles.prSummaryPillText}>
             {achievements.length === 1
               ? '1 weight PR'
@@ -770,7 +638,7 @@ function PrCelebrationBlock({
       </View>
 
       <View style={styles.prList}>
-        {achievements.map((achievement) => (
+        {achievements.map(achievement => (
           <View key={achievement.setId} style={styles.prResultCard}>
             <View style={styles.prResultHeader}>
               <View style={styles.prResultTitleBlock}>
@@ -795,9 +663,9 @@ function PrCelebrationBlock({
                   {achievement.previousWeightKg === null
                     ? 'No previous PR'
                     : formatPrWeight(
-                      achievement.previousWeightKg,
-                      achievement.weightUnit,
-                    )}
+                        achievement.previousWeightKg,
+                        achievement.weightUnit,
+                      )}
                 </Text>
               </View>
               <MaterialCommunityIcons
@@ -820,73 +688,10 @@ function PrCelebrationBlock({
         ))}
       </View>
     </View>
-  )
+  );
 }
 
-function TargetBodyDiagram({
-  side,
-  targetIntensityByName,
-}: {
-  side: 'front' | 'back'
-  targetIntensityByName: Record<string, number>
-}) {
-  const { styles, theme } = useStyles(stylesheet)
-  const isFront = side === 'front'
-  const muscles = isFront ? FRONT_BODY_MUSCLES : BACK_BODY_MUSCLES
-  const transform = isFront
-    ? [{ translateX: 35 }, { translateY: 8 }, { scale: 3.08 }]
-    : [{ translateX: -92 }, { translateY: 8 }, { scale: 3.08 }]
-
-  function getPartColors(muscle: MuscleDef) {
-    const groupNames = BODY_MUSCLE_GROUP_BY_ID[muscle.id] ?? []
-    const intensity = Math.max(
-      0,
-      ...groupNames.map(
-        (name) => targetIntensityByName[name.toLowerCase()] ?? 0,
-      ),
-    )
-
-    if (intensity > 0) {
-      return {
-        backgroundColor: getMuscleColor(
-          { intensity: Math.min(10, intensity), selected: false },
-          false,
-        ),
-        intensity,
-      }
-    }
-
-    return {
-      backgroundColor: theme.colors.bg,
-      intensity: 0,
-    }
-  }
-
-  const renderedMuscles = muscles
-    .map((muscle) => ({
-      muscle,
-      colors: getPartColors(muscle),
-    }))
-    .sort((a, b) => a.colors.intensity - b.colors.intensity)
-
-  return (
-    <View style={styles.bodyMapFrame}>
-      <Canvas style={styles.bodyCanvas}>
-        <Group transform={transform}>
-          {renderedMuscles.map(({ muscle, colors }) => (
-            <Path
-              key={muscle.id}
-              path={muscle.path}
-              color={colors.backgroundColor}
-            />
-          ))}
-        </Group>
-      </Canvas>
-    </View>
-  )
-}
-
-const stylesheet = createStyleSheet((theme) => ({
+const stylesheet = createStyleSheet(theme => ({
   root: {
     flex: 1,
     backgroundColor: theme.colors.bg,
@@ -975,11 +780,10 @@ const stylesheet = createStyleSheet((theme) => ({
   statGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    marginHorizontal: -4,
-    gap: 8,
+    gap: theme.spacing.sm,
   },
   statTile: {
-    width: '48.7%',
+    width: '48.6%',
     minHeight: 74,
     borderRadius: theme.radius.sm,
     borderWidth: 1,
@@ -1001,10 +805,20 @@ const stylesheet = createStyleSheet((theme) => ({
     textTransform: 'uppercase',
   },
   bodyCard: {
-    backgroundColor: theme.colors.surface2,
+    backgroundColor: theme.colors.surface,
     borderRadius: theme.radius.md,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
     padding: theme.spacing.sm,
     gap: theme.spacing.sm,
+  },
+  bodyVisualPanel: {
+    backgroundColor: theme.colors.surface2,
+    borderRadius: theme.radius.md,
+    paddingTop: 2,
+    paddingHorizontal: 2,
+    paddingBottom: theme.spacing.xs,
+    overflow: 'hidden',
   },
   sectionHeader: {
     flexDirection: 'row',
@@ -1023,36 +837,21 @@ const stylesheet = createStyleSheet((theme) => ({
     fontFamily: theme.fontFamily.bold,
     textTransform: 'uppercase',
   },
-  bodyPair: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    gap: 0,
-  },
-  bodyMapFrame: {
-    width: 150,
-    height: 280,
-    alignItems: 'center',
-    justifyContent: 'center',
-    overflow: 'hidden',
-  },
-  bodyCanvas: {
-    width: 150,
-    height: 280,
-  },
   targetGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 6,
   },
   targetPill: {
-    minHeight: 26,
+    minHeight: 25,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
     borderRadius: theme.radius.full,
-    backgroundColor: theme.colors.surface,
-    paddingHorizontal: 8,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.surface2,
+    paddingHorizontal: 9,
     paddingVertical: 3,
   },
   targetName: {
@@ -1134,7 +933,7 @@ const stylesheet = createStyleSheet((theme) => ({
     borderWidth: 1,
     borderColor: PR_GOLD + '44',
     padding: theme.spacing.lg,
-    gap: theme.spacing.md,
+    gap: 10,
     position: 'relative',
     overflow: 'hidden',
     shadowColor: '#000',
@@ -1159,7 +958,7 @@ const stylesheet = createStyleSheet((theme) => ({
     backgroundColor: PR_GOLD + '14',
     borderWidth: 1,
     borderColor: PR_GOLD + '2E',
-    marginBottom: theme.spacing.xs,
+    marginBottom: theme.spacing.md,
   },
   prCelebrationGlow: {
     position: 'absolute',
@@ -1211,14 +1010,14 @@ const stylesheet = createStyleSheet((theme) => ({
   prSummaryPill: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    gap: 4,
     borderRadius: theme.radius.full,
     borderWidth: 1,
     borderColor: PR_GOLD + '66',
     backgroundColor: PR_GOLD + '18',
-    paddingHorizontal: theme.spacing.md,
-    paddingVertical: 7,
-    marginTop: theme.spacing.xs,
+    paddingHorizontal: theme.spacing.sm,
+    paddingVertical: 4,
+    marginTop: 2,
   },
   prSummaryPillText: {
     color: PR_GOLD,
@@ -1226,7 +1025,7 @@ const stylesheet = createStyleSheet((theme) => ({
     fontFamily: theme.fontFamily.black,
   },
   prList: {
-    gap: theme.spacing.sm,
+    gap: 5,
     zIndex: 1,
   },
   prResultCard: {
@@ -1234,14 +1033,15 @@ const stylesheet = createStyleSheet((theme) => ({
     borderRadius: theme.radius.md,
     borderWidth: 1,
     borderColor: theme.colors.border,
-    padding: theme.spacing.md,
-    gap: theme.spacing.sm,
+    paddingHorizontal: theme.spacing.sm,
+    paddingVertical: 4,
+    gap: 4,
   },
   prResultHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    gap: theme.spacing.sm,
+    gap: theme.spacing.xs,
   },
   prResultTitleBlock: {
     flex: 1,
@@ -1249,41 +1049,48 @@ const stylesheet = createStyleSheet((theme) => ({
   },
   prExerciseName: {
     color: theme.colors.text,
-    fontSize: theme.fontSize.md,
-    fontFamily: theme.fontFamily.extraBold,
+    fontSize: theme.fontSize.sm,
+    fontFamily: theme.fontFamily.bold,
+    lineHeight: 16,
   },
   prMethodName: {
     color: theme.colors.textMuted,
-    fontSize: theme.fontSize.xs,
-    fontFamily: theme.fontFamily.bold,
-    marginTop: 2,
+    fontSize: theme.fontSize.xxs,
+    fontFamily: theme.fontFamily.semiBold,
+    lineHeight: 12,
+    marginTop: 0,
   },
   prMiniBadge: {
+    alignItems: 'center',
+    justifyContent: 'center',
     borderRadius: theme.radius.full,
     borderWidth: 1,
     borderColor: PR_GOLD,
     backgroundColor: PR_GOLD + '22',
-    paddingHorizontal: theme.spacing.sm,
-    paddingVertical: 3,
+    height: 22,
+    paddingHorizontal: 6,
+    paddingVertical: 0,
   },
   prMiniBadgeText: {
     color: PR_GOLD,
-    fontSize: theme.fontSize.xs,
+    fontSize: theme.fontSize.xxs,
     fontFamily: theme.fontFamily.black,
+    lineHeight: 12,
   },
   prValuesRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: theme.spacing.sm,
+    gap: 4,
   },
   prValueBox: {
     flex: 1,
-    minHeight: 62,
+    minHeight: 32,
     borderRadius: theme.radius.md,
     borderWidth: 1,
     borderColor: theme.colors.border,
     backgroundColor: theme.colors.surface,
-    padding: theme.spacing.sm,
+    paddingHorizontal: theme.spacing.sm,
+    paddingVertical: 5,
     justifyContent: 'center',
   },
   prNewValueBox: {
@@ -1292,24 +1099,28 @@ const stylesheet = createStyleSheet((theme) => ({
   },
   prValueLabel: {
     color: theme.colors.textMuted,
-    fontSize: theme.fontSize.xs,
-    fontFamily: theme.fontFamily.extraBold,
+    fontSize: theme.fontSize.xxs,
+    fontFamily: theme.fontFamily.semiBold,
     textTransform: 'uppercase',
-    marginBottom: 3,
+    lineHeight: 10,
+    marginBottom: 0,
   },
   prPreviousValue: {
     color: theme.colors.text,
     fontSize: theme.fontSize.sm,
     fontFamily: theme.fontFamily.extraBold,
+    lineHeight: 16,
   },
   prNewValue: {
     color: PR_GOLD,
     fontSize: theme.fontSize.md,
     fontFamily: theme.fontFamily.black,
+    lineHeight: 18,
   },
   prRepsText: {
     color: theme.colors.textMuted,
-    fontSize: theme.fontSize.sm,
+    fontSize: theme.fontSize.xs,
     fontFamily: theme.fontFamily.extraBold,
+    lineHeight: 14,
   },
-}))
+}));

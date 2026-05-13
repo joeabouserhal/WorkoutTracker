@@ -7,14 +7,9 @@ import React, {
 } from 'react';
 import {
   Alert,
-  Animated,
-  Easing,
-  LayoutAnimation,
-  Platform,
   ScrollView,
   Text,
   TouchableOpacity,
-  UIManager,
   View,
 } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
@@ -26,6 +21,13 @@ import {
   type MuscleDef,
 } from 'body-muscles';
 import { Canvas, Group, Path } from '@shopify/react-native-skia';
+import Reanimated, {
+  Easing as ReanimatedEasing,
+  runOnJS,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from 'react-native-reanimated';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import { createStyleSheet, useStyles } from 'react-native-unistyles';
 import ScreenHeader, { useHeaderFade } from '@/components/ui/ScreenHeader';
@@ -195,28 +197,10 @@ const BACK_BODY_MUSCLES = BACK_MUSCLES.filter(muscle =>
   Object.prototype.hasOwnProperty.call(BODY_MUSCLE_GROUP_BY_ID, muscle.id),
 );
 
-const FATIGUE_CARD_ANIMATION_MS = 220;
-
-if (Platform.OS === 'android') {
-  UIManager.setLayoutAnimationEnabledExperimental?.(true);
-}
-
-function animateFatigueCardLayout() {
-  LayoutAnimation.configureNext({
-    duration: FATIGUE_CARD_ANIMATION_MS,
-    create: {
-      type: LayoutAnimation.Types.easeInEaseOut,
-      property: LayoutAnimation.Properties.opacity,
-    },
-    update: {
-      type: LayoutAnimation.Types.easeInEaseOut,
-    },
-    delete: {
-      type: LayoutAnimation.Types.easeInEaseOut,
-      property: LayoutAnimation.Properties.opacity,
-    },
-  });
-}
+const FATIGUE_COLLAPSED_HEIGHT = 38;
+const FATIGUE_EXPANDED_MAX_HEIGHT = 540;
+const FATIGUE_EXPAND_MS = 260;
+const FATIGUE_COLLAPSE_MS = 190;
 
 export default function HomeScreen() {
   const { styles, theme } = useStyles(stylesheet);
@@ -516,6 +500,7 @@ export default function HomeScreen() {
         <TouchableOpacity
           style={styles.templatesButton}
           onPress={handleTemplatesPress}
+          activeOpacity={0.82}
         >
           <View style={styles.secondaryIcon}>
             <MaterialCommunityIcons
@@ -562,7 +547,7 @@ export default function HomeScreen() {
                           templateId: template.id,
                         })
                       }
-                      activeOpacity={0.78}
+                      activeOpacity={0.82}
                     >
                       <View style={styles.favoriteTemplateIcon}>
                         <MaterialCommunityIcons
@@ -655,8 +640,7 @@ function MuscleRecoveryCard({
   const { styles, theme } = useStyles(stylesheet);
   const [expanded, setExpanded] = useState(false);
   const [renderExpandedCard, setRenderExpandedCard] = useState(false);
-  const collapseProgress = useRef(new Animated.Value(0)).current;
-  const collapseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cardProgress = useSharedValue(0);
   const fatigueByName = useMemo(
     () => Object.fromEntries(fatigue.map(group => [group.name, group])),
     [fatigue],
@@ -683,16 +667,7 @@ function MuscleRecoveryCard({
     if (fatiguedGroups.length === 0) return 'fully recovered';
     return fatiguedGroups.map(group => group.name).join(', ');
   }, [fatiguedGroups, loading]);
-  const fatigueGridRows = useMemo(() => {
-    const rows: MuscleGroupFatigue[][] = [];
-
-    for (let index = 0; index < fatiguedGroups.length; index += 2) {
-      rows.push(fatiguedGroups.slice(index, index + 2));
-    }
-
-    return rows;
-  }, [fatiguedGroups]);
-
+<<<<<<< HEAD
   useEffect(() => {
     Animated.timing(collapseProgress, {
       toValue: expanded ? 1 : 0,
@@ -710,25 +685,58 @@ function MuscleRecoveryCard({
     },
     [],
   );
+=======
+  const fatigueGridRows = useMemo(() => {
+    const rows: MuscleGroupFatigue[][] = [];
+
+    for (let index = 0; index < fatiguedGroups.length; index += 2) {
+      rows.push(fatiguedGroups.slice(index, index + 2));
+    }
+
+    return rows;
+  }, [fatiguedGroups]);
+  const fatigueFrameStyle = useAnimatedStyle(() => ({
+    maxHeight:
+      FATIGUE_COLLAPSED_HEIGHT +
+      (FATIGUE_EXPANDED_MAX_HEIGHT - FATIGUE_COLLAPSED_HEIGHT) *
+        cardProgress.value,
+  }));
+  const fatigueContentStyle = useAnimatedStyle(() => ({
+    opacity: cardProgress.value,
+    transform: [
+      {
+        translateY: -8 + cardProgress.value * 8,
+      },
+      {
+        scale: 0.985 + cardProgress.value * 0.015,
+      },
+    ],
+  }));
+>>>>>>> c984b03dfacd46b99c09dc4340b3d59474db26a9
 
   function expandCard() {
-    if (collapseTimerRef.current) {
-      clearTimeout(collapseTimerRef.current);
-      collapseTimerRef.current = null;
-    }
-    animateFatigueCardLayout();
     setRenderExpandedCard(true);
     setExpanded(true);
+    cardProgress.value = withTiming(1, {
+      duration: FATIGUE_EXPAND_MS,
+      easing: ReanimatedEasing.out(ReanimatedEasing.cubic),
+    });
   }
 
   function collapseCard() {
-    animateFatigueCardLayout();
     setExpanded(false);
-    collapseTimerRef.current = setTimeout(() => {
-      animateFatigueCardLayout();
-      setRenderExpandedCard(false);
-      collapseTimerRef.current = null;
-    }, FATIGUE_CARD_ANIMATION_MS);
+    cardProgress.value = withTiming(
+      0,
+      {
+        duration: FATIGUE_COLLAPSE_MS,
+        easing: ReanimatedEasing.out(ReanimatedEasing.quad),
+      },
+      finished => {
+        if (finished) {
+          runOnJS(setRenderExpandedCard)(false);
+        }
+      },
+    );
   }
 
   function getMuscleColors(names: string | string[]) {
@@ -766,6 +774,7 @@ function MuscleRecoveryCard({
 
   if (!renderExpandedCard) {
     return (
+<<<<<<< HEAD
       <TouchableOpacity
         style={styles.fatigueMiniCard}
         onPress={expandCard}
@@ -773,53 +782,100 @@ function MuscleRecoveryCard({
       >
         <View style={styles.fatigueMiniIcon}>
           <MaterialCommunityIcons
-            name="human-male"
-            size={15}
-            color={peakFatigue ? theme.colors.accent : theme.colors.textMuted}
+            name="battery-medium"
+            size={21}
+            color={theme.colors.accent}
           />
         </View>
-        <View style={styles.fatigueMiniTextRail}>
+        <View style={styles.fatigueMiniTextBlock}>
           <Text style={styles.fatigueMiniTitle} numberOfLines={1}>
             Muscle Fatigue
           </Text>
-          <View style={styles.fatigueMiniDivider} />
-          <Text style={styles.fatigueMiniMuscles} numberOfLines={1}>
-            {collapsedSummary}
-          </Text>
+          <View style={styles.fatigueMiniMetaRow}>
+            <View
+              style={[
+                styles.fatigueMiniDot,
+                peakFatigue && styles.fatigueMiniDotActive,
+              ]}
+            />
+            <Text style={styles.fatigueMiniMuscles} numberOfLines={1}>
+              {collapsedSummary}
+            </Text>
+          </View>
         </View>
         {peakFatigue ? (
           <View style={styles.fatigueMiniTime}>
+=======
+      <View style={styles.fatigueAnimationFrame}>
+        <TouchableOpacity
+          style={styles.fatigueMiniCard}
+          onPress={expandCard}
+          activeOpacity={0.82}
+        >
+          <View style={styles.fatigueMiniIcon}>
+>>>>>>> c984b03dfacd46b99c09dc4340b3d59474db26a9
             <MaterialCommunityIcons
-              name="timer-sand"
-              size={11}
-              color={theme.colors.accent}
+              name="human-male"
+              size={15}
+              color={peakFatigue ? theme.colors.accent : theme.colors.textMuted}
             />
-            <Text style={styles.fatigueMiniTimeText}>
-              {formatRecoveryHours(peakFatigue.restHoursRemaining)}
+          </View>
+          <View style={styles.fatigueMiniTextRail}>
+            <Text style={styles.fatigueMiniTitle} numberOfLines={1}>
+              Muscle Fatigue
+            </Text>
+            <View style={styles.fatigueMiniDivider} />
+            <Text style={styles.fatigueMiniMuscles} numberOfLines={1}>
+              {collapsedSummary}
             </Text>
           </View>
+<<<<<<< HEAD
         ) : null}
-        <MaterialCommunityIcons
-          name="chevron-down"
-          size={17}
-          color={theme.colors.textMuted}
-        />
+        <View style={styles.fatigueChevronButton}>
+=======
+          {peakFatigue ? (
+            <View style={styles.fatigueMiniTime}>
+              <MaterialCommunityIcons
+                name="timer-sand"
+                size={11}
+                color={theme.colors.accent}
+              />
+              <Text style={styles.fatigueMiniTimeText}>
+                {formatRecoveryHours(peakFatigue.restHoursRemaining)}
+              </Text>
+            </View>
+          ) : null}
+>>>>>>> c984b03dfacd46b99c09dc4340b3d59474db26a9
+          <MaterialCommunityIcons
+            name="chevron-down"
+            size={17}
+            color={theme.colors.textMuted}
+          />
+<<<<<<< HEAD
+        </View>
       </TouchableOpacity>
+=======
+        </TouchableOpacity>
+      </View>
+>>>>>>> c984b03dfacd46b99c09dc4340b3d59474db26a9
     );
   }
 
   return (
+    <Reanimated.View
+      style={[styles.fatigueAnimationFrame, fatigueFrameStyle]}
+    >
     <View style={[styles.fatigueCard, styles.fatigueCardExpanded]}>
       <TouchableOpacity
         style={styles.fatigueHeader}
         onPress={expanded ? collapseCard : expandCard}
-        activeOpacity={0.78}
+        activeOpacity={0.82}
       >
         <View style={styles.fatigueHeaderIcon}>
           <MaterialCommunityIcons
-            name="human-male"
-            size={16}
-            color={peakFatigue ? theme.colors.accent : theme.colors.textMuted}
+            name="battery-medium"
+            size={21}
+            color={theme.colors.accent}
           />
         </View>
         <View style={styles.fatigueTitleBlock}>
@@ -842,98 +898,79 @@ function MuscleRecoveryCard({
             </Text>
           </View>
         ) : null}
-        <MaterialCommunityIcons
-          name={expanded ? 'chevron-up' : 'chevron-down'}
-          size={17}
-          color={theme.colors.textMuted}
-        />
+        <View style={styles.fatigueChevronButton}>
+          <MaterialCommunityIcons
+            name={expanded ? 'chevron-up' : 'chevron-down'}
+            size={17}
+            color={theme.colors.textMuted}
+          />
+        </View>
       </TouchableOpacity>
 
-      <Animated.View
+      <Reanimated.View
         pointerEvents={expanded ? 'auto' : 'none'}
-        style={[
-          styles.fatigueExpandable,
-          {
-            maxHeight: collapseProgress.interpolate({
-              inputRange: [0, 1],
-              outputRange: [0, 640],
-            }),
-            opacity: collapseProgress,
-            transform: [
-              {
-                translateY: collapseProgress.interpolate({
-                  inputRange: [0, 1],
-                  outputRange: [-6, 0],
-                }),
-              },
-            ],
-          },
-        ]}
+        style={[styles.fatigueExpandable, fatigueContentStyle]}
       >
         <View style={styles.fatigueExpandedContent}>
-          <View style={styles.bodyMapPair}>
-            <BodyFatigueDiagram
-              side="front"
-              getMuscleColors={getMuscleColors}
-            />
-            <BodyFatigueDiagram side="back" getMuscleColors={getMuscleColors} />
+          <View style={styles.fatigueVisualPanel}>
+            <View style={styles.bodyMapPair}>
+              <BodyFatigueDiagram
+                side="front"
+                getMuscleColors={getMuscleColors}
+              />
+              <BodyFatigueDiagram
+                side="back"
+                getMuscleColors={getMuscleColors}
+              />
+            </View>
+
+            <View style={styles.fatigueLegend}>
+              <View style={styles.legendItem}>
+                <View style={[styles.legendDot, getLegendStyle(10)]} />
+                <Text style={styles.legendText}>Recent</Text>
+              </View>
+              <View style={styles.legendItem}>
+                <View style={[styles.legendDot, getLegendStyle(5)]} />
+                <Text style={styles.legendText}>Recovering</Text>
+              </View>
+              <View style={styles.legendItem}>
+                <View style={[styles.legendDot, getLegendStyle(1)]} />
+                <Text style={styles.legendText}>Nearly ready</Text>
+              </View>
+            </View>
           </View>
 
-          <View style={styles.fatigueLegend}>
-            <View style={styles.legendItem}>
-              <View style={[styles.legendDot, getLegendStyle(10)]} />
-              <Text style={styles.legendText}>Recent</Text>
-            </View>
-            <View style={styles.legendItem}>
-              <View style={[styles.legendDot, getLegendStyle(5)]} />
-              <Text style={styles.legendText}>Recovering</Text>
-            </View>
-            <View style={styles.legendItem}>
-              <View style={[styles.legendDot, getLegendStyle(1)]} />
-              <Text style={styles.legendText}>Nearly ready</Text>
-            </View>
-          </View>
-
-          {loading ? (
-            <Text style={styles.fatigueEmptyText}>Loading recovery...</Text>
-          ) : fatiguedGroups.length === 0 ? (
-            <Text style={styles.fatigueEmptyText}>
-              Body is fully recovered.
-            </Text>
-          ) : (
-            <View style={styles.fatigueList}>
-              {fatigueGridRows.map(row => (
-                <View
-                  key={row.map(group => group.name).join('-')}
-                  style={styles.fatigueGridRow}
-                >
-                  {row.map(group => (
-                    <View key={group.name} style={styles.fatigueGridCell}>
-                      <View style={styles.fatigueRow}>
-                        <View style={styles.fatigueRowNameBlock}>
-                          <Text
-                            style={styles.fatigueMuscleName}
-                            numberOfLines={1}
-                          >
-                            {group.name}
-                          </Text>
-                        </View>
-                        <Text style={styles.fatigueTime}>
-                          {formatRecoveryHours(group.restHoursRemaining)}
-                        </Text>
-                      </View>
+          <View style={styles.fatigueRecoveryPanel}>
+            {loading ? (
+              <Text style={styles.fatigueEmptyText}>Loading recovery...</Text>
+            ) : fatiguedGroups.length === 0 ? (
+              <Text style={styles.fatigueEmptyText}>
+                Body is fully recovered.
+              </Text>
+            ) : (
+              <View style={styles.fatigueList}>
+                {fatiguedGroups.map(group => (
+                  <View key={group.name} style={styles.fatigueRow}>
+                    <View style={styles.fatigueRowNameBlock}>
+                      <Text
+                        style={styles.fatigueMuscleName}
+                        numberOfLines={1}
+                      >
+                        {group.name}
+                      </Text>
                     </View>
-                  ))}
-                  {row.length === 1 ? (
-                    <View style={styles.fatigueGridCell} />
-                  ) : null}
-                </View>
-              ))}
-            </View>
-          )}
+                    <Text style={styles.fatigueTime}>
+                      {formatRecoveryHours(group.restHoursRemaining)}
+                    </Text>
+                  </View>
+                ))}
+              </View>
+            )}
+          </View>
         </View>
-      </Animated.View>
+      </Reanimated.View>
     </View>
+    </Reanimated.View>
   );
 }
 
@@ -1018,65 +1055,80 @@ const stylesheet = createStyleSheet(theme => ({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  fatigueAnimationFrame: {
+    width: '100%',
+    overflow: 'hidden',
+  },
   fatigueMiniCard: {
-    height: 38,
+    minHeight: 48,
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: theme.colors.surface2,
+    backgroundColor: theme.colors.surface,
     borderRadius: theme.radius.md,
-    paddingHorizontal: 8,
-    gap: 7,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    paddingHorizontal: theme.spacing.sm,
+    paddingVertical: 8,
+    gap: theme.spacing.sm,
   },
   fatigueMiniIcon: {
-    width: 22,
-    height: 22,
-    borderRadius: theme.radius.full,
-    backgroundColor: theme.colors.surface,
+    width: 24,
+    height: 24,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  fatigueMiniTextRail: {
+  fatigueMiniTextBlock: {
     flex: 1,
     minWidth: 0,
-    height: 18,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    transform: [{ translateY: 1 }],
+    justifyContent: 'center',
+    gap: 2,
   },
   fatigueMiniTitle: {
     color: theme.colors.text,
     fontSize: theme.fontSize.xs,
-    lineHeight: 18,
     fontFamily: theme.fontFamily.extraBold,
+    lineHeight: 14,
     includeFontPadding: false,
     textAlignVertical: 'center',
   },
-  fatigueMiniDivider: {
-    width: 1,
-    height: 12,
-    backgroundColor: theme.colors.border,
+  fatigueMiniMetaRow: {
+    minWidth: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+  },
+  fatigueMiniDot: {
+    width: 5,
+    height: 5,
+    borderRadius: theme.radius.full,
+    backgroundColor: theme.colors.textMuted,
+    opacity: 0.58,
+  },
+  fatigueMiniDotActive: {
+    backgroundColor: theme.colors.accent,
+    opacity: 1,
   },
   fatigueMiniMuscles: {
     flex: 1,
     minWidth: 0,
     color: theme.colors.textMuted,
-    fontSize: 10,
-    lineHeight: 18,
+    fontSize: theme.fontSize.xs,
+    lineHeight: 14,
     fontFamily: theme.fontFamily.semiBold,
-    fontStyle: 'italic',
     includeFontPadding: false,
     textAlignVertical: 'center',
   },
   fatigueMiniTime: {
-    height: 20,
+    height: 24,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 4,
     borderRadius: theme.radius.full,
-    backgroundColor: theme.colors.surface,
-    paddingHorizontal: 7,
+    backgroundColor: theme.colors.surface2,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    paddingHorizontal: 8,
   },
   fatigueMiniTimeText: {
     color: theme.colors.text,
@@ -1086,14 +1138,24 @@ const stylesheet = createStyleSheet(theme => ({
     includeFontPadding: false,
     textAlignVertical: 'center',
   },
-  fatigueCard: {
+  fatigueChevronButton: {
+    width: 24,
+    height: 24,
+    borderRadius: theme.radius.full,
     backgroundColor: theme.colors.surface2,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  fatigueCard: {
+    backgroundColor: theme.colors.surface,
     borderRadius: theme.radius.md,
     borderWidth: 1,
     borderColor: theme.colors.border,
-    paddingHorizontal: theme.spacing.xs,
-    paddingVertical: 2,
-    gap: theme.spacing.xs,
+    paddingHorizontal: theme.spacing.sm,
+    paddingVertical: theme.spacing.sm,
+    gap: theme.spacing.sm,
   },
   fatigueCardCollapsed: {
     height: 40,
@@ -1102,18 +1164,19 @@ const stylesheet = createStyleSheet(theme => ({
     justifyContent: 'center',
   },
   fatigueCardExpanded: {
-    backgroundColor: theme.colors.surface2,
-    borderWidth: 0,
-    paddingHorizontal: 8,
-    paddingVertical: theme.spacing.xs,
-    gap: theme.spacing.xs,
+    backgroundColor: theme.colors.surface,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    paddingHorizontal: theme.spacing.sm,
+    paddingVertical: theme.spacing.sm,
+    gap: theme.spacing.sm,
   },
   fatigueHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    gap: theme.spacing.xs,
-    minHeight: 26,
+    gap: theme.spacing.sm,
+    minHeight: 30,
   },
   fatigueHeaderCollapsed: {
     minHeight: 34,
@@ -1123,8 +1186,6 @@ const stylesheet = createStyleSheet(theme => ({
   fatigueHeaderIcon: {
     width: 24,
     height: 24,
-    borderRadius: theme.radius.full,
-    backgroundColor: theme.colors.surface,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -1150,6 +1211,7 @@ const stylesheet = createStyleSheet(theme => ({
     fontSize: theme.fontSize.xs,
     fontFamily: theme.fontFamily.semiBold,
     marginTop: 1,
+    lineHeight: 15,
   },
   fatigueCollapsedIcon: {
     width: 22,
@@ -1189,14 +1251,16 @@ const stylesheet = createStyleSheet(theme => ({
     textAlignVertical: 'center',
   },
   recoveryPill: {
-    height: 19,
+    height: 24,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 4,
     borderRadius: theme.radius.full,
-    backgroundColor: theme.colors.surface,
-    paddingHorizontal: theme.spacing.xs,
+    backgroundColor: theme.colors.surface2,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    paddingHorizontal: 8,
   },
   recoveryPillText: {
     color: theme.colors.text,
@@ -1211,7 +1275,15 @@ const stylesheet = createStyleSheet(theme => ({
   },
   fatigueExpandedContent: {
     gap: theme.spacing.sm,
-    paddingTop: 0,
+    paddingTop: theme.spacing.xs,
+  },
+  fatigueVisualPanel: {
+    backgroundColor: theme.colors.surface2,
+    borderRadius: theme.radius.md,
+    paddingTop: 2,
+    paddingHorizontal: 2,
+    paddingBottom: theme.spacing.xs,
+    overflow: 'hidden',
   },
   bodyMapPair: {
     flexDirection: 'row',
@@ -1219,11 +1291,11 @@ const stylesheet = createStyleSheet(theme => ({
     alignItems: 'center',
     gap: 0,
     width: '100%',
-    marginBottom: 2,
+    marginBottom: -2,
   },
   bodyMapFrame: {
     width: 158,
-    height: 304,
+    height: 320,
     alignItems: 'center',
     justifyContent: 'center',
     paddingTop: 0,
@@ -1231,40 +1303,36 @@ const stylesheet = createStyleSheet(theme => ({
   },
   bodyCanvas: {
     width: 158,
-    height: 304,
+    height: 320,
   },
   fatigueEmptyText: {
     color: theme.colors.textMuted,
-    fontSize: theme.fontSize.sm,
+    fontSize: theme.fontSize.xs,
     fontFamily: theme.fontFamily.semiBold,
     textAlign: 'center',
+    paddingVertical: theme.spacing.xs,
   },
   fatigueList: {
-    gap: 6,
-    marginBottom: 4,
-  },
-  fatigueGridRow: {
     flexDirection: 'row',
-    marginHorizontal: -3,
-    // marginBottom: 4,
-  },
-  fatigueGridCell: {
-    width: '50%',
-    paddingHorizontal: 3,
+    flexWrap: 'wrap',
+    gap: 5,
   },
   fatigueRow: {
-    minHeight: 24,
+    minHeight: 26,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: 6,
-    backgroundColor: theme.colors.surface,
+    maxWidth: '100%',
+    backgroundColor: theme.colors.surface2,
     borderRadius: theme.radius.full,
-    paddingHorizontal: 7,
-    paddingVertical: 2,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    paddingHorizontal: 9,
+    paddingVertical: 3,
   },
   fatigueRowNameBlock: {
-    flex: 1,
+    flexShrink: 1,
     minWidth: 0,
     flexDirection: 'row',
     alignItems: 'center',
@@ -1293,28 +1361,39 @@ const stylesheet = createStyleSheet(theme => ({
     includeFontPadding: false,
     textAlignVertical: 'center',
   },
+  fatigueRecoveryPanel: {
+    backgroundColor: theme.colors.surface,
+    borderRadius: theme.radius.md,
+  },
   fatigueLegend: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: theme.spacing.sm,
-    marginBottom: 2,
+    gap: 6,
+    paddingHorizontal: theme.spacing.xs,
+    paddingTop: 1,
   },
   legendItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: theme.spacing.xs,
+    gap: 4,
+    minHeight: 22,
+    borderRadius: theme.radius.full,
+    backgroundColor: theme.colors.surface,
+    paddingHorizontal: 7,
   },
   legendDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    borderWidth: 1,
+    width: 7,
+    height: 7,
+    borderRadius: theme.radius.full,
   },
   legendText: {
     color: theme.colors.textMuted,
-    fontSize: theme.fontSize.xs,
-    fontFamily: theme.fontFamily.bold,
+    fontSize: 10,
+    lineHeight: 13,
+    fontFamily: theme.fontFamily.semiBold,
+    includeFontPadding: false,
+    textAlignVertical: 'center',
   },
   startWorkoutGlow: {
     borderRadius: theme.radius.md,

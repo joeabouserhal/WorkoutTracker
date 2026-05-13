@@ -1,4 +1,4 @@
-import { fontFamily } from './fonts'
+import { fontFamily } from './fonts';
 
 const baseSpacing = {
   xs: 4,
@@ -6,7 +6,7 @@ const baseSpacing = {
   md: 16,
   lg: 24,
   xl: 32,
-} as const
+} as const;
 
 const baseFontSize = {
   xxs: 9,
@@ -16,7 +16,7 @@ const baseFontSize = {
   lg: 18,
   xl: 22,
   xxl: 28,
-} as const
+} as const;
 
 const baseRadius = {
   sm: 8,
@@ -24,21 +24,22 @@ const baseRadius = {
   lg: 8,
   xl: 8,
   full: 9999,
-} as const
+} as const;
 
-const baseFontFamily = fontFamily
+const baseFontFamily = fontFamily;
 
 const createTheme = (colors: {
-  bg: string
-  surface: string
-  surface2: string
-  text: string
-  textMuted: string
-  accent: string
-  accentMuted: string
-  danger: string
-  border: string
-  borderStrong: string
+  bg: string;
+  surface: string;
+  surface2: string;
+  text: string;
+  textMuted: string;
+  accent: string;
+  accentMuted: string;
+  danger: string;
+  dangerMuted: string;
+  border: string;
+  borderStrong: string;
 }) =>
   ({
     colors,
@@ -46,7 +47,7 @@ const createTheme = (colors: {
     fontSize: baseFontSize,
     fontFamily: baseFontFamily,
     radius: baseRadius,
-  }) as const
+  } as const);
 
 export const darkTheme = createTheme({
   bg: '#111111',
@@ -57,9 +58,10 @@ export const darkTheme = createTheme({
   accent: '#5ab7d3',
   accentMuted: '#6bdcff26',
   danger: '#FF453A',
+  dangerMuted: '#FF453A18',
   border: '#2C2C2E',
   borderStrong: '#48484A',
-})
+});
 
 export const oledTheme = createTheme({
   bg: '#000000',
@@ -70,9 +72,10 @@ export const oledTheme = createTheme({
   accent: '#FF6B6B',
   accentMuted: '#FF6B6B26',
   danger: '#FF453A',
+  dangerMuted: '#FF453A18',
   border: '#1A1A1A',
   borderStrong: '#2C2C2E',
-})
+});
 
 export const draculaTheme = createTheme({
   bg: '#242633',
@@ -83,9 +86,10 @@ export const draculaTheme = createTheme({
   accent: '#BD93F9',
   accentMuted: '#BD93F926',
   danger: '#FF5555',
+  dangerMuted: '#FF555518',
   border: '#44475A',
   borderStrong: '#6272A4',
-})
+});
 
 export const oneDarkTheme = createTheme({
   bg: '#23272F',
@@ -96,9 +100,10 @@ export const oneDarkTheme = createTheme({
   accent: '#61AFEF',
   accentMuted: '#61AFEF26',
   danger: '#E06C75',
+  dangerMuted: '#E06C7518',
   border: '#3E4451',
   borderStrong: '#5C6370',
-})
+});
 
 export const nordTheme = createTheme({
   bg: '#282E39',
@@ -109,9 +114,10 @@ export const nordTheme = createTheme({
   accent: '#88C0D0',
   accentMuted: '#88C0D026',
   danger: '#BF616A',
+  dangerMuted: '#BF616A18',
   border: '#434C5E',
   borderStrong: '#4C566A',
-})
+});
 
 export const catppuccinTheme = createTheme({
   bg: '#1A1A29',
@@ -122,9 +128,10 @@ export const catppuccinTheme = createTheme({
   accent: '#CBA6F7',
   accentMuted: '#CBA6F726',
   danger: '#F38BA8',
+  dangerMuted: '#F38BA818',
   border: '#45475A',
   borderStrong: '#6C7086',
-})
+});
 
 export const tokyoNightTheme = createTheme({
   bg: '#171829',
@@ -135,9 +142,10 @@ export const tokyoNightTheme = createTheme({
   accent: '#7AA2F7',
   accentMuted: '#7AA2F726',
   danger: '#F7768E',
+  dangerMuted: '#F7768E18',
   border: '#292E42',
   borderStrong: '#565F89',
-})
+});
 
 export const gruvboxTheme = createTheme({
   bg: '#242424',
@@ -148,9 +156,10 @@ export const gruvboxTheme = createTheme({
   accent: '#FABD2F',
   accentMuted: '#FABD2F26',
   danger: '#FB4934',
+  dangerMuted: '#FB493418',
   border: '#504945',
   borderStrong: '#928374',
-})
+});
 
 export const solarizedTheme = createTheme({
   bg: '#002631',
@@ -161,6 +170,21 @@ export const solarizedTheme = createTheme({
   accent: '#268BD2',
   accentMuted: '#268BD226',
   danger: '#DC322F',
+  dangerMuted: '#DC322F18',
   border: '#0D4A5A',
   borderStrong: '#586E75',
-})
+});
+
+export const whimsyTheme = createTheme({
+  bg: '#111714',
+  surface: '#181F1A',
+  surface2: '#1F2822',
+  text: '#DFF0D0',
+  textMuted: '#85A882',
+  accent: '#7CBD5E',
+  accentMuted: '#7CBD5E26',
+  danger: '#C96B5C',
+  dangerMuted: '#5C2018',
+  border: '#252E26',
+  borderStrong: '#374A38',
+});

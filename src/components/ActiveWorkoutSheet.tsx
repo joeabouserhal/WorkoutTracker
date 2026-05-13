@@ -2607,7 +2607,7 @@ const stylesheet = createStyleSheet(theme => ({
   },
   inputWrapError: {
     borderColor: theme.colors.danger,
-    backgroundColor: theme.colors.danger + '18',
+    backgroundColor: theme.colors.dangerMuted,
   },
   input: {
     flex: 1,
@@ -2723,7 +2723,7 @@ const stylesheet = createStyleSheet(theme => ({
     flexDirection: 'row',
     alignItems: 'center',
     gap: theme.spacing.xs,
-    backgroundColor: theme.colors.danger + '18',
+    backgroundColor: theme.colors.dangerMuted,
     borderRadius: theme.radius.md,
     borderWidth: 1,
     borderColor: theme.colors.danger,
@@ -2872,8 +2872,8 @@ const stylesheet = createStyleSheet(theme => ({
     elevation: 3,
   },
   dialogDangerButton: {
-    backgroundColor: theme.colors.danger + '22',
-    borderColor: theme.colors.danger + '70',
+    backgroundColor: theme.colors.dangerMuted,
+    borderColor: theme.colors.dangerMuted,
   },
   dialogButtonText: {
     color: theme.colors.text,

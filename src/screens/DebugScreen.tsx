@@ -180,7 +180,7 @@ export default function DebugScreen({ navigation }: Props) {
         <TouchableOpacity
           style={[styles.utilityButton, busyAction === 'reseed' && styles.disabledButton]}
           onPress={confirmReseedDefaults}
-          activeOpacity={0.75}
+          activeOpacity={0.82}
           disabled={busyAction !== null}
         >
           <View style={styles.utilityIconBadge}>
@@ -203,7 +203,7 @@ export default function DebugScreen({ navigation }: Props) {
         <TouchableOpacity
           style={styles.utilityButton}
           onPress={() => navigation.navigate('PostWorkout', { debugVariant: 'standard' })}
-          activeOpacity={0.75}
+          activeOpacity={0.82}
           disabled={busyAction !== null}
         >
           <View style={styles.utilityIconBadge}>
@@ -224,7 +224,7 @@ export default function DebugScreen({ navigation }: Props) {
         <TouchableOpacity
           style={styles.utilityButton}
           onPress={() => navigation.navigate('PostWorkout', { debugVariant: 'celebration' })}
-          activeOpacity={0.75}
+          activeOpacity={0.82}
           disabled={busyAction !== null}
         >
           <View style={styles.utilityIconBadge}>
@@ -247,7 +247,7 @@ export default function DebugScreen({ navigation }: Props) {
         <TouchableOpacity
           style={[styles.dangerButton, busyAction === 'methods' && styles.disabledButton]}
           onPress={confirmDeleteMethods}
-          activeOpacity={0.75}
+          activeOpacity={0.82}
           disabled={busyAction !== null}
         >
           <View style={styles.dangerIconBadge}>
@@ -270,7 +270,7 @@ export default function DebugScreen({ navigation }: Props) {
         <TouchableOpacity
           style={[styles.dangerButton, busyAction === 'exercises' && styles.disabledButton]}
           onPress={confirmDeleteExercises}
-          activeOpacity={0.75}
+          activeOpacity={0.82}
           disabled={busyAction !== null}
         >
           <View style={styles.dangerIconBadge}>
@@ -317,10 +317,10 @@ const stylesheet = createStyleSheet((theme) => ({
   warningPanel: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    backgroundColor: theme.colors.danger + '14',
+    backgroundColor: theme.colors.dangerMuted,
     borderRadius: theme.radius.md,
     borderWidth: 1,
-    borderColor: theme.colors.danger + '70',
+    borderColor: theme.colors.dangerMuted,
     padding: theme.spacing.md,
     gap: theme.spacing.md,
   },
@@ -332,7 +332,7 @@ const stylesheet = createStyleSheet((theme) => ({
     justifyContent: 'center',
     backgroundColor: theme.colors.surface,
     borderWidth: 1,
-    borderColor: theme.colors.danger + '55',
+    borderColor: theme.colors.dangerMuted,
   },
   warningTextBlock: {
     flex: 1,
@@ -365,7 +365,7 @@ const stylesheet = createStyleSheet((theme) => ({
     backgroundColor: theme.colors.surface,
     borderRadius: theme.radius.md,
     borderWidth: 1,
-    borderColor: theme.colors.danger + '55',
+    borderColor: theme.colors.dangerMuted,
     paddingHorizontal: theme.spacing.sm,
     paddingVertical: theme.spacing.xs,
     marginBottom: theme.spacing.xs,
@@ -408,9 +408,9 @@ const stylesheet = createStyleSheet((theme) => ({
     borderRadius: theme.radius.full,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: theme.colors.danger + '16',
+    backgroundColor: theme.colors.dangerMuted,
     borderWidth: 1,
-    borderColor: theme.colors.danger + '45',
+    borderColor: theme.colors.dangerMuted,
   },
   buttonTextBlock: {
     flex: 1,

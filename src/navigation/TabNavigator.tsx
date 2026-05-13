@@ -48,6 +48,10 @@ const TAB_BAR_HORIZONTAL_PADDING = 8
 const TAB_ICON_PILL_WIDTH = 52
 const TAB_ICON_PILL_TOP = 9
 const TAB_BAR_EXTRA_BOTTOM_PADDING = 10
+const TAB_TRANSITION_MS = 120
+const TAB_ICON_ANIMATION_MS = 90
+const TAB_RESET_ANIMATION_MS = 100
+const STACK_TRANSITION_MS = 150
 export type ProfileStackParamList = {
   Profile: undefined
   EditProfile: undefined
@@ -63,7 +67,12 @@ const ProfileStack = createNativeStackNavigator<ProfileStackParamList>()
 
 function HomeStackScreen() {
   return (
-    <HomeStack.Navigator screenOptions={{ headerShown: false }}>
+    <HomeStack.Navigator
+      screenOptions={{
+        headerShown: false,
+        animationDuration: STACK_TRANSITION_MS,
+      }}
+    >
       <HomeStack.Screen name="Home" component={HomeScreen} />
       <HomeStack.Screen name="Templates" component={TemplatesScreen} />
       <HomeStack.Screen name="TemplateDetail" component={TemplateDetailScreen} />
@@ -74,7 +83,12 @@ function HomeStackScreen() {
 
 function CalendarStackScreen() {
   return (
-    <CalendarStack.Navigator screenOptions={{ headerShown: false }}>
+    <CalendarStack.Navigator
+      screenOptions={{
+        headerShown: false,
+        animationDuration: STACK_TRANSITION_MS,
+      }}
+    >
       <CalendarStack.Screen name="Calendar" component={CalendarScreen} />
     </CalendarStack.Navigator>
   )
@@ -82,7 +96,12 @@ function CalendarStackScreen() {
 
 function ProgressStackScreen() {
   return (
-    <ProgressStack.Navigator screenOptions={{ headerShown: false }}>
+    <ProgressStack.Navigator
+      screenOptions={{
+        headerShown: false,
+        animationDuration: STACK_TRANSITION_MS,
+      }}
+    >
       <ProgressStack.Screen name="Progress" component={ProgressScreen} />
     </ProgressStack.Navigator>
   )
@@ -90,7 +109,12 @@ function ProgressStackScreen() {
 
 function LibraryStackScreen() {
   return (
-    <LibraryStack.Navigator screenOptions={{ headerShown: false }}>
+    <LibraryStack.Navigator
+      screenOptions={{
+        headerShown: false,
+        animationDuration: STACK_TRANSITION_MS,
+      }}
+    >
       <LibraryStack.Screen name="Library" component={LibraryScreen} />
     </LibraryStack.Navigator>
   )
@@ -102,6 +126,7 @@ function ProfileStackScreen() {
     <ProfileStack.Navigator
       screenOptions={{
         headerShown: false,
+        animationDuration: STACK_TRANSITION_MS,
         contentStyle: { backgroundColor: theme.colors.bg },
       }}
     >
@@ -185,7 +210,7 @@ function WorkoutMiniBar() {
           <View style={styles.miniBarTopRow}>
             <TouchableOpacity
               style={[styles.miniBarMain, isResting && styles.miniBarHeader]}
-              activeOpacity={0.75}
+              activeOpacity={0.82}
               onPress={openWorkoutSheet}
             >
               <View style={styles.miniBarTitleRow}>
@@ -214,7 +239,7 @@ function WorkoutMiniBar() {
               <TouchableOpacity
                 style={styles.miniEndButton}
                 onPress={requestEndWorkout}
-                activeOpacity={0.75}
+                activeOpacity={0.82}
               >
                 <Text style={styles.miniEndButtonText}>
                   End
@@ -227,7 +252,7 @@ function WorkoutMiniBar() {
             <>
               <TouchableOpacity
                 style={styles.miniTimerGrid}
-                activeOpacity={0.75}
+                activeOpacity={0.82}
                 onPress={openWorkoutSheet}
               >
                 <View style={styles.miniTimerChip}>
@@ -252,7 +277,7 @@ function WorkoutMiniBar() {
                 <TouchableOpacity
                   style={[styles.miniActionButton, styles.miniEndRestButton]}
                   onPress={requestEndWorkout}
-                  activeOpacity={0.75}
+                  activeOpacity={0.82}
                 >
                   <Text style={styles.miniEndButtonText}>
                     End Workout
@@ -261,7 +286,7 @@ function WorkoutMiniBar() {
                 <TouchableOpacity
                   style={[styles.miniActionButton, styles.miniSkipButton]}
                   onPress={skipRest}
-                  activeOpacity={0.75}
+                  activeOpacity={0.82}
                 >
                   <Text style={styles.miniSkipButtonText}>
                     Skip Rest
@@ -297,7 +322,9 @@ function TabBarItem({
   const iconScale = useSharedValue(focused ? 1.08 : 1)
 
   useEffect(() => {
-    iconScale.value = withTiming(focused ? 1.08 : 1, { duration: 110 })
+    iconScale.value = withTiming(focused ? 1.08 : 1, {
+      duration: TAB_ICON_ANIMATION_MS,
+    })
   }, [focused, iconScale])
 
   const iconAnimatedStyle = useAnimatedStyle(() => ({
@@ -311,7 +338,7 @@ function TabBarItem({
       accessibilityLabel={accessibilityLabel}
       testID={testID}
       style={styles.tabItem}
-      activeOpacity={0.78}
+      activeOpacity={0.82}
       onPress={onPress}
       onLongPress={onLongPress}
     >
@@ -348,7 +375,7 @@ function CustomTabBar(props: BottomTabBarProps) {
   const activeIndex = useSharedValue(state.index)
 
   useEffect(() => {
-    activeIndex.value = withTiming(state.index, { duration: 180 })
+    activeIndex.value = withTiming(state.index, { duration: TAB_TRANSITION_MS })
   }, [activeIndex, state.index])
 
   function handleTabBarLayout(event: LayoutChangeEvent) {
@@ -393,7 +420,7 @@ function CustomTabBar(props: BottomTabBarProps) {
             : route.name.replace('Tab', '')
 
           function handlePress() {
-            activeIndex.value = withTiming(index, { duration: 180 })
+            activeIndex.value = withTiming(index, { duration: TAB_TRANSITION_MS })
             const event = navigation.emit({
               type: 'tabPress',
               target: route.key,
@@ -401,7 +428,9 @@ function CustomTabBar(props: BottomTabBarProps) {
             })
 
             if (event.defaultPrevented) {
-              activeIndex.value = withTiming(state.index, { duration: 120 })
+              activeIndex.value = withTiming(state.index, {
+                duration: TAB_RESET_ANIMATION_MS,
+              })
               return
             }
 
@@ -447,7 +476,7 @@ export default function TabNavigator() {
           transitionSpec: {
             animation: 'timing',
             config: {
-              duration: 180,
+              duration: TAB_TRANSITION_MS,
             },
           },
         }}

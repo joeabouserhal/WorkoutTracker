@@ -1,9 +1,14 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  Animated,
+  Easing,
+  LayoutAnimation,
   Modal,
+  Platform,
   Text,
   TextInput,
   TouchableOpacity,
+  UIManager,
   View,
   type NativeScrollEvent,
   type NativeSyntheticEvent,
@@ -12,6 +17,12 @@ import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import { createStyleSheet, useStyles } from 'react-native-unistyles';
+import {
+  MuscleTargetBodyPair,
+  buildTargetIntensityMap,
+  buildWorkoutTargetStats,
+  type TargetStat,
+} from '@/components/MuscleTargetBodyMap';
 import ScreenHeader, { useHeaderFade } from '@/components/ui/ScreenHeader';
 import ThemedDialog from '@/components/ui/ThemedDialog';
 import {
@@ -25,6 +36,28 @@ import {
 
 const LB_PER_KG = 2.20462;
 const PR_GOLD = '#D9A441';
+const TARGET_MAP_ANIMATION_MS = 220;
+
+if (Platform.OS === 'android') {
+  UIManager.setLayoutAnimationEnabledExperimental?.(true);
+}
+
+function animateTargetMapLayout() {
+  LayoutAnimation.configureNext({
+    duration: TARGET_MAP_ANIMATION_MS,
+    create: {
+      type: LayoutAnimation.Types.easeInEaseOut,
+      property: LayoutAnimation.Properties.opacity,
+    },
+    update: {
+      type: LayoutAnimation.Types.easeInEaseOut,
+    },
+    delete: {
+      type: LayoutAnimation.Types.easeInEaseOut,
+      property: LayoutAnimation.Properties.opacity,
+    },
+  });
+}
 
 function formatDuration(startedAt: number, endedAt: number) {
   const minutes = Math.max(1, Math.round((endedAt - startedAt) / 60000));
@@ -387,6 +420,14 @@ export function WorkoutDetailModal({
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
+  const targetStats = useMemo(
+    () => (workout ? buildWorkoutTargetStats(workout) : []),
+    [workout],
+  );
+  const targetIntensityByName = useMemo(
+    () => buildTargetIntensityMap(targetStats),
+    [targetStats],
+  );
 
   useEffect(() => {
     setName(workout?.name || '');
@@ -676,6 +717,12 @@ export function WorkoutDetailModal({
               </View>
             </View>
 
+            <TargetedMusclesCard
+              workoutId={detailWorkoutId}
+              targetStats={targetStats}
+              targetIntensityByName={targetIntensityByName}
+            />
+
             {workout.exercises.map(exercise => {
               const hasUnitMismatch = exercise.sets.some(
                 set => set.weightUnit !== exercise.defaultWeightUnit,
@@ -912,6 +959,202 @@ function InlineWeightPrPill({ current }: { current: boolean }) {
   );
 }
 
+function TargetedMusclesCard({
+  workoutId,
+  targetStats,
+  targetIntensityByName,
+}: {
+  workoutId: string;
+  targetStats: TargetStat[];
+  targetIntensityByName: Record<string, number>;
+}) {
+  const { styles, theme } = useStyles(stylesheet);
+  const [expanded, setExpanded] = useState(false);
+  const [renderExpandedCard, setRenderExpandedCard] = useState(false);
+  const expandProgress = useRef(new Animated.Value(0)).current;
+  const collapseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const collapsedSummary = useMemo(() => {
+    if (targetStats.length === 0) return 'No targets saved';
+    return targetStats.map(target => target.name).join(', ');
+  }, [targetStats]);
+
+  useEffect(() => {
+    Animated.timing(expandProgress, {
+      toValue: expanded ? 1 : 0,
+      duration: TARGET_MAP_ANIMATION_MS,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: false,
+    }).start();
+  }, [expanded, expandProgress]);
+
+  useEffect(() => {
+    if (collapseTimerRef.current) {
+      clearTimeout(collapseTimerRef.current);
+      collapseTimerRef.current = null;
+    }
+    expandProgress.setValue(0);
+    setExpanded(false);
+    setRenderExpandedCard(false);
+  }, [expandProgress, workoutId]);
+
+  useEffect(
+    () => () => {
+      if (collapseTimerRef.current) {
+        clearTimeout(collapseTimerRef.current);
+      }
+    },
+    [],
+  );
+
+  function expandCard() {
+    if (collapseTimerRef.current) {
+      clearTimeout(collapseTimerRef.current);
+      collapseTimerRef.current = null;
+    }
+    animateTargetMapLayout();
+    setRenderExpandedCard(true);
+    setExpanded(true);
+  }
+
+  function collapseCard() {
+    animateTargetMapLayout();
+    setExpanded(false);
+    collapseTimerRef.current = setTimeout(() => {
+      animateTargetMapLayout();
+      setRenderExpandedCard(false);
+      collapseTimerRef.current = null;
+    }, TARGET_MAP_ANIMATION_MS);
+  }
+
+  if (!renderExpandedCard) {
+    return (
+      <TouchableOpacity
+        style={styles.targetMapMiniCard}
+        onPress={expandCard}
+        activeOpacity={0.78}
+      >
+        <View style={styles.targetMapMiniIcon}>
+          <MaterialCommunityIcons
+            name="target"
+            size={14}
+            color={
+              targetStats.length > 0
+                ? theme.colors.accent
+                : theme.colors.textMuted
+            }
+          />
+        </View>
+        <View style={styles.targetMapMiniTextRail}>
+          <Text style={styles.targetMapMiniTitle} numberOfLines={1}>
+            Targeted Muscles
+          </Text>
+          <View style={styles.targetMapMiniDivider} />
+          <Text style={styles.targetMapMiniList} numberOfLines={1}>
+            {collapsedSummary}
+          </Text>
+        </View>
+        <View style={styles.targetMapChevronButton}>
+          <MaterialCommunityIcons
+            name="chevron-down"
+            size={17}
+            color={theme.colors.textMuted}
+          />
+        </View>
+      </TouchableOpacity>
+    );
+  }
+
+  return (
+    <View style={styles.targetMapCard}>
+      <TouchableOpacity
+        style={styles.targetMapHeader}
+        onPress={expanded ? collapseCard : expandCard}
+        activeOpacity={0.78}
+      >
+        <View style={styles.targetMapHeaderIcon}>
+          <MaterialCommunityIcons
+            name="target"
+            size={15}
+            color={
+              targetStats.length > 0
+                ? theme.colors.accent
+                : theme.colors.textMuted
+            }
+          />
+        </View>
+        <View style={styles.targetMapTitleBlock}>
+          <Text style={styles.targetMapTitle}>Targeted Muscles</Text>
+          <Text style={styles.targetMapSummary} numberOfLines={1}>
+            {collapsedSummary}
+          </Text>
+        </View>
+        <Text style={styles.targetMapHint}>
+          {targetStats.length === 0
+            ? 'No targets'
+            : `${targetStats.length} areas`}
+        </Text>
+        <View style={styles.targetMapChevronButton}>
+          <MaterialCommunityIcons
+            name={expanded ? 'chevron-up' : 'chevron-down'}
+            size={17}
+            color={theme.colors.textMuted}
+          />
+        </View>
+      </TouchableOpacity>
+
+      <Animated.View
+        pointerEvents={expanded ? 'auto' : 'none'}
+        style={[
+          styles.targetMapExpandable,
+          {
+            maxHeight: expandProgress.interpolate({
+              inputRange: [0, 1],
+              outputRange: [0, 560],
+            }),
+            opacity: expandProgress,
+            transform: [
+              {
+                translateY: expandProgress.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: [-6, 0],
+                }),
+              },
+            ],
+          },
+        ]}
+      >
+        <View style={styles.targetMapExpandedContent}>
+          <View style={styles.targetMapVisualPanel}>
+            <MuscleTargetBodyPair
+              targetIntensityByName={targetIntensityByName}
+              bottomSafe
+              highlightColor={PR_GOLD}
+            />
+          </View>
+          {targetStats.length === 0 ? (
+            <Text style={styles.targetMapEmptyText}>
+              No targeted muscles saved for this workout.
+            </Text>
+          ) : (
+            <View style={styles.targetMapChipGrid}>
+              {targetStats.map(target => (
+                <View key={target.name} style={styles.targetMapChip}>
+                  <Text style={styles.targetMapChipName} numberOfLines={1}>
+                    {target.name}
+                  </Text>
+                  <Text style={styles.targetMapChipMeta}>
+                    {target.setCount}
+                  </Text>
+                </View>
+              ))}
+            </View>
+          )}
+        </View>
+      </Animated.View>
+    </View>
+  );
+}
+
 const stylesheet = createStyleSheet(theme => ({
   workoutCard: {
     backgroundColor: theme.colors.surface,
@@ -1107,10 +1350,10 @@ const stylesheet = createStyleSheet(theme => ({
     flexDirection: 'row',
     alignItems: 'center',
     gap: theme.spacing.xs,
-    backgroundColor: theme.colors.danger + '18',
+    backgroundColor: theme.colors.dangerMuted,
     borderRadius: theme.radius.full,
     borderWidth: 1,
-    borderColor: theme.colors.danger + '40',
+    borderColor: theme.colors.dangerMuted,
     paddingVertical: theme.spacing.xs,
     paddingHorizontal: theme.spacing.md,
   },
@@ -1157,10 +1400,10 @@ const stylesheet = createStyleSheet(theme => ({
     flexDirection: 'row',
     alignItems: 'center',
     gap: theme.spacing.xs,
-    backgroundColor: theme.colors.danger + '18',
+    backgroundColor: theme.colors.dangerMuted,
     borderRadius: theme.radius.md,
     borderWidth: 1,
-    borderColor: theme.colors.danger + '60',
+    borderColor: theme.colors.dangerMuted,
     paddingHorizontal: theme.spacing.sm,
     paddingVertical: theme.spacing.sm,
   },
@@ -1207,6 +1450,165 @@ const stylesheet = createStyleSheet(theme => ({
     fontSize: theme.fontSize.xs,
     fontFamily: theme.fontFamily.semiBold,
     marginTop: 2,
+  },
+  targetMapCard: {
+    backgroundColor: theme.colors.surface,
+    borderRadius: theme.radius.md,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    paddingHorizontal: theme.spacing.sm,
+    paddingTop: theme.spacing.sm,
+    paddingBottom: theme.spacing.sm,
+    gap: theme.spacing.xs,
+    overflow: 'hidden',
+  },
+  targetMapMiniCard: {
+    height: 38,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: theme.colors.surface,
+    borderRadius: theme.radius.md,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    paddingHorizontal: 8,
+    gap: 7,
+  },
+  targetMapMiniIcon: {
+    width: 22,
+    height: 22,
+    borderRadius: theme.radius.full,
+    backgroundColor: theme.colors.surface2,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  targetMapMiniTextRail: {
+    flex: 1,
+    minWidth: 0,
+    height: 18,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    transform: [{ translateY: 1 }],
+  },
+  targetMapMiniTitle: {
+    color: theme.colors.text,
+    fontSize: theme.fontSize.xs,
+    lineHeight: 18,
+    fontFamily: theme.fontFamily.extraBold,
+    includeFontPadding: false,
+    textAlignVertical: 'center',
+  },
+  targetMapMiniDivider: {
+    width: 1,
+    height: 12,
+    backgroundColor: theme.colors.border,
+  },
+  targetMapMiniList: {
+    flex: 1,
+    minWidth: 0,
+    color: theme.colors.textMuted,
+    fontSize: 10,
+    lineHeight: 18,
+    fontFamily: theme.fontFamily.semiBold,
+    fontStyle: 'italic',
+    includeFontPadding: false,
+    textAlignVertical: 'center',
+  },
+  targetMapChevronButton: {
+    width: 24,
+    height: 24,
+    borderRadius: theme.radius.full,
+    backgroundColor: theme.colors.surface2,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  targetMapHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: theme.spacing.sm,
+    minHeight: 28,
+  },
+  targetMapHeaderIcon: {
+    width: 24,
+    height: 24,
+    borderRadius: theme.radius.full,
+    backgroundColor: theme.colors.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  targetMapTitleBlock: {
+    flex: 1,
+    minWidth: 0,
+    justifyContent: 'center',
+  },
+  targetMapTitle: {
+    color: theme.colors.text,
+    fontSize: theme.fontSize.sm,
+    fontFamily: theme.fontFamily.extraBold,
+  },
+  targetMapSummary: {
+    color: theme.colors.textMuted,
+    fontSize: theme.fontSize.xs,
+    fontFamily: theme.fontFamily.semiBold,
+    marginTop: 1,
+  },
+  targetMapHint: {
+    color: theme.colors.textMuted,
+    fontSize: theme.fontSize.xs,
+    fontFamily: theme.fontFamily.bold,
+    textTransform: 'uppercase',
+  },
+  targetMapExpandable: {
+    overflow: 'hidden',
+  },
+  targetMapExpandedContent: {
+    gap: theme.spacing.xs,
+    paddingTop: theme.spacing.xs,
+  },
+  targetMapVisualPanel: {
+    backgroundColor: theme.colors.surface2,
+    borderRadius: theme.radius.md,
+    paddingTop: 2,
+    paddingHorizontal: 2,
+    paddingBottom: theme.spacing.xs,
+    overflow: 'hidden',
+  },
+  targetMapChipGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+  },
+  targetMapChip: {
+    minHeight: 24,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    borderRadius: theme.radius.full,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.surface2,
+    paddingHorizontal: 9,
+    paddingVertical: 3,
+  },
+  targetMapChipName: {
+    color: theme.colors.text,
+    fontSize: theme.fontSize.xs,
+    fontFamily: theme.fontFamily.bold,
+  },
+  targetMapChipMeta: {
+    color: theme.colors.textMuted,
+    fontSize: theme.fontSize.xxs,
+    fontFamily: theme.fontFamily.extraBold,
+  },
+  targetMapEmptyText: {
+    color: theme.colors.textMuted,
+    fontSize: theme.fontSize.xs,
+    fontFamily: theme.fontFamily.semiBold,
+    textAlign: 'center',
+    paddingBottom: theme.spacing.xs,
   },
   exerciseCard: {
     backgroundColor: theme.colors.surface,

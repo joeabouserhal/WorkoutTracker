@@ -390,7 +390,7 @@ export default function CalendarScreen() {
                 view === item && styles.activeViewToggleButton,
               ]}
               onPress={() => setView(item)}
-              activeOpacity={0.75}
+              activeOpacity={0.82}
             >
               <Text
                 style={[
@@ -409,6 +409,7 @@ export default function CalendarScreen() {
             <TouchableOpacity
               style={styles.navButton}
               onPress={() => jumpDate(-1)}
+              activeOpacity={0.82}
             >
               <MaterialCommunityIcons
                 name="chevron-double-left"
@@ -419,6 +420,7 @@ export default function CalendarScreen() {
             <TouchableOpacity
               style={styles.navButton}
               onPress={() => moveDate(-1)}
+              activeOpacity={0.82}
             >
               <MaterialCommunityIcons
                 name="chevron-left"
@@ -429,6 +431,7 @@ export default function CalendarScreen() {
             <TouchableOpacity
               style={styles.todayButton}
               onPress={() => setSelectedDate(new Date())}
+              activeOpacity={0.82}
             >
               <Text style={styles.todayButtonText}>Today</Text>
               <Text style={styles.periodLabel} numberOfLines={1}>
@@ -438,6 +441,7 @@ export default function CalendarScreen() {
             <TouchableOpacity
               style={styles.navButton}
               onPress={() => moveDate(1)}
+              activeOpacity={0.82}
             >
               <MaterialCommunityIcons
                 name="chevron-right"
@@ -448,6 +452,7 @@ export default function CalendarScreen() {
             <TouchableOpacity
               style={styles.navButton}
               onPress={() => jumpDate(1)}
+              activeOpacity={0.82}
             >
               <MaterialCommunityIcons
                 name="chevron-double-right"
@@ -472,7 +477,7 @@ export default function CalendarScreen() {
                     dailyMode === mode && styles.activeDailyModeButton,
                   ]}
                   onPress={() => setDailyMode(mode)}
-                  activeOpacity={0.75}
+                  activeOpacity={0.82}
                 >
                   <Text
                     style={[
@@ -600,7 +605,7 @@ export default function CalendarScreen() {
             onPress={() =>
               setVisibleWorkoutCount(count => count + WORKOUT_PAGE_SIZE)
             }
-            activeOpacity={0.75}
+            activeOpacity={0.82}
           >
             <Text style={styles.showMoreButtonText}>Show 10 More</Text>
             <MaterialCommunityIcons
@@ -684,7 +689,7 @@ function CalendarStrip({
               key={day.toISOString()}
               style={styles.dayCell}
               onPress={() => onSelectDate(day)}
-              activeOpacity={0.75}
+              activeOpacity={0.82}
             >
               <View
                 style={[

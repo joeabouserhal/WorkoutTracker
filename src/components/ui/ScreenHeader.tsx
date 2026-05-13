@@ -57,7 +57,7 @@ export function ScreenHeaderButton({
     <TouchableOpacity
       style={styles.headerButton}
       onPress={onPress}
-      activeOpacity={0.75}
+      activeOpacity={0.82}
     >
       {iconName ? (
         <MaterialCommunityIcons name={iconName} size={17} color={theme.colors.text} />
@@ -115,7 +115,7 @@ export default function ScreenHeader({
             <TouchableOpacity
               style={styles.headerButton}
               onPress={onBack}
-              activeOpacity={0.75}
+              activeOpacity={0.82}
             >
               <MaterialCommunityIcons name="chevron-left" size={17} color={theme.colors.text} />
               <Text style={styles.headerButtonText}>{backLabel}</Text>
@@ -164,17 +164,18 @@ const stylesheet = createStyleSheet((theme) => ({
     flex: 1,
   },
   headerButton: {
+    minHeight: 34,
     alignSelf: 'flex-start',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 2,
+    gap: 3,
     backgroundColor: theme.colors.surface,
     borderRadius: theme.radius.full,
     borderWidth: 1,
     borderColor: theme.colors.border,
     paddingVertical: theme.spacing.xs,
-    paddingHorizontal: theme.spacing.md,
+    paddingHorizontal: 10,
   },
   headerButtonText: {
     color: theme.colors.text,

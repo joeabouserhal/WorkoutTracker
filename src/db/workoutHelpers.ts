@@ -1873,7 +1873,7 @@ export async function updateCustomExerciseTypeSubMuscles(
 
   const sanitizedIds = sanitizeSubMuscleIds(row.sectionName, subMuscleIds)
   if (sanitizedIds.length === 0) {
-    throw new Error('Choose at least one sub-muscle')
+    throw new Error('Choose at least one targeted muscle')
   }
 
   await db

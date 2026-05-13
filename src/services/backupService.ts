@@ -26,7 +26,7 @@ import {
 import { seedDatabaseIfEmpty } from '@/db/seedData'
 import { REST_TIMER_DEFAULT_SECONDS_KEY } from './restTimerSettings'
 
-const APP_BACKUP_VERSION = 2
+const APP_BACKUP_VERSION = 3
 const DRIVE_UPLOAD_URL = 'https://www.googleapis.com/upload/drive/v3/files'
 const DRIVE_FILES_URL = 'https://www.googleapis.com/drive/v3/files'
 const THEME_STORAGE_KEY = 'app_theme'
@@ -197,7 +197,8 @@ async function ensureBackupTables() {
     is_custom INTEGER NOT NULL DEFAULT 0,
     is_hidden INTEGER NOT NULL DEFAULT 0,
     method_locked INTEGER NOT NULL DEFAULT 0,
-    locked_method_id TEXT
+    locked_method_id TEXT,
+    sub_muscle_ids TEXT NOT NULL DEFAULT '[]'
   )`)
   await db.$client.execute(`CREATE TABLE IF NOT EXISTS exercise_type_method_exclusions (
     exercise_type_id TEXT NOT NULL,
@@ -275,6 +276,9 @@ async function ensureBackupTables() {
   const exerciseTypeColumns = await getTableColumns('exercise_types')
   if (!exerciseTypeColumns.includes('is_hidden')) {
     await db.$client.execute('ALTER TABLE exercise_types ADD COLUMN is_hidden INTEGER NOT NULL DEFAULT 0')
+  }
+  if (!exerciseTypeColumns.includes('sub_muscle_ids')) {
+    await db.$client.execute("ALTER TABLE exercise_types ADD COLUMN sub_muscle_ids TEXT NOT NULL DEFAULT '[]'")
   }
 }
 

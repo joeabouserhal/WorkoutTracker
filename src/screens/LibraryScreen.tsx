@@ -89,6 +89,7 @@ export default function LibraryScreen() {
   const [createError, setCreateError] = useState('')
   const [singleMethodOnly, setSingleMethodOnly] = useState(false)
   const [selectedMethodId, setSelectedMethodId] = useState<string | null>(null)
+  const [createTargetMuscleIds, setCreateTargetMuscleIds] = useState<string[]>([])
   const [showRestoreDefaults, setShowRestoreDefaults] = useState(false)
   const [convertedPrUnits, setConvertedPrUnits] = useState<Record<string, boolean>>({})
   const [subMuscleEditor, setSubMuscleEditor] = useState<{
@@ -223,6 +224,7 @@ export default function LibraryScreen() {
           setCreateName('')
           setCreateError('')
           setSingleMethodOnly(false)
+          setCreateTargetMuscleIds([])
           return true
         }
         if (subMuscleEditor) {
@@ -274,6 +276,7 @@ export default function LibraryScreen() {
     setCreateName('')
     setCreateError('')
     setSingleMethodOnly(false)
+    setCreateTargetMuscleIds([])
     if (mode === 'exercise') {
       loadMethods().catch(console.error)
     }
@@ -284,6 +287,16 @@ export default function LibraryScreen() {
     setCreateName('')
     setCreateError('')
     setSingleMethodOnly(false)
+    setCreateTargetMuscleIds([])
+  }
+
+  function toggleCreateTargetMuscle(id: string) {
+    setCreateTargetMuscleIds((current) =>
+      current.includes(id)
+        ? current.filter((item) => item !== id)
+        : [...current, id],
+    )
+    setCreateError('')
   }
 
   const refreshCurrentStep = useCallback(async () => {
@@ -431,6 +444,13 @@ export default function LibraryScreen() {
       setCreateError('Choose the only method for this exercise.')
       return
     }
+    const createTargetOptions = createMode === 'exercise'
+      ? getSubsectionsForSection(selectedSection?.name ?? '')
+      : []
+    if (createMode === 'exercise' && createTargetOptions.length > 0 && createTargetMuscleIds.length === 0) {
+      setCreateError('Choose at least one targeted muscle.')
+      return
+    }
 
     setLoading(true)
     try {
@@ -448,6 +468,7 @@ export default function LibraryScreen() {
           name: trimmed,
           methodLocked: singleMethodOnly,
           lockedMethodId: singleMethodOnly ? selectedMethodId : null,
+          subMuscleIds: createTargetMuscleIds,
         })
       }
       closeCreateModal()
@@ -546,7 +567,7 @@ export default function LibraryScreen() {
     if (!subMuscleEditor) return
     if (subMuscleEditor.selectedIds.length === 0) {
       setSubMuscleEditor((current) =>
-        current ? { ...current, error: 'Choose at least one sub-muscle.' } : current,
+        current ? { ...current, error: 'Choose at least one targeted muscle.' } : current,
       )
       return
     }
@@ -567,9 +588,9 @@ export default function LibraryScreen() {
       )
       setSubMuscleEditor(null)
     } catch (e) {
-      console.error('Could not update exercise sub-muscles', e)
+      console.error('Could not update exercise targeted muscles', e)
       setSubMuscleEditor((current) =>
-        current ? { ...current, error: 'Could not save these sub-muscles.' } : current,
+        current ? { ...current, error: 'Could not save these targeted muscles.' } : current,
       )
     } finally {
       setLoading(false)
@@ -792,6 +813,19 @@ export default function LibraryScreen() {
                 </ScrollView>
               </View>
             ) : null}
+            {step === 'methods'
+              && selectedExerciseType?.isCustom
+              && getSubsectionsForSection(selectedSection?.name ?? '').length > 0 ? (
+              <View style={styles.exerciseTargetEditRow}>
+                <TouchableOpacity
+                  style={styles.restoreButton}
+                  onPress={() => openSubMuscleEditor(selectedExerciseType)}
+                >
+                  <MaterialCommunityIcons name="pencil-outline" size={14} color={theme.colors.accent} />
+                  <Text style={styles.restoreButtonText}>Edit Targeted Muscles</Text>
+                </TouchableOpacity>
+              </View>
+            ) : null}
             {step === 'methods' && selectedSubMuscleLabels.length > 0 ? (
               <View style={styles.exerciseTargetCard}>
                 <View style={styles.exerciseTargetHeader}>
@@ -799,7 +833,7 @@ export default function LibraryScreen() {
                     <MaterialCommunityIcons name="target-variant" size={14} color={theme.colors.textMuted} />
                   </View>
                   <View style={styles.exerciseTargetTitleBlock}>
-                    <Text style={styles.exerciseTargetTitle}>Muscles Hit</Text>
+                    <Text style={styles.exerciseTargetTitle}>Targeted Muscles</Text>
                     <Text style={styles.exerciseTargetSubtitle} numberOfLines={1}>
                       {selectedSubMuscleLabels.join(', ')}
                     </Text>
@@ -818,19 +852,6 @@ export default function LibraryScreen() {
         onScroll={handleHeaderScroll}
         scrollEventThrottle={16}
       >
-        {step === 'methods'
-          && selectedExerciseType?.isCustom
-          && getSubsectionsForSection(selectedSection?.name ?? '').length > 0 ? (
-          <View style={styles.restoreRow}>
-            <TouchableOpacity
-              style={styles.restoreButton}
-              onPress={() => openSubMuscleEditor(selectedExerciseType)}
-            >
-              <MaterialCommunityIcons name="pencil-outline" size={14} color={theme.colors.accent} />
-              <Text style={styles.restoreButtonText}>Edit Sub-Muscles</Text>
-            </TouchableOpacity>
-          </View>
-        ) : null}
         {step === 'methods' && showRestoreDefaults ? (
           <View style={styles.restoreRow}>
             <TouchableOpacity style={styles.restoreButton} onPress={restoreDefaultMethods}>
@@ -852,10 +873,13 @@ export default function LibraryScreen() {
         onChangeName={setCreateName}
         error={createError}
         methods={methodList}
+        targetOptions={getSubsectionsForSection(selectedSection?.name ?? '')}
+        selectedTargetIds={createTargetMuscleIds}
         singleMethodOnly={singleMethodOnly}
         selectedMethodId={selectedMethodId}
         onToggleSingleMethod={setSingleMethodOnly}
         onSelectMethod={setSelectedMethodId}
+        onToggleTarget={toggleCreateTargetMuscle}
         onClose={closeCreateModal}
         onSubmit={submitCreate}
       />
@@ -901,10 +925,13 @@ function CreateLibraryModal({
   onChangeName,
   error,
   methods,
+  targetOptions,
+  selectedTargetIds,
   singleMethodOnly,
   selectedMethodId,
   onToggleSingleMethod,
   onSelectMethod,
+  onToggleTarget,
   onClose,
   onSubmit,
 }: {
@@ -915,10 +942,13 @@ function CreateLibraryModal({
   onChangeName: (value: string) => void
   error: string
   methods: MethodRow[]
+  targetOptions: MuscleSubsection[]
+  selectedTargetIds: string[]
   singleMethodOnly: boolean
   selectedMethodId: string | null
   onToggleSingleMethod: (value: boolean) => void
   onSelectMethod: (id: string) => void
+  onToggleTarget: (id: string) => void
   onClose: () => void
   onSubmit: () => void
 }) {
@@ -967,6 +997,43 @@ function CreateLibraryModal({
                   true: theme.colors.accentMuted,
                 }}
               />
+            </View>
+          ) : null}
+
+          {mode === 'exercise' && targetOptions.length > 0 ? (
+            <View style={styles.methodPickerBox}>
+              <Text style={styles.methodPickerTitle}>Targeted Muscles</Text>
+              <ScrollView
+                style={styles.methodChoiceScroll}
+                nestedScrollEnabled
+                keyboardShouldPersistTaps="handled"
+              >
+                {targetOptions.map((option) => {
+                  const selected = selectedTargetIds.includes(option.id)
+                  return (
+                    <TouchableOpacity
+                      key={option.id}
+                      style={[
+                        styles.methodChoice,
+                        selected && styles.methodChoiceActive,
+                      ]}
+                      onPress={() => onToggleTarget(option.id)}
+                    >
+                      <Text
+                        style={[
+                          styles.methodChoiceText,
+                          selected && styles.methodChoiceTextActive,
+                        ]}
+                      >
+                        {option.label}
+                      </Text>
+                      {selected ? (
+                        <MaterialCommunityIcons name="check" size={18} color={theme.colors.accent} />
+                      ) : null}
+                    </TouchableOpacity>
+                  )
+                })}
+              </ScrollView>
             </View>
           ) : null}
 
@@ -1054,7 +1121,7 @@ function SubMuscleEditorModal({
         <View style={styles.modalPanel}>
           <View style={styles.modalHeader}>
             <View style={styles.modalTitleBlock}>
-              <Text style={styles.modalTitle}>Edit Sub-Muscles</Text>
+              <Text style={styles.modalTitle}>Edit Targeted Muscles</Text>
               <Text style={styles.modalSubtitle} numberOfLines={1}>
                 {exerciseName} - {sectionName}
               </Text>
@@ -1065,9 +1132,9 @@ function SubMuscleEditorModal({
           </View>
 
           <View style={styles.methodPickerBox}>
-            <Text style={styles.methodPickerTitle}>Preset Sub-Muscles</Text>
+            <Text style={styles.methodPickerTitle}>Preset Targeted Muscles</Text>
             {options.length === 0 ? (
-              <Text style={styles.emptyText}>No preset sub-muscles for this section.</Text>
+              <Text style={styles.emptyText}>No preset targeted muscles for this section.</Text>
             ) : (
               <ScrollView
                 style={styles.methodChoiceScroll}
@@ -1186,6 +1253,12 @@ const stylesheet = createStyleSheet((theme) => ({
     borderColor: theme.colors.border,
     paddingHorizontal: theme.spacing.sm,
     paddingVertical: 7,
+    marginTop: theme.spacing.xs,
+  },
+  exerciseTargetEditRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
     marginTop: theme.spacing.xs,
   },
   exerciseTargetHeader: {

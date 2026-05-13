@@ -186,7 +186,7 @@ export default function DebugScreen({ navigation }: Props) {
           <View style={styles.utilityIconBadge}>
             <MaterialCommunityIcons
               name="database-refresh-outline"
-              size={20}
+              size={17}
               color={theme.colors.accent}
             />
           </View>
@@ -211,7 +211,7 @@ export default function DebugScreen({ navigation }: Props) {
           <View style={styles.dangerIconBadge}>
             <MaterialCommunityIcons
               name="delete-alert-outline"
-              size={20}
+              size={17}
               color={theme.colors.danger}
             />
           </View>
@@ -234,7 +234,7 @@ export default function DebugScreen({ navigation }: Props) {
           <View style={styles.dangerIconBadge}>
             <MaterialCommunityIcons
               name="trash-can-outline"
-              size={20}
+              size={17}
               color={theme.colors.danger}
             />
           </View>
@@ -314,8 +314,8 @@ const stylesheet = createStyleSheet((theme) => ({
     fontFamily: theme.fontFamily.semiBold,
     textTransform: 'uppercase',
     letterSpacing: 1,
-    marginBottom: theme.spacing.sm,
-    marginTop: theme.spacing.lg,
+    marginBottom: theme.spacing.xs,
+    marginTop: theme.spacing.md,
   },
   dangerButton: {
     flexDirection: 'row',
@@ -324,10 +324,10 @@ const stylesheet = createStyleSheet((theme) => ({
     borderRadius: theme.radius.md,
     borderWidth: 1,
     borderColor: theme.colors.danger + '55',
-    paddingHorizontal: theme.spacing.md,
-    paddingVertical: theme.spacing.md,
-    marginBottom: theme.spacing.sm,
-    gap: theme.spacing.sm,
+    paddingHorizontal: theme.spacing.sm,
+    paddingVertical: theme.spacing.xs,
+    marginBottom: theme.spacing.xs,
+    gap: theme.spacing.xs,
   },
   disabledButton: {
     opacity: 0.55,
@@ -339,14 +339,14 @@ const stylesheet = createStyleSheet((theme) => ({
     borderRadius: theme.radius.md,
     borderWidth: 1,
     borderColor: theme.colors.border,
-    paddingHorizontal: theme.spacing.md,
-    paddingVertical: theme.spacing.md,
-    marginBottom: theme.spacing.sm,
-    gap: theme.spacing.sm,
+    paddingHorizontal: theme.spacing.sm,
+    paddingVertical: theme.spacing.xs,
+    marginBottom: theme.spacing.xs,
+    gap: theme.spacing.xs,
   },
   utilityIconBadge: {
-    width: 38,
-    height: 38,
+    width: 30,
+    height: 30,
     borderRadius: theme.radius.full,
     alignItems: 'center',
     justifyContent: 'center',
@@ -356,13 +356,13 @@ const stylesheet = createStyleSheet((theme) => ({
   },
   utilityButtonTitle: {
     color: theme.colors.text,
-    fontSize: theme.fontSize.md,
+    fontSize: theme.fontSize.sm,
     fontFamily: theme.fontFamily.extraBold,
-    marginBottom: 2,
+    marginBottom: 1,
   },
   dangerIconBadge: {
-    width: 38,
-    height: 38,
+    width: 30,
+    height: 30,
     borderRadius: theme.radius.full,
     alignItems: 'center',
     justifyContent: 'center',
@@ -376,13 +376,13 @@ const stylesheet = createStyleSheet((theme) => ({
   },
   dangerButtonTitle: {
     color: theme.colors.text,
-    fontSize: theme.fontSize.md,
+    fontSize: theme.fontSize.sm,
     fontFamily: theme.fontFamily.extraBold,
-    marginBottom: 2,
+    marginBottom: 1,
   },
   buttonDescription: {
     color: theme.colors.textMuted,
-    fontSize: theme.fontSize.sm,
-    lineHeight: 19,
+    fontSize: theme.fontSize.xs,
+    lineHeight: 16,
   },
 }))

@@ -104,8 +104,16 @@ async function ensureProgressTables() {
     id TEXT PRIMARY KEY, section_id TEXT NOT NULL, name TEXT NOT NULL,
     is_custom INTEGER NOT NULL DEFAULT 0,
     method_locked INTEGER NOT NULL DEFAULT 0,
-    locked_method_id TEXT
+    locked_method_id TEXT,
+    sub_muscle_ids TEXT NOT NULL DEFAULT '[]'
   )`)
+  const exerciseTypeColumns = await db.$client.execute('PRAGMA table_info(exercise_types)')
+  const hasSubMuscleIds = exerciseTypeColumns.rows.some(
+    (row: { name?: unknown }) => row.name === 'sub_muscle_ids',
+  )
+  if (!hasSubMuscleIds) {
+    await db.$client.execute("ALTER TABLE exercise_types ADD COLUMN sub_muscle_ids TEXT NOT NULL DEFAULT '[]'")
+  }
   await db.$client.execute(`CREATE TABLE IF NOT EXISTS methods (
     id TEXT PRIMARY KEY, name TEXT NOT NULL, is_custom INTEGER NOT NULL DEFAULT 0
   )`)

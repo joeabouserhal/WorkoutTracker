@@ -19,7 +19,6 @@ import {
   addExerciseToWorkout,
   createCustomExerciseType,
   createCustomMethod,
-  createCustomSection,
   ExerciseTypeRow,
   getExerciseTypesBySection,
   getMethodName,
@@ -31,7 +30,7 @@ import {
 } from '@/db/workoutHelpers'
 
 type Step = 'sections' | 'exerciseTypes' | 'methods'
-type CreateMode = 'section' | 'exercise' | 'method'
+type CreateMode = 'exercise' | 'method'
 
 interface Props {
   visible: boolean
@@ -175,11 +174,8 @@ export default function ExercisePickerModal({ visible, onClose, onPick }: Props)
   }
 
   function openCreateModal() {
-    const mode: CreateMode = step === 'sections'
-      ? 'section'
-      : step === 'exerciseTypes'
-        ? 'exercise'
-        : 'method'
+    if (step === 'sections') return
+    const mode: CreateMode = step === 'exerciseTypes' ? 'exercise' : 'method'
     setCreateMode(mode)
     setCreateName('')
     setCreateError('')
@@ -216,9 +212,7 @@ export default function ExercisePickerModal({ visible, onClose, onPick }: Props)
 
     setLoading(true)
     try {
-      if (createMode === 'section') {
-        await createCustomSection(trimmed)
-      } else if (createMode === 'method') {
+      if (createMode === 'method') {
         await createCustomMethod(trimmed, selectedExerciseType?.id ?? null)
       } else if (createMode === 'exercise' && selectedSection) {
         await createCustomExerciseType({
@@ -340,9 +334,7 @@ export default function ExercisePickerModal({ visible, onClose, onPick }: Props)
       : selectedExerciseType?.methodLocked
         ? 'Method'
         : 'Methods'
-  const createTitle = createMode === 'section'
-    ? 'Add Body Part'
-    : createMode === 'exercise'
+  const createTitle = createMode === 'exercise'
       ? 'Add Exercise'
       : 'Add Method'
 
@@ -374,10 +366,12 @@ export default function ExercisePickerModal({ visible, onClose, onPick }: Props)
 
                   <View style={styles.topRowSpacer} />
                   <View style={styles.rightActions}>
-                    <TouchableOpacity style={styles.addButton} onPress={openCreateModal}>
-                      <MaterialCommunityIcons name="plus" size={17} color={theme.colors.text} />
-                      <Text style={styles.addButtonText}>Add</Text>
-                    </TouchableOpacity>
+                    {step !== 'sections' ? (
+                      <TouchableOpacity style={styles.addButton} onPress={openCreateModal}>
+                        <MaterialCommunityIcons name="plus" size={17} color={theme.colors.text} />
+                        <Text style={styles.addButtonText}>Add</Text>
+                      </TouchableOpacity>
+                    ) : null}
                     <TouchableOpacity style={styles.closeButton} onPress={handleClose}>
                       <MaterialCommunityIcons name="close" size={16} color={theme.colors.text} />
                     </TouchableOpacity>
@@ -596,9 +590,7 @@ function CreatePickerItemModal({
             value={name}
             onChangeText={onChangeName}
             placeholder={
-              mode === 'section'
-                ? 'Body part name'
-                : mode === 'exercise'
+              mode === 'exercise'
                   ? 'Exercise name'
                   : 'Method name'
             }

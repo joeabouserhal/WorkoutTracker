@@ -15,13 +15,17 @@ import { useFocusEffect } from '@react-navigation/native'
 import ReanimatedSwipeable from 'react-native-gesture-handler/ReanimatedSwipeable'
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons'
 import { createStyleSheet, useStyles } from 'react-native-unistyles'
+import {
+  getSubMuscleLabels,
+  getSubsectionsForSection,
+  type MuscleSubsection,
+} from '@/constants/muscleSubsections'
 import ScreenHeader, { ScreenHeaderButton, useHeaderFade } from '@/components/ui/ScreenHeader'
 import ThemedDialog, { type ThemedDialogAction } from '@/components/ui/ThemedDialog'
 import { useDataRefreshStore } from '@/store/dataRefreshStore'
 import {
   createCustomExerciseType,
   createCustomMethod,
-  createCustomSection,
   deleteCustomExerciseType,
   deleteCustomMethodFromExercise,
   ExerciseTypeRow,
@@ -38,10 +42,11 @@ import {
   MethodRow,
   restoreDefaultMethodsForExerciseType,
   SectionRow,
+  updateCustomExerciseTypeSubMuscles,
 } from '@/db/workoutHelpers'
 
 type Step = 'sections' | 'exerciseTypes' | 'methods'
-type CreateMode = 'section' | 'exercise' | 'method'
+type CreateMode = 'exercise' | 'method'
 const PR_GOLD = '#D9A441'
 const LB_PER_KG = 2.20462
 const LIBRARY_HEADER_TOP_ROW_HEIGHT = 29
@@ -86,6 +91,11 @@ export default function LibraryScreen() {
   const [selectedMethodId, setSelectedMethodId] = useState<string | null>(null)
   const [showRestoreDefaults, setShowRestoreDefaults] = useState(false)
   const [convertedPrUnits, setConvertedPrUnits] = useState<Record<string, boolean>>({})
+  const [subMuscleEditor, setSubMuscleEditor] = useState<{
+    exerciseType: ExerciseTypeRow
+    selectedIds: string[]
+    error: string
+  } | null>(null)
   const [dialog, setDialog] = useState<{
     title: string
     message?: string
@@ -215,6 +225,10 @@ export default function LibraryScreen() {
           setSingleMethodOnly(false)
           return true
         }
+        if (subMuscleEditor) {
+          setSubMuscleEditor(null)
+          return true
+        }
         if (dialog) {
           setDialog(null)
           return true
@@ -228,7 +242,7 @@ export default function LibraryScreen() {
 
       const subscription = BackHandler.addEventListener('hardwareBackPress', onBackPress)
       return () => subscription.remove()
-    }, [createMode, dialog, handleBack, step]),
+    }, [createMode, dialog, handleBack, step, subMuscleEditor]),
   )
 
   const breadcrumbItems = useMemo(() => {
@@ -236,23 +250,26 @@ export default function LibraryScreen() {
     if (step === 'exerciseTypes') return [selectedSection?.name ?? 'Section', 'Exercises']
     return [
       selectedSection?.name ?? 'Section',
-      selectedExerciseType?.name ?? 'Exercise',
       selectedExerciseType?.methodLocked ? 'Method' : 'Methods',
     ]
   }, [selectedExerciseType, selectedSection, step])
+  const headerTitle = step === 'methods'
+    ? selectedExerciseType?.name ?? 'Exercise'
+    : step === 'exerciseTypes'
+      ? selectedSection?.name ?? 'Library'
+      : 'Library'
+  const selectedSubMuscleLabels = useMemo(
+    () => selectedExerciseType ? getSubMuscleLabels(selectedExerciseType.subMuscleIds) : [],
+    [selectedExerciseType],
+  )
 
-  const createTitle = createMode === 'section'
-    ? 'Add Section'
-    : createMode === 'exercise'
+  const createTitle = createMode === 'exercise'
       ? 'Add Exercise'
       : 'Add Method'
 
   function openCreateModal() {
-    const mode: CreateMode = step === 'sections'
-      ? 'section'
-      : step === 'exerciseTypes'
-        ? 'exercise'
-        : 'method'
+    if (step === 'sections') return
+    const mode: CreateMode = step === 'exerciseTypes' ? 'exercise' : 'method'
     setCreateMode(mode)
     setCreateName('')
     setCreateError('')
@@ -311,6 +328,7 @@ export default function LibraryScreen() {
     setExercisePrSummaries({})
     setMethodPrSummaries({})
     setShowRestoreDefaults(false)
+    setSubMuscleEditor(null)
     loadSections().catch(console.error)
   }, [dataVersion, loadSections])
 
@@ -416,9 +434,7 @@ export default function LibraryScreen() {
 
     setLoading(true)
     try {
-      if (createMode === 'section') {
-        await createCustomSection(trimmed)
-      } else if (createMode === 'method') {
+      if (createMode === 'method') {
         await createCustomMethod(trimmed, selectedExerciseType?.id ?? null)
         if (selectedExerciseType) {
           setSelectedExerciseType((current) => (
@@ -502,6 +518,64 @@ export default function LibraryScreen() {
     )
   }
 
+  function openSubMuscleEditor(
+    exerciseType: ExerciseTypeRow,
+    event?: GestureResponderEvent,
+  ) {
+    event?.stopPropagation()
+    if (!exerciseType.isCustom) return
+    if (getSubsectionsForSection(selectedSection?.name ?? '').length === 0) return
+    setSubMuscleEditor({
+      exerciseType,
+      selectedIds: exerciseType.subMuscleIds,
+      error: '',
+    })
+  }
+
+  function toggleSubMuscleEditorSelection(id: string) {
+    setSubMuscleEditor((current) => {
+      if (!current) return current
+      const selected = current.selectedIds.includes(id)
+        ? current.selectedIds.filter((item) => item !== id)
+        : [...current.selectedIds, id]
+      return { ...current, selectedIds: selected, error: '' }
+    })
+  }
+
+  async function saveSubMuscleEditor() {
+    if (!subMuscleEditor) return
+    if (subMuscleEditor.selectedIds.length === 0) {
+      setSubMuscleEditor((current) =>
+        current ? { ...current, error: 'Choose at least one sub-muscle.' } : current,
+      )
+      return
+    }
+
+    setLoading(true)
+    try {
+      const updatedExerciseType = await updateCustomExerciseTypeSubMuscles(
+        subMuscleEditor.exerciseType.id,
+        subMuscleEditor.selectedIds,
+      )
+      setExerciseTypeList((current) =>
+        current.map((exerciseType) =>
+          exerciseType.id === updatedExerciseType.id ? updatedExerciseType : exerciseType,
+        ),
+      )
+      setSelectedExerciseType((current) =>
+        current?.id === updatedExerciseType.id ? updatedExerciseType : current,
+      )
+      setSubMuscleEditor(null)
+    } catch (e) {
+      console.error('Could not update exercise sub-muscles', e)
+      setSubMuscleEditor((current) =>
+        current ? { ...current, error: 'Could not save these sub-muscles.' } : current,
+      )
+    } finally {
+      setLoading(false)
+    }
+  }
+
   const renderContent = () => {
     if (loading) {
       return (
@@ -571,8 +645,19 @@ export default function LibraryScreen() {
                 </View>
               </View>
             </View>
-            <View style={styles.rowChevron}>
-              <MaterialCommunityIcons name="chevron-right" size={16} color={theme.colors.textMuted} />
+            <View style={styles.rowActions}>
+              {exerciseType.isCustom && getSubsectionsForSection(selectedSection?.name ?? '').length > 0 ? (
+                <TouchableOpacity
+                  style={styles.editSubMuscleButton}
+                  onPress={(event) => openSubMuscleEditor(exerciseType, event)}
+                  activeOpacity={0.78}
+                >
+                  <MaterialCommunityIcons name="pencil-outline" size={15} color={theme.colors.accent} />
+                </TouchableOpacity>
+              ) : null}
+              <View style={styles.rowChevron}>
+                <MaterialCommunityIcons name="chevron-right" size={16} color={theme.colors.textMuted} />
+              </View>
             </View>
           </TouchableOpacity>
         )
@@ -663,48 +748,67 @@ export default function LibraryScreen() {
   return (
     <View style={styles.root}>
       <ScreenHeader
-        title="Library"
+        title={headerTitle}
         onBack={step !== 'sections' ? handleBack : undefined}
         showFade={showHeaderFade}
         beforeTitle={step === 'sections' ? <View style={styles.headerTopSpacer} /> : null}
-        titleRight={(
+        titleRight={step !== 'sections' ? (
           <ScreenHeaderButton label="Add" iconName="plus" onPress={openCreateModal} />
-        )}
-        afterTitle={breadcrumbItems.length > 0 ? (
-          <View style={styles.breadcrumbSlot}>
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.breadcrumbContent}
-              style={styles.breadcrumbScroll}
-              scrollEnabled
-            >
-              {breadcrumbItems.map((item, index) => {
-                const isLast = index === breadcrumbItems.length - 1
-                return (
-                  <React.Fragment key={`${item}-${index}`}>
-                    <Text
-                      style={[
-                        styles.breadcrumbText,
-                        isLast && styles.breadcrumbCurrent,
-                      ]}
-                      numberOfLines={1}
-                    >
-                      {item}
+        ) : undefined}
+        afterTitle={(
+          <>
+            {breadcrumbItems.length > 0 ? (
+              <View style={styles.breadcrumbSlot}>
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={styles.breadcrumbContent}
+                  style={styles.breadcrumbScroll}
+                  scrollEnabled
+                >
+                  {breadcrumbItems.map((item, index) => {
+                    const isLast = index === breadcrumbItems.length - 1
+                    return (
+                      <React.Fragment key={`${item}-${index}`}>
+                        <Text
+                          style={[
+                            styles.breadcrumbText,
+                            isLast && styles.breadcrumbCurrent,
+                          ]}
+                          numberOfLines={1}
+                        >
+                          {item}
+                        </Text>
+                        {!isLast ? (
+                          <MaterialCommunityIcons
+                            name="chevron-right"
+                            size={16}
+                            color={theme.colors.textMuted}
+                          />
+                        ) : null}
+                      </React.Fragment>
+                    )
+                  })}
+                </ScrollView>
+              </View>
+            ) : null}
+            {step === 'methods' && selectedSubMuscleLabels.length > 0 ? (
+              <View style={styles.exerciseTargetCard}>
+                <View style={styles.exerciseTargetHeader}>
+                  <View style={styles.exerciseTargetIcon}>
+                    <MaterialCommunityIcons name="target-variant" size={14} color={theme.colors.textMuted} />
+                  </View>
+                  <View style={styles.exerciseTargetTitleBlock}>
+                    <Text style={styles.exerciseTargetTitle}>Muscles Hit</Text>
+                    <Text style={styles.exerciseTargetSubtitle} numberOfLines={1}>
+                      {selectedSubMuscleLabels.join(', ')}
                     </Text>
-                    {!isLast ? (
-                      <MaterialCommunityIcons
-                        name="chevron-right"
-                        size={16}
-                        color={theme.colors.textMuted}
-                      />
-                    ) : null}
-                  </React.Fragment>
-                )
-              })}
-            </ScrollView>
-          </View>
-        ) : null}
+                  </View>
+                </View>
+              </View>
+            ) : null}
+          </>
+        )}
       />
 
       <ScrollView
@@ -714,6 +818,19 @@ export default function LibraryScreen() {
         onScroll={handleHeaderScroll}
         scrollEventThrottle={16}
       >
+        {step === 'methods'
+          && selectedExerciseType?.isCustom
+          && getSubsectionsForSection(selectedSection?.name ?? '').length > 0 ? (
+          <View style={styles.restoreRow}>
+            <TouchableOpacity
+              style={styles.restoreButton}
+              onPress={() => openSubMuscleEditor(selectedExerciseType)}
+            >
+              <MaterialCommunityIcons name="pencil-outline" size={14} color={theme.colors.accent} />
+              <Text style={styles.restoreButtonText}>Edit Sub-Muscles</Text>
+            </TouchableOpacity>
+          </View>
+        ) : null}
         {step === 'methods' && showRestoreDefaults ? (
           <View style={styles.restoreRow}>
             <TouchableOpacity style={styles.restoreButton} onPress={restoreDefaultMethods}>
@@ -741,6 +858,17 @@ export default function LibraryScreen() {
         onSelectMethod={setSelectedMethodId}
         onClose={closeCreateModal}
         onSubmit={submitCreate}
+      />
+      <SubMuscleEditorModal
+        visible={!!subMuscleEditor}
+        exerciseName={subMuscleEditor?.exerciseType.name ?? ''}
+        sectionName={selectedSection?.name ?? ''}
+        options={getSubsectionsForSection(selectedSection?.name ?? '')}
+        selectedIds={subMuscleEditor?.selectedIds ?? []}
+        error={subMuscleEditor?.error ?? ''}
+        onToggle={toggleSubMuscleEditorSelection}
+        onClose={() => setSubMuscleEditor(null)}
+        onSave={saveSubMuscleEditor}
       />
       <ThemedDialog
         visible={!!dialog}
@@ -813,9 +941,7 @@ function CreateLibraryModal({
             value={name}
             onChangeText={onChangeName}
             placeholder={
-              mode === 'section'
-                ? 'Section name'
-                : mode === 'exercise'
+              mode === 'exercise'
                   ? 'Exercise name'
                   : 'Method name'
             }
@@ -898,6 +1024,101 @@ function CreateLibraryModal({
   )
 }
 
+function SubMuscleEditorModal({
+  visible,
+  exerciseName,
+  sectionName,
+  options,
+  selectedIds,
+  error,
+  onToggle,
+  onClose,
+  onSave,
+}: {
+  visible: boolean
+  exerciseName: string
+  sectionName: string
+  options: MuscleSubsection[]
+  selectedIds: string[]
+  error: string
+  onToggle: (id: string) => void
+  onClose: () => void
+  onSave: () => void
+}) {
+  const { styles, theme } = useStyles(stylesheet)
+  if (!visible) return null
+
+  return (
+    <Modal visible transparent animationType="fade" statusBarTranslucent onRequestClose={onClose}>
+      <View style={styles.modalOverlay}>
+        <View style={styles.modalPanel}>
+          <View style={styles.modalHeader}>
+            <View style={styles.modalTitleBlock}>
+              <Text style={styles.modalTitle}>Edit Sub-Muscles</Text>
+              <Text style={styles.modalSubtitle} numberOfLines={1}>
+                {exerciseName} - {sectionName}
+              </Text>
+            </View>
+            <TouchableOpacity style={styles.modalCloseButton} onPress={onClose}>
+              <MaterialCommunityIcons name="close" size={20} color={theme.colors.textMuted} />
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.methodPickerBox}>
+            <Text style={styles.methodPickerTitle}>Preset Sub-Muscles</Text>
+            {options.length === 0 ? (
+              <Text style={styles.emptyText}>No preset sub-muscles for this section.</Text>
+            ) : (
+              <ScrollView
+                style={styles.methodChoiceScroll}
+                nestedScrollEnabled
+                keyboardShouldPersistTaps="handled"
+              >
+                {options.map((option) => {
+                  const selected = selectedIds.includes(option.id)
+                  return (
+                    <TouchableOpacity
+                      key={option.id}
+                      style={[
+                        styles.methodChoice,
+                        selected && styles.methodChoiceActive,
+                      ]}
+                      onPress={() => onToggle(option.id)}
+                    >
+                      <Text
+                        style={[
+                          styles.methodChoiceText,
+                          selected && styles.methodChoiceTextActive,
+                        ]}
+                      >
+                        {option.label}
+                      </Text>
+                      {selected ? (
+                        <MaterialCommunityIcons name="check" size={18} color={theme.colors.accent} />
+                      ) : null}
+                    </TouchableOpacity>
+                  )
+                })}
+              </ScrollView>
+            )}
+          </View>
+
+          {error ? <Text style={styles.errorText}>{error}</Text> : null}
+
+          <View style={styles.modalActions}>
+            <TouchableOpacity style={styles.secondaryButton} onPress={onClose}>
+              <Text style={styles.secondaryButtonText}>Cancel</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.primaryButton} onPress={onSave}>
+              <Text style={styles.primaryButtonText}>Save</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  )
+}
+
 const stylesheet = createStyleSheet((theme) => ({
   root: {
     flex: 1,
@@ -957,6 +1178,46 @@ const stylesheet = createStyleSheet((theme) => ({
   },
   swipeableRowContent: {
     width: '100%',
+  },
+  exerciseTargetCard: {
+    backgroundColor: theme.colors.bg,
+    borderRadius: theme.radius.sm,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    paddingHorizontal: theme.spacing.sm,
+    paddingVertical: 7,
+    marginTop: theme.spacing.xs,
+  },
+  exerciseTargetHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: theme.spacing.xs,
+  },
+  exerciseTargetIcon: {
+    width: 22,
+    height: 22,
+    borderRadius: theme.radius.full,
+    backgroundColor: theme.colors.surface2,
+    borderWidth: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  exerciseTargetTitleBlock: {
+    flex: 1,
+    minWidth: 0,
+  },
+  exerciseTargetTitle: {
+    color: theme.colors.textMuted,
+    fontSize: theme.fontSize.xs,
+    fontFamily: theme.fontFamily.extraBold,
+    textTransform: 'uppercase',
+    letterSpacing: 0,
+  },
+  exerciseTargetSubtitle: {
+    color: theme.colors.textMuted,
+    fontSize: theme.fontSize.xs,
+    fontFamily: theme.fontFamily.bold,
+    marginTop: 1,
   },
   restoreRow: {
     flexDirection: 'row',
@@ -1037,6 +1298,21 @@ const stylesheet = createStyleSheet((theme) => ({
     height: 28,
     borderRadius: theme.radius.full,
     backgroundColor: theme.colors.surface2,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  rowActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: theme.spacing.xs,
+  },
+  editSubMuscleButton: {
+    width: 28,
+    height: 28,
+    borderRadius: theme.radius.full,
+    backgroundColor: theme.colors.accentMuted,
     borderWidth: 1,
     borderColor: theme.colors.border,
     alignItems: 'center',
@@ -1165,11 +1441,22 @@ const stylesheet = createStyleSheet((theme) => ({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    gap: theme.spacing.sm,
+  },
+  modalTitleBlock: {
+    flex: 1,
+    minWidth: 0,
   },
   modalTitle: {
     color: theme.colors.text,
     fontSize: theme.fontSize.lg,
     fontFamily: theme.fontFamily.extraBold,
+  },
+  modalSubtitle: {
+    color: theme.colors.textMuted,
+    fontSize: theme.fontSize.sm,
+    fontFamily: theme.fontFamily.semiBold,
+    marginTop: 2,
   },
   modalCloseButton: {
     width: 34,

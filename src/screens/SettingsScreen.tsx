@@ -10,6 +10,11 @@ import {
   getDefaultRestSeconds,
   setDefaultRestSeconds,
 } from '@/services/restTimerSettings'
+import {
+  DEFAULT_MUSCLE_RECOVERY_HOURS,
+  getDefaultMuscleRecoveryHours,
+  setDefaultMuscleRecoveryHours,
+} from '@/services/muscleRecoverySettings'
 import type { ProfileStackParamList } from '../navigation/TabNavigator'
 
 type WeightUnit = 'kg' | 'lb'
@@ -23,6 +28,7 @@ export default function SettingsScreen({ navigation }: Props) {
   const [weightUnit, setWeightUnit] = useState<WeightUnit>('kg')
   const [heightUnit, setHeightUnit] = useState<HeightUnit>('cm')
   const [restTimerSeconds, setRestTimerSeconds] = useState(getDefaultRestSeconds)
+  const [muscleRecoveryHours, setMuscleRecoveryHours] = useState(getDefaultMuscleRecoveryHours)
 
   useEffect(() => {
     async function loadSettings() {
@@ -35,6 +41,7 @@ export default function SettingsScreen({ navigation }: Props) {
           setHeightUnit(profile.heightUnit as HeightUnit)
         }
         setRestTimerSeconds(getDefaultRestSeconds())
+        setMuscleRecoveryHours(getDefaultMuscleRecoveryHours())
       } catch (e) {
         console.error('Failed to load settings', e)
       }
@@ -65,6 +72,17 @@ export default function SettingsScreen({ navigation }: Props) {
     const next = Math.max(10, Math.min(600, restTimerSeconds + delta))
     setRestTimerSeconds(next)
     setDefaultRestSeconds(next)
+  }
+
+  function handleMuscleRecoveryChange(delta: number) {
+    const next = Math.max(12, Math.min(168, muscleRecoveryHours + delta))
+    setMuscleRecoveryHours(next)
+    setDefaultMuscleRecoveryHours(next)
+  }
+
+  function handleMuscleRecoveryReset() {
+    setMuscleRecoveryHours(DEFAULT_MUSCLE_RECOVERY_HOURS)
+    setDefaultMuscleRecoveryHours(DEFAULT_MUSCLE_RECOVERY_HOURS)
   }
 
   return (
@@ -214,6 +232,56 @@ export default function SettingsScreen({ navigation }: Props) {
             </View>
           </View>
         </View>
+
+        <View style={styles.unitsCard}>
+          <View style={styles.settingCardRow}>
+            <View style={styles.settingCardHeader}>
+              <View style={styles.cardIconBadge}>
+                <MaterialCommunityIcons name="arm-flex-outline" size={18} color={theme.colors.accent} />
+              </View>
+              <View style={styles.settingTextBlock}>
+                <Text style={styles.unitLabel}>Muscle Recovery</Text>
+                <Text style={styles.settingDescription}>Full rest window</Text>
+              </View>
+            </View>
+            <View style={styles.recoveryControlBlock}>
+              <View style={styles.timerControlRow}>
+                <TouchableOpacity
+                  style={[
+                    styles.timerAdjustButton,
+                    muscleRecoveryHours <= 12 && styles.timerAdjustButtonDisabled,
+                  ]}
+                  onPress={() => handleMuscleRecoveryChange(-6)}
+                  disabled={muscleRecoveryHours <= 12}
+                  activeOpacity={0.78}
+                >
+                  <Text style={styles.timerAdjustText}>-6h</Text>
+                </TouchableOpacity>
+                <Text style={styles.timerValue}>{muscleRecoveryHours}h</Text>
+                <TouchableOpacity
+                  style={[
+                    styles.timerAdjustButton,
+                    muscleRecoveryHours >= 168 && styles.timerAdjustButtonDisabled,
+                  ]}
+                  onPress={() => handleMuscleRecoveryChange(6)}
+                  disabled={muscleRecoveryHours >= 168}
+                  activeOpacity={0.78}
+                >
+                  <Text style={styles.timerAdjustText}>+6h</Text>
+                </TouchableOpacity>
+              </View>
+              {muscleRecoveryHours !== DEFAULT_MUSCLE_RECOVERY_HOURS ? (
+                <TouchableOpacity
+                  style={styles.resetRecoveryButton}
+                  onPress={handleMuscleRecoveryReset}
+                  activeOpacity={0.78}
+                >
+                  <Text style={styles.resetRecoveryText}>Reset 48h</Text>
+                </TouchableOpacity>
+              ) : null}
+            </View>
+          </View>
+        </View>
       </ScrollView>
     </View>
   )
@@ -272,11 +340,20 @@ const stylesheet = createStyleSheet((theme) => ({
     alignItems: 'center',
     gap: theme.spacing.sm,
   },
-  unitLabel: {
+  settingTextBlock: {
     flex: 1,
+    minWidth: 0,
+  },
+  unitLabel: {
     color: theme.colors.text,
     fontSize: theme.fontSize.sm,
     fontFamily: theme.fontFamily.extraBold,
+  },
+  settingDescription: {
+    color: theme.colors.textMuted,
+    fontSize: theme.fontSize.xs,
+    fontFamily: theme.fontFamily.semiBold,
+    marginTop: 2,
   },
   unitButtonsRow: {
     width: 132,
@@ -286,6 +363,10 @@ const stylesheet = createStyleSheet((theme) => ({
   timerControlRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    gap: theme.spacing.xs,
+  },
+  recoveryControlBlock: {
+    alignItems: 'flex-end',
     gap: theme.spacing.xs,
   },
   timerAdjustButton: {
@@ -318,6 +399,21 @@ const stylesheet = createStyleSheet((theme) => ({
     borderColor: theme.colors.border,
     paddingVertical: theme.spacing.xs,
     paddingHorizontal: theme.spacing.xs,
+  },
+  resetRecoveryButton: {
+    minHeight: 26,
+    borderRadius: theme.radius.full,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.surface2,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: theme.spacing.sm,
+  },
+  resetRecoveryText: {
+    color: theme.colors.textMuted,
+    fontSize: theme.fontSize.xs,
+    fontFamily: theme.fontFamily.bold,
   },
   unitButton: {
     flex: 1,

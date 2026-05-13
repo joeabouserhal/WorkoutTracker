@@ -1,4 +1,11 @@
 import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, lt, ne, notInArray, or, sql } from 'drizzle-orm'
+import {
+  FATIGUE_TARGET_ORDER,
+  getFatigueTargetNames,
+  parseSubMuscleIds,
+  sanitizeSubMuscleIds,
+  stringifySubMuscleIds,
+} from '@/constants/muscleSubsections'
 import { db } from './client'
 import {
   exerciseTypeMethodExclusions as exerciseTypeMethodExclusionsTable,
@@ -67,7 +74,8 @@ async function ensureLibraryTables() {
     is_custom INTEGER NOT NULL DEFAULT 0,
     is_hidden INTEGER NOT NULL DEFAULT 0,
     method_locked INTEGER NOT NULL DEFAULT 0,
-    locked_method_id TEXT
+    locked_method_id TEXT,
+    sub_muscle_ids TEXT NOT NULL DEFAULT '[]'
   )`)
   await db.$client.execute(`CREATE TABLE IF NOT EXISTS exercise_type_method_exclusions (
     exercise_type_id TEXT NOT NULL,
@@ -116,6 +124,9 @@ async function ensureLibraryTables() {
   const hasLockedMethodId = exerciseTypeColumns.rows.some(
     (row: { name?: unknown }) => row.name === 'locked_method_id',
   )
+  const hasSubMuscleIds = exerciseTypeColumns.rows.some(
+    (row: { name?: unknown }) => row.name === 'sub_muscle_ids',
+  )
   if (!hasExerciseTypeCustom) {
     await db.$client.execute('ALTER TABLE exercise_types ADD COLUMN is_custom INTEGER NOT NULL DEFAULT 0')
   }
@@ -127,6 +138,9 @@ async function ensureLibraryTables() {
   }
   if (!hasLockedMethodId) {
     await db.$client.execute('ALTER TABLE exercise_types ADD COLUMN locked_method_id TEXT')
+  }
+  if (!hasSubMuscleIds) {
+    await db.$client.execute("ALTER TABLE exercise_types ADD COLUMN sub_muscle_ids TEXT NOT NULL DEFAULT '[]'")
   }
 }
 
@@ -363,6 +377,18 @@ export type CompletedWorkoutSetUpdate = {
   reps: number
 }
 
+export type MuscleFatigueStatus = 'rested' | 'mild' | 'fatigued'
+
+export type MuscleGroupFatigue = {
+  name: string
+  fatigue: number
+  status: MuscleFatigueStatus
+  setCount: number
+  lastWorkedAt: number | null
+  readyAt: number | null
+  restHoursRemaining: number
+}
+
 type WeightPrHistorySetRow = {
   setId: string
   exerciseTypeId: string
@@ -575,6 +601,141 @@ export async function getCompletedWorkoutsPage(
     .limit(safeLimit)
     .offset(safeOffset)
   return enrichWorkoutSummariesWithWeightPrs(rows as WorkoutSummary[])
+}
+
+const DEFAULT_FATIGUE_GROUP_ORDER = [
+  ...FATIGUE_TARGET_ORDER,
+  'Chest',
+  'Back',
+  'Shoulders',
+  'Biceps',
+  'Triceps',
+  'Forearms',
+  'Legs',
+  'Glutes',
+  'Core',
+]
+
+function getFatigueStatus(fatigue: number): MuscleFatigueStatus {
+  if (fatigue >= 0.67) return 'fatigued'
+  if (fatigue >= 0.18) return 'mild'
+  return 'rested'
+}
+
+export async function getMuscleGroupFatigue(
+  recoveryHours = 48,
+): Promise<MuscleGroupFatigue[]> {
+  await ensureTable()
+  await ensureExerciseTables()
+  await ensureLibraryTables()
+
+  const now = Date.now()
+  const safeRecoveryHours = Math.max(12, Math.min(168, Math.trunc(recoveryHours)))
+  const recoveryWindowMs = safeRecoveryHours * 60 * 60 * 1000
+  const cutoff = now - recoveryWindowMs
+  const sectionRows = await db
+    .select({ name: sectionsTable.name })
+    .from(sectionsTable)
+  const sectionNames = [
+    ...DEFAULT_FATIGUE_GROUP_ORDER,
+    ...sectionRows.map((row) => row.name),
+  ].filter((name, index, names) => Boolean(name) && names.indexOf(name) === index)
+
+  const fatigueBySection = sectionNames.reduce<Record<string, MuscleGroupFatigue>>(
+    (acc, name) => {
+      acc[name] = {
+        name,
+        fatigue: 0,
+        status: 'rested',
+        setCount: 0,
+        lastWorkedAt: null,
+        readyAt: null,
+        restHoursRemaining: 0,
+      }
+      return acc
+    },
+    {},
+  )
+  const ensureFatigueGroup = (name: string) => {
+    if (!fatigueBySection[name]) {
+      fatigueBySection[name] = {
+        name,
+        fatigue: 0,
+        status: 'rested',
+        setCount: 0,
+        lastWorkedAt: null,
+        readyAt: null,
+        restHoursRemaining: 0,
+      }
+    }
+    return fatigueBySection[name]
+  }
+
+  const rows = await db
+    .select({
+      sectionName: sectionsTable.name,
+      subMuscleIdsRaw: exerciseTypesTable.subMuscleIds,
+      endedAt: workoutsTable.endedAt,
+      setCount: sql<number>`COUNT(${setsTable.id})`,
+    })
+    .from(workoutsTable)
+    .innerJoin(workoutExercisesTable, eq(workoutExercisesTable.workoutId, workoutsTable.id))
+    .innerJoin(exercisesTable, eq(exercisesTable.id, workoutExercisesTable.exerciseId))
+    .innerJoin(exerciseTypesTable, eq(exerciseTypesTable.id, exercisesTable.exerciseTypeId))
+    .innerJoin(sectionsTable, eq(sectionsTable.id, exerciseTypesTable.sectionId))
+    .innerJoin(setsTable, eq(setsTable.workoutExerciseId, workoutExercisesTable.id))
+    .where(and(
+      isNotNull(workoutsTable.endedAt),
+      sql`${workoutsTable.endedAt} >= ${cutoff}`,
+    ))
+    .groupBy(workoutsTable.id, exerciseTypesTable.id, sectionsTable.id) as Array<{
+    sectionName: string
+    subMuscleIdsRaw: string | null
+    endedAt: number | null
+    setCount: number
+  }>
+
+  for (const row of rows) {
+    if (!row.endedAt) continue
+
+    const setCount = Math.max(0, Number(row.setCount) || 0)
+    if (setCount === 0) continue
+
+    const load = Math.min(1, setCount / 6)
+    const sessionRecoveryMs = recoveryWindowMs * (0.5 + load * 0.5)
+    const readyAt = row.endedAt + sessionRecoveryMs
+    const remainingMs = Math.max(0, readyAt - now)
+    if (remainingMs <= 0) continue
+
+    const contribution = remainingMs / sessionRecoveryMs
+    const targetNames = getFatigueTargetNames(
+      row.sectionName,
+      parseSubMuscleIds(row.subMuscleIdsRaw),
+    )
+
+    for (const targetName of targetNames) {
+      const group = ensureFatigueGroup(targetName)
+      group.fatigue = Math.min(1, group.fatigue + contribution)
+      group.setCount += setCount
+      group.lastWorkedAt = Math.max(group.lastWorkedAt ?? 0, row.endedAt)
+      group.readyAt = Math.max(group.readyAt ?? 0, readyAt)
+    }
+  }
+
+  return Object.values(fatigueBySection).map((group) => {
+    const readyAt = group.readyAt
+    const restHoursRemaining = readyAt
+      ? Math.max(0, (readyAt - now) / (60 * 60 * 1000))
+      : 0
+
+    return {
+      ...group,
+      fatigue: Number(group.fatigue.toFixed(3)),
+      status: getFatigueStatus(group.fatigue),
+      readyAt,
+      restHoursRemaining,
+    }
+  })
 }
 
 export async function getWorkoutDetail(workoutId: string): Promise<WorkoutDetail | null> {
@@ -817,6 +978,7 @@ export type ExerciseTypeRow = {
   isHidden?: number
   methodLocked: number
   lockedMethodId: string | null
+  subMuscleIds: string[]
 }
 export type MethodRow = {
   id: string
@@ -854,6 +1016,18 @@ type PrSetRow = {
   methodName: string
   weightKg: number
   weightUnit: string | null
+}
+
+type ExerciseTypeDbRow = Omit<ExerciseTypeRow, 'subMuscleIds'> & {
+  subMuscleIdsRaw: string | null
+}
+
+function mapExerciseTypeRow(row: ExerciseTypeDbRow): ExerciseTypeRow {
+  const { subMuscleIdsRaw, ...exerciseType } = row
+  return {
+    ...exerciseType,
+    subMuscleIds: parseSubMuscleIds(subMuscleIdsRaw),
+  }
 }
 
 function genLibraryId(prefix: string): string {
@@ -906,7 +1080,7 @@ export async function getSections(): Promise<SectionRow[]> {
 
 export async function getExerciseTypesBySection(sectionId: string): Promise<ExerciseTypeRow[]> {
   await ensureLibraryTables()
-  return db
+  const rows = await db
     .select({
       id: exerciseTypesTable.id,
       name: exerciseTypesTable.name,
@@ -915,6 +1089,7 @@ export async function getExerciseTypesBySection(sectionId: string): Promise<Exer
       isHidden: exerciseTypesTable.isHidden,
       methodLocked: exerciseTypesTable.methodLocked,
       lockedMethodId: exerciseTypesTable.lockedMethodId,
+      subMuscleIdsRaw: exerciseTypesTable.subMuscleIds,
     })
     .from(exerciseTypesTable)
     .where(and(
@@ -922,6 +1097,7 @@ export async function getExerciseTypesBySection(sectionId: string): Promise<Exer
       sql`COALESCE(${exerciseTypesTable.isHidden}, 0) = 0`,
     ))
     .orderBy(asc(exerciseTypesTable.name))
+  return (rows as ExerciseTypeDbRow[]).map(mapExerciseTypeRow)
 }
 
 export async function getExercisePrSummariesBySection(
@@ -1121,10 +1297,11 @@ export async function restoreDefaultMethodsForExerciseType(
       isHidden: exerciseTypesTable.isHidden,
       methodLocked: exerciseTypesTable.methodLocked,
       lockedMethodId: exerciseTypesTable.lockedMethodId,
+      subMuscleIdsRaw: exerciseTypesTable.subMuscleIds,
     })
     .from(exerciseTypesTable)
     .where(eq(exerciseTypesTable.id, exerciseTypeId))
-    .limit(1))[0] as ExerciseTypeRow | undefined
+    .limit(1))[0] as ExerciseTypeDbRow | undefined
   if (!row) {
     throw new Error('Unknown exercise')
   }
@@ -1223,12 +1400,13 @@ export async function restoreDefaultMethodsForExerciseType(
       isHidden: exerciseTypesTable.isHidden,
       methodLocked: exerciseTypesTable.methodLocked,
       lockedMethodId: exerciseTypesTable.lockedMethodId,
+      subMuscleIdsRaw: exerciseTypesTable.subMuscleIds,
     })
     .from(exerciseTypesTable)
     .where(eq(exerciseTypesTable.id, exerciseTypeId))
-    .limit(1))[0] as ExerciseTypeRow | undefined
+    .limit(1))[0] as ExerciseTypeDbRow | undefined
   if (!refreshedRow) throw new Error('Unknown exercise')
-  return refreshedRow
+  return mapExerciseTypeRow(refreshedRow)
 }
 
 export async function createCustomSection(name: string): Promise<SectionRow> {
@@ -1627,6 +1805,7 @@ export async function createCustomExerciseType(params: {
   name: string
   methodLocked: boolean
   lockedMethodId?: string | null
+  subMuscleIds?: string[]
 }): Promise<ExerciseTypeRow> {
   const trimmed = params.name.trim()
   if (!trimmed) throw new Error('Exercise name is required')
@@ -1635,6 +1814,15 @@ export async function createCustomExerciseType(params: {
   }
 
   await ensureLibraryTables()
+  const section = (await db
+    .select({ name: sectionsTable.name })
+    .from(sectionsTable)
+    .where(eq(sectionsTable.id, params.sectionId))
+    .limit(1))[0]
+  if (!section?.name) {
+    throw new Error('Unknown section')
+  }
+  const subMuscleIds = sanitizeSubMuscleIds(section.name, params.subMuscleIds ?? [])
   const id = genLibraryId('exercise_type')
   await db.insert(exerciseTypesTable).values({
     id,
@@ -1643,6 +1831,7 @@ export async function createCustomExerciseType(params: {
     isCustom: 1,
     methodLocked: params.methodLocked ? 1 : 0,
     lockedMethodId: params.methodLocked ? params.lockedMethodId ?? null : null,
+    subMuscleIds: stringifySubMuscleIds(subMuscleIds),
   })
   return {
     id,
@@ -1651,6 +1840,56 @@ export async function createCustomExerciseType(params: {
     isCustom: 1,
     methodLocked: params.methodLocked ? 1 : 0,
     lockedMethodId: params.methodLocked ? params.lockedMethodId ?? null : null,
+    subMuscleIds,
+  }
+}
+
+export async function updateCustomExerciseTypeSubMuscles(
+  exerciseTypeId: string,
+  subMuscleIds: string[],
+): Promise<ExerciseTypeRow> {
+  await ensureLibraryTables()
+  const row = (await db
+    .select({
+      id: exerciseTypesTable.id,
+      name: exerciseTypesTable.name,
+      sectionId: exerciseTypesTable.sectionId,
+      sectionName: sectionsTable.name,
+      isCustom: exerciseTypesTable.isCustom,
+      isHidden: exerciseTypesTable.isHidden,
+      methodLocked: exerciseTypesTable.methodLocked,
+      lockedMethodId: exerciseTypesTable.lockedMethodId,
+    })
+    .from(exerciseTypesTable)
+    .innerJoin(sectionsTable, eq(sectionsTable.id, exerciseTypesTable.sectionId))
+    .where(eq(exerciseTypesTable.id, exerciseTypeId))
+    .limit(1))[0] as (Omit<ExerciseTypeRow, 'subMuscleIds'> & { sectionName: string }) | undefined
+  if (!row) {
+    throw new Error('Unknown exercise')
+  }
+  if (!row.isCustom) {
+    throw new Error('Only custom exercises can be edited')
+  }
+
+  const sanitizedIds = sanitizeSubMuscleIds(row.sectionName, subMuscleIds)
+  if (sanitizedIds.length === 0) {
+    throw new Error('Choose at least one sub-muscle')
+  }
+
+  await db
+    .update(exerciseTypesTable)
+    .set({ subMuscleIds: stringifySubMuscleIds(sanitizedIds) })
+    .where(eq(exerciseTypesTable.id, exerciseTypeId))
+
+  return {
+    id: row.id,
+    name: row.name,
+    sectionId: row.sectionId,
+    isCustom: row.isCustom,
+    isHidden: row.isHidden,
+    methodLocked: row.methodLocked,
+    lockedMethodId: row.lockedMethodId,
+    subMuscleIds: sanitizedIds,
   }
 }
 

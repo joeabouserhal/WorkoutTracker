@@ -1,4 +1,9 @@
 import { and, eq } from 'drizzle-orm'
+import {
+  getDefaultSubMuscleIdsForExercise,
+  sanitizeSubMuscleIds,
+  stringifySubMuscleIds,
+} from '@/constants/muscleSubsections'
 import { db } from './client'
 import {
   exercises,
@@ -24,7 +29,8 @@ async function ensureTables() {
     is_custom INTEGER NOT NULL DEFAULT 0,
     is_hidden INTEGER NOT NULL DEFAULT 0,
     method_locked INTEGER NOT NULL DEFAULT 0,
-    locked_method_id TEXT
+    locked_method_id TEXT,
+    sub_muscle_ids TEXT NOT NULL DEFAULT '[]'
   )`)
   await db.$client.execute(`CREATE TABLE IF NOT EXISTS exercise_type_method_exclusions (
     exercise_type_id TEXT NOT NULL,
@@ -73,6 +79,9 @@ async function ensureTables() {
   const hasLockedMethodId = exerciseTypeColumns.rows.some(
     (row: { name?: unknown }) => row.name === 'locked_method_id',
   )
+  const hasSubMuscleIds = exerciseTypeColumns.rows.some(
+    (row: { name?: unknown }) => row.name === 'sub_muscle_ids',
+  )
   if (!hasExerciseTypeCustom) {
     await db.$client.execute('ALTER TABLE exercise_types ADD COLUMN is_custom INTEGER NOT NULL DEFAULT 0')
   }
@@ -84,6 +93,9 @@ async function ensureTables() {
   }
   if (!hasLockedMethodId) {
     await db.$client.execute('ALTER TABLE exercise_types ADD COLUMN locked_method_id TEXT')
+  }
+  if (!hasSubMuscleIds) {
+    await db.$client.execute("ALTER TABLE exercise_types ADD COLUMN sub_muscle_ids TEXT NOT NULL DEFAULT '[]'")
   }
 
   await db.$client.execute(`CREATE TABLE IF NOT EXISTS exercises (
@@ -122,6 +134,14 @@ type ExerciseDef = {
   name: string
   methodLocked?: boolean
   lockedMethod?: string
+  subMuscleIds?: string[]
+}
+
+export type DefaultExerciseReseedResult = {
+  sectionsCreated: number
+  methodsCreated: number
+  exercisesInserted: number
+  exercisesUpdated: number
 }
 
 const EXERCISE_DEFS: ExerciseDef[] = [
@@ -138,11 +158,11 @@ const EXERCISE_DEFS: ExerciseDef[] = [
   { section: 'Back', name: 'T-Bar Row', methodLocked: true, lockedMethod: 'Machine' },
   { section: 'Back', name: 'Single Arm Row' },
   { section: 'Back', name: 'Face Pull' },
+  { section: 'Back', name: 'Shrug' },
   { section: 'Shoulders', name: 'Overhead Press' },
   { section: 'Shoulders', name: 'Lateral Raise' },
   { section: 'Shoulders', name: 'Front Raise' },
   { section: 'Shoulders', name: 'Rear Delt Fly' },
-  { section: 'Shoulders', name: 'Shrug' },
   { section: 'Biceps', name: 'Bicep Curl' },
   { section: 'Biceps', name: 'Hammer Curl' },
   { section: 'Biceps', name: 'Preacher Curl' },
@@ -167,10 +187,10 @@ const EXERCISE_DEFS: ExerciseDef[] = [
   { section: 'Legs', name: 'Bulgarian Split Squat' },
   { section: 'Legs', name: 'Hack Squat' },
   { section: 'Legs', name: 'Walking Lunge' },
+  { section: 'Legs', name: 'Abductor Machine', methodLocked: true, lockedMethod: 'Machine' },
   { section: 'Glutes', name: 'Hip Thrust' },
   { section: 'Glutes', name: 'Glute Bridge' },
   { section: 'Glutes', name: 'Cable Kickback' },
-  { section: 'Glutes', name: 'Abductor Machine', methodLocked: true, lockedMethod: 'Machine' },
   { section: 'Core', name: 'Plank', methodLocked: true, lockedMethod: 'Bodyweight' },
   { section: 'Core', name: 'Crunch' },
   { section: 'Core', name: 'Hanging Leg Raise' },
@@ -212,9 +232,15 @@ async function removeRedundantCableCrunch(sectionId: string) {
   await db.delete(exerciseTypes).where(eq(exerciseTypes.id, cableCrunch.id))
 }
 
-export async function seedDatabaseIfEmpty(): Promise<void> {
+async function seedDefaultExerciseLibrary(): Promise<DefaultExerciseReseedResult> {
   await ensureTables()
 
+  const result: DefaultExerciseReseedResult = {
+    sectionsCreated: 0,
+    methodsCreated: 0,
+    exercisesInserted: 0,
+    exercisesUpdated: 0,
+  }
   const sectionNames = ['Chest', 'Back', 'Shoulders', 'Biceps', 'Triceps', 'Forearms', 'Legs', 'Glutes', 'Core']
   const sectionRows = []
   for (const [i, name] of sectionNames.entries()) {
@@ -237,6 +263,7 @@ export async function seedDatabaseIfEmpty(): Promise<void> {
       isCustom: 0,
     }
     await db.insert(sections).values(row)
+    result.sectionsCreated += 1
     sectionRows.push(row)
   }
 
@@ -262,6 +289,7 @@ export async function seedDatabaseIfEmpty(): Promise<void> {
       ownerExerciseTypeId: null,
     }
     await db.insert(methods).values(row)
+    result.methodsCreated += 1
     methodRows.push(row)
   }
 
@@ -271,22 +299,29 @@ export async function seedDatabaseIfEmpty(): Promise<void> {
   for (const [i, def] of EXERCISE_DEFS.entries()) {
     const sectionId = sectionMap[def.section]
     const lockedMethodId = def.lockedMethod ? methodMap[def.lockedMethod] ?? null : null
+    const defaultSubMuscleIds = sanitizeSubMuscleIds(
+      def.section,
+      def.subMuscleIds ?? getDefaultSubMuscleIdsForExercise(def.name),
+    )
     const existing = (await db
       .select({ id: exerciseTypes.id })
       .from(exerciseTypes)
       .where(and(
-        eq(exerciseTypes.sectionId, sectionId),
         eq(exerciseTypes.name, def.name),
+        eq(exerciseTypes.isCustom, 0),
       ))
       .limit(1))[0]
     if (existing) {
       await db
         .update(exerciseTypes)
         .set({
+          sectionId,
           methodLocked: def.methodLocked ? 1 : 0,
           lockedMethodId,
+          subMuscleIds: stringifySubMuscleIds(defaultSubMuscleIds),
         })
         .where(eq(exerciseTypes.id, existing.id))
+      result.exercisesUpdated += 1
       continue
     }
     await db.insert(exerciseTypes).values({
@@ -296,8 +331,19 @@ export async function seedDatabaseIfEmpty(): Promise<void> {
       isCustom: 0,
       methodLocked: def.methodLocked ? 1 : 0,
       lockedMethodId,
+      subMuscleIds: stringifySubMuscleIds(defaultSubMuscleIds),
     })
+    result.exercisesInserted += 1
   }
 
   await removeRedundantCableCrunch(sectionMap.Core)
+  return result
+}
+
+export async function seedDatabaseIfEmpty(): Promise<void> {
+  await seedDefaultExerciseLibrary()
+}
+
+export async function reseedDefaultExercises(): Promise<DefaultExerciseReseedResult> {
+  return seedDefaultExerciseLibrary()
 }

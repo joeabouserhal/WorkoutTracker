@@ -22,6 +22,7 @@ export const exerciseTypes = sqliteTable('exercise_types', {
   isHidden: integer('is_hidden').notNull().default(0),
   methodLocked: integer('method_locked').notNull().default(0),
   lockedMethodId: text('locked_method_id'),
+  subMuscleIds: text('sub_muscle_ids').notNull().default('[]'),
 })
 
 export const exerciseTypeMethodExclusions = sqliteTable('exercise_type_method_exclusions', {

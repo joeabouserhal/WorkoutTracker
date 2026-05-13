@@ -5,6 +5,7 @@ import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityI
 import { createStyleSheet, useStyles } from 'react-native-unistyles'
 import ThemedDialog, { type ThemedDialogAction } from '@/components/ui/ThemedDialog'
 import ScreenHeader, { useHeaderFade } from '@/components/ui/ScreenHeader'
+import { reseedDefaultExercises } from '@/db/seedData'
 import {
   deleteAllCustomExercises,
   deleteAllCustomMethods,
@@ -14,7 +15,7 @@ import type { ProfileStackParamList } from '../navigation/TabNavigator'
 
 type Props = NativeStackScreenProps<ProfileStackParamList, 'Debug'>
 
-type BusyAction = 'methods' | 'exercises' | null
+type BusyAction = 'methods' | 'exercises' | 'reseed' | null
 
 type DialogState = {
   title: string
@@ -61,6 +62,22 @@ export default function DebugScreen({ navigation }: Props) {
     })
   }
 
+  function confirmReseedDefaults() {
+    setDialog({
+      title: 'Reseed Default Exercises?',
+      message:
+        'This refreshes built-in exercises, locked method defaults, and muscle subsections. Custom exercises and workout history are preserved.',
+      actions: [
+        { label: 'Cancel', onPress: closeDialog },
+        {
+          label: 'Reseed Defaults',
+          variant: 'primary',
+          onPress: handleReseedDefaults,
+        },
+      ],
+    })
+  }
+
   function confirmDeleteExercises() {
     setDialog({
       title: 'Delete Custom Exercises?',
@@ -86,6 +103,23 @@ export default function DebugScreen({ navigation }: Props) {
       showResult(
         'Custom Methods Deleted',
         `${result.deleted} custom method${result.deleted === 1 ? '' : 's'} deleted. ${result.hidden} used custom method${result.hidden === 1 ? '' : 's'} hidden to preserve history and templates.`,
+      )
+    } catch (error) {
+      showResult('Debug Action Failed', getErrorMessage(error))
+    } finally {
+      setBusyAction(null)
+    }
+  }
+
+  async function handleReseedDefaults() {
+    closeDialog()
+    setBusyAction('reseed')
+    try {
+      const result = await reseedDefaultExercises()
+      bumpDataVersion()
+      showResult(
+        'Default Exercises Reseeded',
+        `${result.exercisesUpdated} default exercise${result.exercisesUpdated === 1 ? '' : 's'} updated. ${result.exercisesInserted} missing default exercise${result.exercisesInserted === 1 ? '' : 's'} added.`,
       )
     } catch (error) {
       showResult('Debug Action Failed', getErrorMessage(error))
@@ -141,6 +175,31 @@ export default function DebugScreen({ navigation }: Props) {
           </View>
         </View>
 
+        <Text style={styles.sectionTitle}>Maintenance</Text>
+
+        <TouchableOpacity
+          style={[styles.utilityButton, busyAction === 'reseed' && styles.disabledButton]}
+          onPress={confirmReseedDefaults}
+          activeOpacity={0.75}
+          disabled={busyAction !== null}
+        >
+          <View style={styles.utilityIconBadge}>
+            <MaterialCommunityIcons
+              name="database-refresh-outline"
+              size={20}
+              color={theme.colors.accent}
+            />
+          </View>
+          <View style={styles.buttonTextBlock}>
+            <Text style={styles.utilityButtonTitle}>
+              {busyAction === 'reseed' ? 'Reseeding defaults...' : 'Reseed default exercises'}
+            </Text>
+            <Text style={styles.buttonDescription}>
+              Refreshes built-in exercises and muscle subsections without changing workout history.
+            </Text>
+          </View>
+        </TouchableOpacity>
+
         <Text style={styles.sectionTitle}>Destructive Actions</Text>
 
         <TouchableOpacity
@@ -160,7 +219,7 @@ export default function DebugScreen({ navigation }: Props) {
             <Text style={styles.dangerButtonTitle}>
               {busyAction === 'methods' ? 'Deleting custom methods...' : 'Delete all custom methods'}
             </Text>
-            <Text style={styles.dangerButtonDescription}>
+            <Text style={styles.buttonDescription}>
               Clears custom methods from the library while preserving referenced records.
             </Text>
           </View>
@@ -183,7 +242,7 @@ export default function DebugScreen({ navigation }: Props) {
             <Text style={styles.dangerButtonTitle}>
               {busyAction === 'exercises' ? 'Deleting custom exercises...' : 'Delete all custom exercises'}
             </Text>
-            <Text style={styles.dangerButtonDescription}>
+            <Text style={styles.buttonDescription}>
               Clears custom exercises from the library while preserving referenced records.
             </Text>
           </View>
@@ -273,6 +332,34 @@ const stylesheet = createStyleSheet((theme) => ({
   disabledButton: {
     opacity: 0.55,
   },
+  utilityButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: theme.colors.surface,
+    borderRadius: theme.radius.md,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    paddingHorizontal: theme.spacing.md,
+    paddingVertical: theme.spacing.md,
+    marginBottom: theme.spacing.sm,
+    gap: theme.spacing.sm,
+  },
+  utilityIconBadge: {
+    width: 38,
+    height: 38,
+    borderRadius: theme.radius.full,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: theme.colors.accentMuted,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+  },
+  utilityButtonTitle: {
+    color: theme.colors.text,
+    fontSize: theme.fontSize.md,
+    fontFamily: theme.fontFamily.extraBold,
+    marginBottom: 2,
+  },
   dangerIconBadge: {
     width: 38,
     height: 38,
@@ -293,7 +380,7 @@ const stylesheet = createStyleSheet((theme) => ({
     fontFamily: theme.fontFamily.extraBold,
     marginBottom: 2,
   },
-  dangerButtonDescription: {
+  buttonDescription: {
     color: theme.colors.textMuted,
     fontSize: theme.fontSize.sm,
     lineHeight: 19,

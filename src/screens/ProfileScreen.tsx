@@ -225,7 +225,7 @@ export default function ProfileScreen({ navigation }: Props) {
         <View style={styles.settingsTextBlock}>
           <Text style={styles.settingsButtonTitle}>Workout settings</Text>
           <Text style={styles.settingsButtonDescription}>
-            Manage default units and rest timers.
+            Manage default units, rest timers, and recovery.
           </Text>
         </View>
         <Text style={styles.settingsChevron}>›</Text>

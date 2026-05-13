@@ -19,7 +19,6 @@ import ThemedDialog from '@/components/ui/ThemedDialog'
 import {
   createCustomExerciseType,
   createCustomMethod,
-  createCustomSection,
   createWorkoutTemplate,
   deleteWorkoutTemplate,
   getExerciseTypesBySection,
@@ -38,7 +37,7 @@ import type { HomeStackParamList } from '../navigation/TabNavigator'
 
 type Props = NativeStackScreenProps<HomeStackParamList, 'Templates'>
 type PickerStep = 'sections' | 'exerciseTypes' | 'methods'
-type PickerCreateMode = 'section' | 'exercise' | 'method'
+type PickerCreateMode = 'exercise' | 'method'
 
 export default function TemplatesScreen({ navigation }: Props) {
   const { styles, theme } = useStyles(stylesheet)
@@ -370,11 +369,8 @@ export function TemplateExercisePickerModal({
   }
 
   function openCreateModal() {
-    const mode: PickerCreateMode = step === 'sections'
-      ? 'section'
-      : step === 'exerciseTypes'
-        ? 'exercise'
-        : 'method'
+    if (step === 'sections') return
+    const mode: PickerCreateMode = step === 'exerciseTypes' ? 'exercise' : 'method'
     setCreateMode(mode)
     setCreateName('')
     setCreateError('')
@@ -412,9 +408,7 @@ export function TemplateExercisePickerModal({
 
     setLoading(true)
     try {
-      if (createMode === 'section') {
-        await createCustomSection(trimmed)
-      } else if (createMode === 'method') {
+      if (createMode === 'method') {
         await createCustomMethod(trimmed, selectedExerciseType?.id ?? null)
       } else if (createMode === 'exercise' && selectedSection) {
         await createCustomExerciseType({
@@ -497,9 +491,7 @@ export function TemplateExercisePickerModal({
       ? selectedSection?.name ?? 'Exercises'
       : selectedExerciseType?.name ?? 'Methods'
 
-  const createTitle = createMode === 'section'
-    ? 'Add Body Part'
-    : createMode === 'exercise'
+  const createTitle = createMode === 'exercise'
       ? 'Add Exercise'
       : 'Add Method'
 
@@ -517,10 +509,12 @@ export function TemplateExercisePickerModal({
             ) : <View style={styles.pickerTopButtonSpacer} />}
             <Text style={styles.pickerTitle}>{title}</Text>
             <View style={styles.pickerRightActions}>
-              <TouchableOpacity style={styles.pickerAddButton} onPress={openCreateModal}>
-                <MaterialCommunityIcons name="plus" size={16} color={theme.colors.text} />
-                <Text style={styles.pickerTopButtonText}>Add</Text>
-              </TouchableOpacity>
+              {step !== 'sections' ? (
+                <TouchableOpacity style={styles.pickerAddButton} onPress={openCreateModal}>
+                  <MaterialCommunityIcons name="plus" size={16} color={theme.colors.text} />
+                  <Text style={styles.pickerTopButtonText}>Add</Text>
+                </TouchableOpacity>
+              ) : null}
               <TouchableOpacity style={styles.pickerIconButton} onPress={onClose}>
                 <MaterialCommunityIcons name="close" size={17} color={theme.colors.text} />
               </TouchableOpacity>
@@ -629,9 +623,7 @@ function PickerCreateModal({
             value={name}
             onChangeText={onChangeName}
             placeholder={
-              mode === 'section'
-                ? 'Body part name'
-                : mode === 'exercise'
+              mode === 'exercise'
                   ? 'Exercise name'
                   : 'Method name'
             }

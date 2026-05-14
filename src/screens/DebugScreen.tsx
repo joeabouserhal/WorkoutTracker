@@ -1,10 +1,11 @@
 import React, { useState } from 'react'
-import { ScrollView, Text, TouchableOpacity, View } from 'react-native'
+import { Modal, ScrollView, Text, TouchableOpacity, View } from 'react-native'
 import type { NativeStackScreenProps } from '@react-navigation/native-stack'
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons'
 import { createStyleSheet, useStyles } from 'react-native-unistyles'
 import ThemedDialog, { type ThemedDialogAction } from '@/components/ui/ThemedDialog'
 import ScreenHeader, { useHeaderFade } from '@/components/ui/ScreenHeader'
+import SplashScreen from '@/components/SplashScreen'
 import { reseedDefaultExercises } from '@/db/seedData'
 import {
   deleteAllCustomExercises,
@@ -29,6 +30,7 @@ export default function DebugScreen({ navigation }: Props) {
   const bumpDataVersion = useDataRefreshStore((state) => state.bumpDataVersion)
   const [busyAction, setBusyAction] = useState<BusyAction>(null)
   const [dialog, setDialog] = useState<DialogState | null>(null)
+  const [showSplash, setShowSplash] = useState(false)
 
   function closeDialog() {
     setDialog(null)
@@ -145,6 +147,10 @@ export default function DebugScreen({ navigation }: Props) {
     }
   }
 
+  function handleShowSplash() {
+    setShowSplash(true)
+  }
+
   return (
     <View style={styles.container}>
       <ScreenHeader
@@ -196,6 +202,27 @@ export default function DebugScreen({ navigation }: Props) {
             </Text>
             <Text style={styles.buttonDescription}>
               Refreshes built-in exercises and muscle subsections without changing workout history.
+            </Text>
+          </View>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.utilityButton}
+          onPress={handleShowSplash}
+          activeOpacity={0.82}
+          disabled={busyAction !== null}
+        >
+          <View style={styles.utilityIconBadge}>
+            <MaterialCommunityIcons
+              name="eye-outline"
+              size={17}
+              color={theme.colors.accent}
+            />
+          </View>
+          <View style={styles.buttonTextBlock}>
+            <Text style={styles.utilityButtonTitle}>Show splash screen</Text>
+            <Text style={styles.buttonDescription}>
+              Displays the app splash screen animation.
             </Text>
           </View>
         </TouchableOpacity>
@@ -297,6 +324,13 @@ export default function DebugScreen({ navigation }: Props) {
         message={dialog?.message}
         actions={dialog?.actions ?? []}
       />
+
+      <Modal visible={showSplash} animationType="none" transparent={true}>
+        <SplashScreen
+          ready={true}
+          onFinished={() => setShowSplash(false)}
+        />
+      </Modal>
     </View>
   )
 }

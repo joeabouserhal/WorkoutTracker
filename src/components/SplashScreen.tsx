@@ -18,7 +18,7 @@ const stylesheet = createStyleSheet(theme => ({
     right: 0,
     bottom: 0,
     left: 0,
-    backgroundColor: theme.colors.surface,
+    backgroundColor: theme.colors.surface2,
     elevation: 1000,
     zIndex: 1000,
   },

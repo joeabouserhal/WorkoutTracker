@@ -7,7 +7,6 @@ import React, {
 } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   InteractionManager,
   ScrollView,
   Text,
@@ -87,6 +86,7 @@ export default function TemplateDetailScreen({ navigation, route }: Props) {
   const [pickerVisible, setPickerVisible] = useState(false);
   const [deleteVisible, setDeleteVisible] = useState(false);
   const [cancelVisible, setCancelVisible] = useState(false);
+  const [activeWorkoutVisible, setActiveWorkoutVisible] = useState(false);
   const [startingTemplate, setStartingTemplate] = useState(false);
   const [editSnapshot, setEditSnapshot] =
     useState<WorkoutTemplateDetail | null>(null);
@@ -319,10 +319,7 @@ export default function TemplateDetailScreen({ navigation, route }: Props) {
 
   async function startTemplate() {
     if (activeWorkoutId) {
-      Alert.alert(
-        'Workout already active',
-        'Finish or cancel it before starting a template.',
-      );
+      setActiveWorkoutVisible(true);
       return;
     }
     if (!template?.exercises.length) {
@@ -648,6 +645,14 @@ export default function TemplateDetailScreen({ navigation, route }: Props) {
         actions={[
           { label: 'Keep Editing', onPress: () => setCancelVisible(false) },
           { label: 'Discard', variant: 'danger', onPress: cancelEdit },
+        ]}
+      />
+      <ThemedDialog
+        visible={activeWorkoutVisible}
+        title="Workout Already Active"
+        message="Finish or cancel it before starting a template."
+        actions={[
+          { label: 'OK', variant: 'primary', onPress: () => setActiveWorkoutVisible(false) },
         ]}
       />
     </View>

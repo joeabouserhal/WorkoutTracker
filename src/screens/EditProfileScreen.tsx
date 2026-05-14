@@ -1,16 +1,11 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import {
-  Dimensions,
-  findNodeHandle,
-  Keyboard,
-  type NativeScrollEvent,
-  type NativeSyntheticEvent,
-  ScrollView,
   Text,
   TextInput,
   TouchableOpacity,
   View,
 } from 'react-native'
+import { KeyboardAwareScrollView } from 'react-native-keyboard-controller'
 import type { NativeStackScreenProps } from '@react-navigation/native-stack'
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons'
 import { createStyleSheet, useStyles } from 'react-native-unistyles'
@@ -27,6 +22,29 @@ const KG_TO_LB = 2.20462
 const FT_TO_CM = 30.48
 const VALUE_EPSILON = 0.000001
 
+const GYM_AVATAR_ICONS = [
+  'dumbbell',
+  'weight-lifter',
+  'arm-flex',
+  'arm-flex-outline',
+  'human',
+  'account',
+  'run',
+  'run-fast',
+  'heart-pulse',
+  'trophy',
+  'medal',
+  'star',
+  'lightning-bolt',
+  'fire',
+  'weight-pound',
+  'weight',
+  'scale-bathroom',
+  'timer-outline',
+  'bike',
+  'swim',
+]
+
 function valuesEqual(a: number | null | undefined, b: number | null | undefined): boolean {
   if (a == null && b == null) return true
   if (a == null || b == null) return false
@@ -41,109 +59,29 @@ export default function EditProfileScreen({ navigation }: Props) {
   const [height, setHeight] = useState('')
   const [weightUnit, setWeightUnit] = useState<'kg' | 'lb'>('kg')
   const [heightUnit, setHeightUnit] = useState<'cm' | 'ft'>('cm')
+  const [avatarIcon, setAvatarIcon] = useState<string | null>(null)
   const [loadedProfile, setLoadedProfile] = useState<LoadedProfile | null>(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
-  const [keyboardHeight, setKeyboardHeight] = useState(0)
   const [dialog, setDialog] = useState<{
     title: string
     message?: string
     actions: ThemedDialogAction[]
   } | null>(null)
-  const scrollRef = useRef<ScrollView | null>(null)
-  const scrollOffsetRef = useRef(0)
-  const keyboardHeightRef = useRef(0)
-  const keyboardTopRef = useRef(Dimensions.get('window').height)
-  const focusedFieldRef = useRef<string | null>(null)
-  const fieldInputRef = useRef<Record<string, TextInput | null>>({})
 
-  const scrollFieldIntoView = useCallback((key: string, delay = 40) => {
-    setTimeout(() => {
-      const input = fieldInputRef.current[key]
-      const scrollView = scrollRef.current
-      if (!input || !scrollView) return
-
-      const metrics = Keyboard.metrics()
-      if (metrics?.height && metrics.height !== keyboardHeightRef.current) {
-        keyboardHeightRef.current = metrics.height
-        keyboardTopRef.current = metrics.screenY
-        setKeyboardHeight(metrics.height)
-      }
-
-      const nodeHandle = findNodeHandle(input)
-      const keyboardResponder = scrollView.getScrollResponder() as unknown as {
-        scrollResponderScrollNativeHandleToKeyboard?: (
-          nodeHandle: number,
-          additionalOffset?: number,
-          preventNegativeScrollOffset?: boolean,
-        ) => void
-      }
-      if (nodeHandle) {
-        keyboardResponder.scrollResponderScrollNativeHandleToKeyboard?.(
-          nodeHandle,
-          theme.spacing.lg,
-          true,
-        )
-      }
-
-      const measurableScrollView = scrollView as unknown as {
-        measureInWindow: (
-          callback: (
-            x: number,
-            y: number,
-            width: number,
-            height: number,
-          ) => void,
-        ) => void
-      }
-
-      measurableScrollView.measureInWindow((_scrollX, scrollY, _scrollWidth, scrollHeight) => {
-        input.measureInWindow((_inputX, inputY, _inputWidth, inputHeight) => {
-          const windowHeight = Dimensions.get('window').height
-          const liveMetrics = Keyboard.metrics()
-          const knownKeyboardHeight = liveMetrics?.height ?? keyboardHeightRef.current
-          const measuredKeyboardTop = liveMetrics?.screenY ?? keyboardTopRef.current
-          const keyboardTop = knownKeyboardHeight > 0
-            ? measuredKeyboardTop || windowHeight - knownKeyboardHeight
-            : windowHeight
-          const visibleTop = scrollY + theme.spacing.sm
-          const visibleBottom = Math.min(
-            scrollY + scrollHeight,
-            keyboardTop,
-          ) - theme.spacing.lg
-          const inputTop = inputY
-          const inputBottom = inputY + inputHeight
-
-          if (inputBottom > visibleBottom) {
-            scrollView.scrollTo({
-              y: Math.max(0, scrollOffsetRef.current + inputBottom - visibleBottom),
-              animated: true,
-            })
-            return
-          }
-
-          if (inputTop < visibleTop) {
-            scrollView.scrollTo({
-              y: Math.max(0, scrollOffsetRef.current - (visibleTop - inputTop)),
-              animated: true,
-            })
-          }
-        })
-      })
-    }, delay)
-  }, [theme.spacing.lg, theme.spacing.sm])
-
-  function handleFieldFocus(key: string) {
-    focusedFieldRef.current = key
-    scrollFieldIntoView(key, 80)
-    scrollFieldIntoView(key, 240)
-    scrollFieldIntoView(key, 420)
-  }
-
-  function handleScroll(event: NativeSyntheticEvent<NativeScrollEvent>) {
-    scrollOffsetRef.current = event.nativeEvent.contentOffset.y
-    handleHeaderScroll(event)
-  }
+  const storedHeight = (() => {
+    const h = height ? parseFloat(height) : undefined
+    return h && heightUnit === 'ft' ? h * FT_TO_CM : h
+  })()
+  const storedWeight = (() => {
+    const w = weight ? parseFloat(weight) : undefined
+    return w && weightUnit === 'lb' ? w / KG_TO_LB : w
+  })()
+  const hasChanges =
+    name.trim() !== (loadedProfile?.name ?? '') ||
+    !valuesEqual(storedHeight, loadedProfile?.height) ||
+    !valuesEqual(storedWeight, loadedProfile?.weight) ||
+    avatarIcon !== (loadedProfile?.avatarIcon ?? null)
 
   function closeDialog() {
     setDialog(null)
@@ -166,6 +104,7 @@ export default function EditProfileScreen({ navigation }: Props) {
           setName(p.name || '')
           setWeightUnit((p.defaultWeightUnit === 'lb' ? 'lb' : 'kg') as 'kg' | 'lb')
           setHeightUnit((p.heightUnit === 'ft' ? 'ft' : 'cm') as 'cm' | 'ft')
+          setAvatarIcon(p.avatarIcon || null)
 
           // Convert stored values (always in kg/cm) to display units
           if (p.weight) {
@@ -192,43 +131,10 @@ export default function EditProfileScreen({ navigation }: Props) {
     load()
   }, [])
 
-  useEffect(() => {
-    const showSub = Keyboard.addListener('keyboardDidShow', (event) => {
-      keyboardHeightRef.current = event.endCoordinates.height
-      keyboardTopRef.current = event.endCoordinates.screenY
-      setKeyboardHeight(event.endCoordinates.height)
-      const focusedKey = focusedFieldRef.current
-      if (focusedKey) {
-        scrollFieldIntoView(focusedKey, 60)
-      }
-    })
-    const hideSub = Keyboard.addListener('keyboardDidHide', () => {
-      keyboardHeightRef.current = 0
-      keyboardTopRef.current = Dimensions.get('window').height
-      setKeyboardHeight(0)
-    })
-    return () => {
-      showSub.remove()
-      hideSub.remove()
-    }
-  }, [scrollFieldIntoView])
-
   async function handleSave() {
     setSaving(true)
 
     try {
-      // Convert display values back to kg/cm for storage
-      const heightNum = height ? parseFloat(height) : undefined
-      const weightNum = weight ? parseFloat(weight) : undefined
-
-      const storedHeight = heightNum && heightUnit === 'ft'
-        ? heightNum * FT_TO_CM // ft to cm
-        : heightNum
-
-      const storedWeight = weightNum && weightUnit === 'lb'
-        ? weightNum / KG_TO_LB // lb to kg
-        : weightNum
-
       const profileChanges: Parameters<typeof upsertProfile>[0] = {}
       const nextName = name.trim()
       if (nextName !== (loadedProfile?.name ?? '')) {
@@ -236,6 +142,9 @@ export default function EditProfileScreen({ navigation }: Props) {
       }
       if (!valuesEqual(storedHeight, loadedProfile?.height)) {
         profileChanges.height = storedHeight
+      }
+      if (avatarIcon !== (loadedProfile?.avatarIcon ?? null)) {
+        profileChanges.avatarIcon = avatarIcon
       }
 
       if (Object.keys(profileChanges).length > 0) {
@@ -317,18 +226,14 @@ export default function EditProfileScreen({ navigation }: Props) {
           showFade={showHeaderFade}
         />
 
-        <ScrollView
-          ref={scrollRef}
+        <KeyboardAwareScrollView
+          bottomOffset={theme.spacing.lg}
+          disableScrollOnKeyboardHide
           style={styles.scroll}
-          contentContainerStyle={[
-            styles.content,
-            keyboardHeight > 0 && {
-              paddingBottom: keyboardHeight + theme.spacing.lg,
-            },
-          ]}
+          contentContainerStyle={styles.content}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="interactive"
-          onScroll={handleScroll}
+          onScroll={handleHeaderScroll}
           scrollEventThrottle={16}
         >
 
@@ -340,13 +245,9 @@ export default function EditProfileScreen({ navigation }: Props) {
             <Text style={styles.label}>Name</Text>
           </View>
           <TextInput
-            ref={(ref) => {
-              fieldInputRef.current.name = ref
-            }}
             style={styles.input}
             value={name}
             onChangeText={setName}
-            onFocus={() => handleFieldFocus('name')}
             placeholder="Enter your name"
             placeholderTextColor={theme.colors.textMuted}
             autoCorrect={false}
@@ -362,13 +263,9 @@ export default function EditProfileScreen({ navigation }: Props) {
             <Text style={styles.unitPill}>{heightUnit}</Text>
           </View>
           <TextInput
-            ref={(ref) => {
-              fieldInputRef.current.height = ref
-            }}
             style={styles.input}
             value={height}
             onChangeText={setHeight}
-            onFocus={() => handleFieldFocus('height')}
             placeholder={`Enter your height in ${heightUnit}`}
             placeholderTextColor={theme.colors.textMuted}
             keyboardType="decimal-pad"
@@ -384,35 +281,74 @@ export default function EditProfileScreen({ navigation }: Props) {
             <Text style={styles.unitPill}>{weightUnit}</Text>
           </View>
           <TextInput
-            ref={(ref) => {
-              fieldInputRef.current.weight = ref
-            }}
             style={styles.input}
             value={weight}
             onChangeText={setWeight}
-            onFocus={() => handleFieldFocus('weight')}
             placeholder={`Enter your weight in ${weightUnit}`}
             placeholderTextColor={theme.colors.textMuted}
             keyboardType="decimal-pad"
           />
         </View>
 
+        <View style={styles.card}>
+          <View style={styles.fieldHeader}>
+            <View style={styles.fieldIcon}>
+              <MaterialCommunityIcons name="face-man-profile" size={18} color={theme.colors.accent} />
+            </View>
+            <Text style={styles.label}>Profile Picture</Text>
+          </View>
+          <View style={styles.avatarGrid}>
+            {Array.from({ length: Math.ceil(GYM_AVATAR_ICONS.length / 5) }, (_, rowIndex) => (
+              <View key={rowIndex} style={styles.avatarRow}>
+                {GYM_AVATAR_ICONS.slice(rowIndex * 5, rowIndex * 5 + 5).map((icon) => {
+                  const selected = avatarIcon === icon
+                  return (
+                    <TouchableOpacity
+                      key={icon}
+                      style={[styles.avatarOption, selected && styles.avatarOptionSelected]}
+                      onPress={() => setAvatarIcon(selected ? null : icon)}
+                      activeOpacity={0.7}
+                    >
+                      <MaterialCommunityIcons
+                        name={icon}
+                        size={24}
+                        color={selected ? theme.colors.accent : theme.colors.textMuted}
+                      />
+                    </TouchableOpacity>
+                  )
+                })}
+              </View>
+            ))}
+          </View>
+          {avatarIcon && (
+            <TouchableOpacity
+              style={styles.clearAvatarButton}
+              onPress={() => setAvatarIcon(null)}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.clearAvatarText}>Remove</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+
         <View style={styles.formActions}>
-          <TouchableOpacity
-            style={[styles.saveButton, saving && styles.saveButtonDisabled]}
-            onPress={requestSaveProfile}
-            disabled={saving}
-            activeOpacity={0.82}
-          >
-            <MaterialCommunityIcons
-              name={saving ? 'progress-clock' : 'content-save-outline'}
-              size={18}
-              color="#FFFFFF"
-            />
-            <Text style={styles.saveButtonText}>
-              {saving ? 'Saving...' : 'Save Changes'}
-            </Text>
-          </TouchableOpacity>
+          {hasChanges && (
+            <TouchableOpacity
+              style={[styles.saveButton, saving && styles.saveButtonDisabled]}
+              onPress={requestSaveProfile}
+              disabled={saving}
+              activeOpacity={0.82}
+            >
+              <MaterialCommunityIcons
+                name={saving ? 'progress-clock' : 'content-save-outline'}
+                size={18}
+                color="#FFFFFF"
+              />
+              <Text style={styles.saveButtonText}>
+                {saving ? 'Saving...' : 'Save Changes'}
+              </Text>
+            </TouchableOpacity>
+          )}
           <TouchableOpacity
             style={styles.cancelButton}
             onPress={() => navigation.goBack()}
@@ -421,7 +357,7 @@ export default function EditProfileScreen({ navigation }: Props) {
             <Text style={styles.cancelButtonText}>Cancel</Text>
           </TouchableOpacity>
         </View>
-        </ScrollView>
+        </KeyboardAwareScrollView>
       </View>
       <ThemedDialog
         visible={!!dialog}
@@ -544,5 +480,41 @@ const stylesheet = createStyleSheet((theme) => ({
     color: theme.colors.textMuted,
     fontSize: theme.fontSize.sm,
     fontFamily: theme.fontFamily.extraBold,
+  },
+  avatarGrid: {
+    paddingHorizontal: theme.spacing.sm,
+  },
+  avatarRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: theme.spacing.sm,
+  },
+  avatarOption: {
+    width: 46,
+    height: 46,
+    borderRadius: theme.radius.full,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: theme.colors.surface2,
+    borderWidth: 1.5,
+    borderColor: theme.colors.border,
+  },
+  avatarOptionSelected: {
+    backgroundColor: theme.colors.accentMuted,
+    borderColor: theme.colors.accent,
+  },
+  clearAvatarButton: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: theme.spacing.sm,
+    paddingVertical: 4,
+    borderRadius: theme.radius.full,
+    backgroundColor: theme.colors.dangerMuted,
+    borderWidth: 1,
+    borderColor: theme.colors.dangerMuted,
+  },
+  clearAvatarText: {
+    color: theme.colors.danger,
+    fontSize: theme.fontSize.xs,
+    fontFamily: theme.fontFamily.bold,
   },
 }))

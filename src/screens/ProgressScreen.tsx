@@ -1,7 +1,6 @@
 import React, { useCallback, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   Modal,
   Pressable,
   ScrollView,
@@ -10,7 +9,8 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { useFocusEffect } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import {
   Canvas,
   Circle,
@@ -22,8 +22,11 @@ import {
   Skia,
   vec,
 } from '@shopify/react-native-skia';
+import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import { createStyleSheet, useStyles } from 'react-native-unistyles';
-import ThemedDialog from '@/components/ui/ThemedDialog';
+import ThemedDialog, {
+  type ThemedDialogAction,
+} from '@/components/ui/ThemedDialog';
 import ScreenHeader, { useHeaderFade } from '@/components/ui/ScreenHeader';
 import {
   getBodyWeightLogs,
@@ -36,9 +39,10 @@ import {
   type ProgressExerciseSummary,
   type ProgressPoint,
 } from '@/db/progressHelpers';
+import type { ProgressStackParamList } from '@/navigation/TabNavigator';
 
-const CHART_HEIGHT = 148;
-const PAD = { top: 14, right: 16, bottom: 38, left: 52 };
+const CHART_HEIGHT = 120;
+const PAD = { top: 14, right: 16, bottom: 32, left: 44 };
 const LB_PER_KG = 2.20462;
 const EXERCISE_SELECTOR_HEIGHT = 64;
 const METHOD_SELECTOR_HEIGHT = 44;
@@ -79,6 +83,12 @@ function formatDateLabel(ts: number): string {
     day: 'numeric',
   });
 }
+
+type DialogState = {
+  title: string;
+  message?: string;
+  actions: ThemedDialogAction[];
+};
 
 const emptySheet = createStyleSheet(() => ({}));
 
@@ -486,6 +496,8 @@ function ExerciseProgressChart({
 
 export default function ProgressScreen() {
   const { styles, theme } = useStyles(stylesheet);
+  const navigation =
+    useNavigation<NativeStackNavigationProp<ProgressStackParamList>>();
   const { showHeaderFade, handleHeaderScroll } = useHeaderFade();
   const [logs, setLogs] = useState<WeightLog[]>([]);
   const [weightUnit, setWeightUnit] = useState<'kg' | 'lb'>('kg');
@@ -514,6 +526,7 @@ export default function ProgressScreen() {
   const [showModal, setShowModal] = useState(false);
   const [showOneRmInfo, setShowOneRmInfo] = useState(false);
   const [inputWeight, setInputWeight] = useState('');
+  const [dialog, setDialog] = useState<DialogState | null>(null);
   const [saving, setSaving] = useState(false);
 
   useFocusEffect(
@@ -546,10 +559,25 @@ export default function ProgressScreen() {
     }
   }
 
-  async function handleLogWeight() {
+  function closeDialog() {
+    setDialog(null);
+  }
+
+  function showProgressDialog(title: string, message: string) {
+    setDialog({
+      title,
+      message,
+      actions: [{ label: 'OK', variant: 'primary', onPress: closeDialog }],
+    });
+  }
+
+  async function handleSaveWeight() {
     const val = parseFloat(inputWeight);
     if (isNaN(val) || val <= 0) {
-      Alert.alert('Invalid Weight', 'Please enter a valid positive number.');
+      showProgressDialog(
+        'Invalid Weight',
+        'Please enter a valid positive number.',
+      );
       return;
     }
     setSaving(true);
@@ -560,7 +588,7 @@ export default function ProgressScreen() {
       setShowModal(false);
       await loadData();
     } catch (e) {
-      Alert.alert('Error', 'Failed to log weight.');
+      showProgressDialog('Something Went Wrong', 'Failed to log weight.');
       console.error(e);
     } finally {
       setSaving(false);
@@ -568,15 +596,22 @@ export default function ProgressScreen() {
   }
 
   function openModal() {
-    const latestLog = logs[logs.length - 1];
-    if (latestLog) {
+    const sourceLog = logs[logs.length - 1];
+    if (sourceLog) {
       const displayVal =
         weightUnit === 'lb'
-          ? (latestLog.weight * 2.20462).toFixed(1)
-          : latestLog.weight.toFixed(1);
+          ? (sourceLog.weight * 2.20462).toFixed(1)
+          : sourceLog.weight.toFixed(1);
       setInputWeight(displayVal);
+    } else {
+      setInputWeight('');
     }
     setShowModal(true);
+  }
+
+  function closeWeightModal() {
+    setShowModal(false);
+    setInputWeight('');
   }
 
   const latestLog = logs[logs.length - 1];
@@ -658,6 +693,35 @@ export default function ProgressScreen() {
 
         <TouchableOpacity style={styles.logButton} onPress={openModal}>
           <RNText style={styles.logButtonText}>Log Weight</RNText>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.historyButton}
+          onPress={() => navigation.navigate('WeightHistory')}
+          activeOpacity={0.82}
+        >
+          <View style={styles.historyButtonMain}>
+            <View style={styles.historyButtonIcon}>
+              <MaterialCommunityIcons
+                name="history"
+                size={18}
+                color={theme.colors.accent}
+              />
+            </View>
+            <RNText style={styles.historyButtonText}>Weight History</RNText>
+          </View>
+          <View style={styles.historyButtonSide}>
+            <RNText style={styles.historyButtonMeta}>
+              {logs.length === 0
+                ? 'No entries'
+                : `${logs.length} ${logs.length === 1 ? 'entry' : 'entries'}`}
+            </RNText>
+            <MaterialCommunityIcons
+              name="chevron-right"
+              size={20}
+              color={theme.colors.textMuted}
+            />
+          </View>
         </TouchableOpacity>
 
         <RNText style={styles.strengthSectionLabel}>STRENGTH PROGRESS</RNText>
@@ -958,14 +1022,14 @@ export default function ProgressScreen() {
         visible={showModal}
         transparent
         animationType="fade"
-        onRequestClose={() => setShowModal(false)}
+        onRequestClose={closeWeightModal}
       >
-        <Pressable style={styles.overlay} onPress={() => setShowModal(false)}>
+        <Pressable style={styles.overlay} onPress={closeWeightModal}>
           <Pressable style={styles.modalCard} onPress={() => {}}>
             <RNText style={styles.modalTitle}>Log Weight</RNText>
             <View style={styles.inputRow}>
               <TextInput
-                style={[styles.weightInput, { color: theme.colors.text }]}
+                style={styles.weightInput}
                 value={inputWeight}
                 onChangeText={setInputWeight}
                 keyboardType="decimal-pad"
@@ -978,16 +1042,16 @@ export default function ProgressScreen() {
             <View style={styles.modalActions}>
               <TouchableOpacity
                 style={styles.cancelModalBtn}
-                onPress={() => {
-                  setShowModal(false);
-                  setInputWeight('');
-                }}
+                onPress={closeWeightModal}
               >
                 <RNText style={styles.cancelModalText}>Cancel</RNText>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[styles.saveModalBtn, saving && { opacity: 0.5 }]}
-                onPress={handleLogWeight}
+                style={[
+                  styles.saveModalBtn,
+                  saving && styles.saveModalBtnDisabled,
+                ]}
+                onPress={handleSaveWeight}
                 disabled={saving}
               >
                 <RNText style={styles.saveModalText}>
@@ -1010,6 +1074,12 @@ export default function ProgressScreen() {
             onPress: () => setShowOneRmInfo(false),
           },
         ]}
+      />
+      <ThemedDialog
+        visible={Boolean(dialog)}
+        title={dialog?.title ?? ''}
+        message={dialog?.message}
+        actions={dialog?.actions ?? []}
       />
     </View>
   );
@@ -1093,6 +1163,50 @@ const stylesheet = createStyleSheet(theme => ({
   logButtonText: {
     color: '#FFFFFF',
     fontSize: theme.fontSize.md,
+    fontFamily: theme.fontFamily.semiBold,
+  },
+  historyButton: {
+    minHeight: 48,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: theme.colors.surface,
+    borderRadius: theme.radius.md,
+    borderWidth: 0.5,
+    borderColor: theme.colors.border,
+    marginTop: theme.spacing.sm,
+    paddingHorizontal: theme.spacing.sm,
+    paddingVertical: theme.spacing.xs,
+    gap: theme.spacing.xs,
+  },
+  historyButtonMain: {
+    flex: 1,
+    minWidth: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: theme.spacing.sm,
+  },
+  historyButtonIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: theme.radius.full,
+    backgroundColor: theme.colors.accentMuted,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  historyButtonText: {
+    color: theme.colors.text,
+    fontSize: theme.fontSize.sm,
+    fontFamily: theme.fontFamily.bold,
+  },
+  historyButtonSide: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+  },
+  historyButtonMeta: {
+    color: theme.colors.textMuted,
+    fontSize: theme.fontSize.xs,
     fontFamily: theme.fontFamily.semiBold,
   },
   strengthSectionLabel: {
@@ -1409,6 +1523,7 @@ const stylesheet = createStyleSheet(theme => ({
   },
   weightInput: {
     flex: 1,
+    color: theme.colors.text,
     fontSize: theme.fontSize.xl,
     fontFamily: theme.fontFamily.semiBold,
     paddingVertical: theme.spacing.md,
@@ -1444,6 +1559,9 @@ const stylesheet = createStyleSheet(theme => ({
     backgroundColor: theme.colors.accent,
     borderWidth: 1.5,
     borderColor: 'rgba(255, 255, 255, 0.3)',
+  },
+  saveModalBtnDisabled: {
+    opacity: 0.5,
   },
   saveModalText: {
     color: '#FFFFFF',

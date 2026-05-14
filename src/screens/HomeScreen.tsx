@@ -6,7 +6,6 @@ import React, {
   useState,
 } from 'react';
 import {
-  Alert,
   ScrollView,
   Text,
   TouchableOpacity,
@@ -31,6 +30,7 @@ import Reanimated, {
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import { createStyleSheet, useStyles } from 'react-native-unistyles';
 import ScreenHeader, { useHeaderFade } from '@/components/ui/ScreenHeader';
+import ThemedDialog, { type ThemedDialogAction } from '@/components/ui/ThemedDialog';
 import {
   WorkoutDetailModal,
   WorkoutSummaryCard,
@@ -41,15 +41,23 @@ import {
   getFavoriteWorkoutTemplates,
   getMuscleGroupFatigue,
   getRecentCompletedWorkouts,
+  getWorkoutTemplates,
   getWorkoutDetail,
   type MuscleGroupFatigue,
   type WorkoutTemplateSummary,
   type WorkoutDetail,
-  type WorkoutSummary,
+type WorkoutSummary,
 } from '@/db/workoutHelpers';
 import { getDefaultMuscleRecoveryHours } from '@/services/muscleRecoverySettings';
+import { getScheduledTemplateForToday } from '@/services/workoutSchedule';
 import { useSessionStore } from '@/store/sessionStore';
 import type { HomeStackParamList } from '../navigation/TabNavigator';
+
+type DialogState = {
+  title: string;
+  message?: string;
+  actions: ThemedDialogAction[];
+};
 
 function formatRecoveryHours(hours: number) {
   if (hours <= 0) return 'Ready';
@@ -211,6 +219,8 @@ export default function HomeScreen() {
   const [favoriteTemplates, setFavoriteTemplates] = useState<
     WorkoutTemplateSummary[]
   >([]);
+  const [todayScheduledTemplate, setTodayScheduledTemplate] =
+    useState<WorkoutTemplateSummary | null>(null);
   const [muscleFatigue, setMuscleFatigue] = useState<MuscleGroupFatigue[]>([]);
   const [selectedWorkoutId, setSelectedWorkoutId] = useState<string | null>(
     null,
@@ -229,6 +239,7 @@ export default function HomeScreen() {
     {},
   );
   const [loading, setLoading] = useState(true);
+  const [dialog, setDialog] = useState<DialogState | null>(null);
   const { showHeaderFade, handleHeaderScroll } = useHeaderFade();
   const startWorkout = useSessionStore(s => s.startWorkout);
   const activeWorkoutId = useSessionStore(s => s.activeWorkoutId);
@@ -238,16 +249,23 @@ export default function HomeScreen() {
     if (showLoading) setLoading(true);
     try {
       const recoveryHours = getDefaultMuscleRecoveryHours();
-      const [profile, workouts, templates, fatigue] = await Promise.all([
+      const todayScheduledTemplateId = getScheduledTemplateForToday();
+      const [profile, workouts, templates, fatigue, allTemplates] = await Promise.all([
         getProfile(),
         getRecentCompletedWorkouts(3),
         getFavoriteWorkoutTemplates(),
         getMuscleGroupFatigue(recoveryHours),
+        getWorkoutTemplates(),
       ]);
       setName(profile?.name ?? '');
       setRecentWorkouts(workouts);
       setFavoriteTemplates(templates);
       setMuscleFatigue(fatigue);
+      setTodayScheduledTemplate(
+        todayScheduledTemplateId
+          ? allTemplates.find((template) => template.id === todayScheduledTemplateId) ?? null
+          : null,
+      );
       setExpandedWorkoutIds({});
       setWorkoutPreviews({});
       setPreviewLoading({});
@@ -256,6 +274,7 @@ export default function HomeScreen() {
       setRecentWorkouts([]);
       setFavoriteTemplates([]);
       setMuscleFatigue([]);
+      setTodayScheduledTemplate(null);
     } finally {
       if (showLoading) setLoading(false);
     }
@@ -291,7 +310,11 @@ export default function HomeScreen() {
       const workoutId = await createWorkout();
       startWorkout(workoutId);
     } catch (e) {
-      Alert.alert('Error', 'Could not start workout.');
+      setDialog({
+        title: 'Could Not Start Workout',
+        message: 'Could not start workout.',
+        actions: [{ label: 'OK', variant: 'primary', onPress: () => setDialog(null) }],
+      });
       console.error(e);
     }
   }
@@ -497,6 +520,52 @@ export default function HomeScreen() {
           </TouchableOpacity>
         </View>
 
+        {todayScheduledTemplate ? (
+          <TouchableOpacity
+            style={styles.scheduledTemplateCard}
+            onPress={() =>
+              navigation.navigate('TemplateDetail', {
+                templateId: todayScheduledTemplate.id,
+              })
+            }
+            activeOpacity={0.82}
+          >
+            <View style={styles.scheduledTemplateIcon}>
+              <MaterialCommunityIcons
+                name="calendar-check-outline"
+                size={20}
+                color={theme.colors.accent}
+              />
+            </View>
+            <View style={styles.scheduledTemplateTextBlock}>
+              <View style={styles.scheduledTemplateLabelPill}>
+                <MaterialCommunityIcons
+                  name="clock-outline"
+                  size={12}
+                  color={theme.colors.accent}
+                />
+                <Text style={styles.scheduledTemplateEyebrow}>
+                  Scheduled Today
+                </Text>
+              </View>
+              <Text style={styles.scheduledTemplateTitle} numberOfLines={1}>
+                {todayScheduledTemplate.name}
+              </Text>
+              <Text style={styles.scheduledTemplateMeta} numberOfLines={1}>
+                {todayScheduledTemplate.exerciseCount} exercises -{' '}
+                {todayScheduledTemplate.totalSetCount} sets
+              </Text>
+            </View>
+            <View style={styles.scheduledTemplateActionIcon}>
+              <MaterialCommunityIcons
+                name="chevron-right"
+                size={20}
+                color={theme.colors.accent}
+              />
+            </View>
+          </TouchableOpacity>
+        ) : null}
+
         <TouchableOpacity
           style={styles.templatesButton}
           onPress={handleTemplatesPress}
@@ -625,6 +694,12 @@ export default function HomeScreen() {
         onDeleted={handleWorkoutDeleted}
         onRename={handleWorkoutRenamed}
         onUpdated={handleWorkoutUpdated}
+      />
+      <ThemedDialog
+        visible={Boolean(dialog)}
+        title={dialog?.title ?? ''}
+        message={dialog?.message}
+        actions={dialog?.actions ?? []}
       />
     </View>
   );
@@ -1415,6 +1490,68 @@ const stylesheet = createStyleSheet(theme => ({
     color: theme.colors.text,
     fontSize: theme.fontSize.md,
     fontFamily: theme.fontFamily.extraBold,
+  },
+  scheduledTemplateCard: {
+    minHeight: 72,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: theme.spacing.sm,
+    backgroundColor: theme.colors.surface,
+    borderRadius: theme.radius.md,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    paddingHorizontal: theme.spacing.md,
+    paddingVertical: theme.spacing.sm,
+  },
+  scheduledTemplateIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: theme.radius.md,
+    backgroundColor: theme.colors.accentMuted,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  scheduledTemplateTextBlock: {
+    flex: 1,
+    minWidth: 0,
+  },
+  scheduledTemplateLabelPill: {
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: theme.colors.accentMuted,
+    borderRadius: theme.radius.full,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    marginBottom: 4,
+  },
+  scheduledTemplateEyebrow: {
+    color: theme.colors.accent,
+    fontSize: theme.fontSize.xxs,
+    fontFamily: theme.fontFamily.extraBold,
+    textTransform: 'uppercase',
+  },
+  scheduledTemplateTitle: {
+    color: theme.colors.text,
+    fontSize: theme.fontSize.md,
+    fontFamily: theme.fontFamily.extraBold,
+  },
+  scheduledTemplateMeta: {
+    color: theme.colors.textMuted,
+    fontSize: theme.fontSize.xs,
+    fontFamily: theme.fontFamily.semiBold,
+    marginTop: 1,
+  },
+  scheduledTemplateActionIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: theme.radius.full,
+    backgroundColor: theme.colors.surface2,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   favoriteTemplatesBlock: {
     gap: theme.spacing.sm,

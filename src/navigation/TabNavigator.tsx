@@ -20,6 +20,7 @@ import TemplatesScreen from '../screens/TemplatesScreen'
 import TemplateDetailScreen from '../screens/TemplateDetailScreen'
 import CalendarScreen from '../screens/CalendarScreen'
 import ProgressScreen from '../screens/ProgressScreen'
+import WeightHistoryScreen from '../screens/WeightHistoryScreen'
 import LibraryScreen from '../screens/LibraryScreen'
 import ProfileScreen from '../screens/ProfileScreen'
 import EditProfileScreen from '../screens/EditProfileScreen'
@@ -44,7 +45,11 @@ export type HomeStackParamList = {
 }
 const HomeStack = createNativeStackNavigator<HomeStackParamList>()
 const CalendarStack = createNativeStackNavigator()
-const ProgressStack = createNativeStackNavigator()
+export type ProgressStackParamList = {
+  Progress: undefined
+  WeightHistory: undefined
+}
+const ProgressStack = createNativeStackNavigator<ProgressStackParamList>()
 const LibraryStack = createNativeStackNavigator()
 const TAB_BAR_HORIZONTAL_PADDING = 8
 const TAB_ICON_PILL_WIDTH = 52
@@ -106,6 +111,10 @@ function ProgressStackScreen() {
       }}
     >
       <ProgressStack.Screen name="Progress" component={ProgressScreen} />
+      <ProgressStack.Screen
+        name="WeightHistory"
+        component={WeightHistoryScreen}
+      />
     </ProgressStack.Navigator>
   )
 }

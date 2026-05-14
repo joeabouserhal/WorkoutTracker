@@ -23,12 +23,18 @@ async function ensureProfileTable() {
   const hasWeightColumn = result.rows.some(
     (row: { name?: unknown }) => row.name === 'weight'
   )
+  const hasAvatarIconColumn = result.rows.some(
+    (row: { name?: unknown }) => row.name === 'avatar_icon'
+  )
 
   if (!hasNameColumn) {
     await db.$client.execute('ALTER TABLE profile ADD COLUMN name TEXT')
   }
   if (!hasWeightColumn) {
     await db.$client.execute('ALTER TABLE profile ADD COLUMN weight REAL')
+  }
+  if (!hasAvatarIconColumn) {
+    await db.$client.execute('ALTER TABLE profile ADD COLUMN avatar_icon TEXT')
   }
 }
 
@@ -42,6 +48,7 @@ export async function getProfile() {
       height: profile.height,
       heightUnit: profile.heightUnit,
       defaultWeightUnit: profile.defaultWeightUnit,
+      avatarIcon: profile.avatarIcon,
     })
     .from(profile)
     .where(eq(profile.id, PROFILE_ID))
@@ -68,6 +75,7 @@ export async function getProfile() {
     weight,
     heightUnit: row.heightUnit,
     defaultWeightUnit: row.defaultWeightUnit,
+    avatarIcon: row.avatarIcon,
   }
 }
 
@@ -77,6 +85,7 @@ export async function upsertProfile(data: {
   weight?: number
   heightUnit?: string
   defaultWeightUnit?: string
+  avatarIcon?: string | null
 }) {
   await ensureProfileTable()
 
@@ -96,6 +105,9 @@ export async function upsertProfile(data: {
   }
   if ('defaultWeightUnit' in data) {
     values.defaultWeightUnit = data.defaultWeightUnit ?? 'kg'
+  }
+  if ('avatarIcon' in data) {
+    values.avatarIcon = data.avatarIcon ?? null
   }
 
   if (Object.keys(values).length === 0) return

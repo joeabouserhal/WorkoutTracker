@@ -1,7 +1,6 @@
-import React, { useCallback, useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   ActivityIndicator,
-  Alert,
   Modal,
   ScrollView,
   Switch,
@@ -13,6 +12,7 @@ import {
 } from 'react-native'
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons'
 import { createStyleSheet, useStyles } from 'react-native-unistyles'
+import ThemedDialog, { type ThemedDialogAction } from '@/components/ui/ThemedDialog'
 import { useDataRefreshStore } from '@/store/dataRefreshStore'
 import { useSessionStore } from '@/store/sessionStore'
 import {
@@ -31,6 +31,16 @@ import {
 
 type Step = 'sections' | 'exerciseTypes' | 'methods'
 type CreateMode = 'exercise' | 'method'
+type DialogState = {
+  title: string
+  message?: string
+  actions: ThemedDialogAction[]
+}
+
+function matchesQuery(name: string, query: string) {
+  const trimmed = query.trim().toLowerCase()
+  return trimmed.length === 0 || name.toLowerCase().includes(trimmed)
+}
 
 interface Props {
   visible: boolean
@@ -62,6 +72,44 @@ export default function ExercisePickerModal({ visible, onClose, onPick }: Props)
   const [singleMethodOnly, setSingleMethodOnly] = useState(false)
   const [selectedMethodId, setSelectedMethodId] = useState<string | null>(null)
   const [allMethodList, setAllMethodList] = useState<MethodRow[]>([])
+  const [dialog, setDialog] = useState<DialogState | null>(null)
+  const [searchQuery, setSearchQuery] = useState('')
+
+  const filteredSections = useMemo(
+    () => sectionList.filter((section) => matchesQuery(section.name, searchQuery)),
+    [sectionList, searchQuery],
+  )
+  const filteredExerciseTypes = useMemo(
+    () => exerciseTypeList.filter((exercise) => matchesQuery(exercise.name, searchQuery)),
+    [exerciseTypeList, searchQuery],
+  )
+  const filteredMethods = useMemo(
+    () => methodList.filter((method) => matchesQuery(method.name, searchQuery)),
+    [methodList, searchQuery],
+  )
+
+  useEffect(() => {
+    setSearchQuery('')
+  }, [step])
+
+  function closeDialog() {
+    setDialog(null)
+  }
+
+  function showPickerDialog(title: string, message: string, onDone?: () => void) {
+    setDialog({
+      title,
+      message,
+      actions: [{
+        label: 'OK',
+        variant: 'primary',
+        onPress: () => {
+          closeDialog()
+          onDone?.()
+        },
+      }],
+    })
+  }
 
   useEffect(() => {
     if (!visible) return
@@ -82,6 +130,7 @@ export default function ExercisePickerModal({ visible, onClose, onPick }: Props)
   }, [])
 
   function handleClose() {
+    closeDialog()
     resetStep()
     onClose()
   }
@@ -235,8 +284,7 @@ export default function ExercisePickerModal({ visible, onClose, onPick }: Props)
   async function handleSelectMethod(method: MethodRow) {
     if (loading || adding) return
     if (!selectedExerciseType) {
-      Alert.alert('Error', 'Please select an exercise again.')
-      resetStep()
+      showPickerDialog('Exercise Missing', 'Please select an exercise again.', resetStep)
       return
     }
     await confirmAdd(selectedExerciseType, method.id, method.name)
@@ -245,8 +293,11 @@ export default function ExercisePickerModal({ visible, onClose, onPick }: Props)
   async function confirmAdd(et: ExerciseTypeRow, methodId: string, methodName: string) {
     if (onPick) {
       if (!et.id || !methodId) {
-        Alert.alert('Error', 'This exercise has incomplete data. Please select it again.')
-        handleClose()
+        showPickerDialog(
+          'Incomplete Exercise',
+          'This exercise has incomplete data. Please select it again.',
+          handleClose,
+        )
         return
       }
       setAdding(true)
@@ -260,8 +311,7 @@ export default function ExercisePickerModal({ visible, onClose, onPick }: Props)
         onClose()
       } catch (e) {
         console.error('Could not pick exercise', e)
-        Alert.alert('Error', 'Could not add exercise.')
-        handleClose()
+        showPickerDialog('Could Not Add Exercise', 'Could not add exercise.', handleClose)
       } finally {
         setAdding(false)
         setLoading(false)
@@ -270,13 +320,15 @@ export default function ExercisePickerModal({ visible, onClose, onPick }: Props)
     }
 
     if (!activeWorkoutId) {
-      Alert.alert('Start a workout first')
-      handleClose()
+      showPickerDialog('Start a Workout First', 'Start a workout before adding exercises.', handleClose)
       return
     }
     if (!et.id || !et.name || !methodId || !methodName) {
-      Alert.alert('Error', 'This exercise has incomplete data. Please select it again.')
-      handleClose()
+      showPickerDialog(
+        'Incomplete Exercise',
+        'This exercise has incomplete data. Please select it again.',
+        handleClose,
+      )
       return
     }
     setAdding(true)
@@ -302,8 +354,7 @@ export default function ExercisePickerModal({ visible, onClose, onPick }: Props)
       onClose()
     } catch (e) {
       console.error('Could not add exercise', e)
-      Alert.alert('Error', 'Could not add exercise.')
-      handleClose()
+      showPickerDialog('Could Not Add Exercise', 'Could not add exercise.', handleClose)
     } finally {
       setAdding(false)
       setLoading(false)
@@ -413,6 +464,35 @@ export default function ExercisePickerModal({ visible, onClose, onPick }: Props)
                   <Text style={styles.pageTitle} numberOfLines={1}>{pageTitle}</Text>
                 </View>
                 <Text style={styles.sectionTitle}>{sectionLabel}</Text>
+                <View style={styles.searchBox}>
+                  <MaterialCommunityIcons
+                    name="magnify"
+                    size={17}
+                    color={theme.colors.textMuted}
+                  />
+                  <TextInput
+                    style={styles.searchInput}
+                    value={searchQuery}
+                    onChangeText={setSearchQuery}
+                    placeholder={`Search ${sectionLabel.toLowerCase()}`}
+                    placeholderTextColor={theme.colors.textMuted}
+                    autoCorrect={false}
+                    returnKeyType="search"
+                  />
+                  {searchQuery ? (
+                    <TouchableOpacity
+                      style={styles.searchClearButton}
+                      onPress={() => setSearchQuery('')}
+                      activeOpacity={0.78}
+                    >
+                      <MaterialCommunityIcons
+                        name="close"
+                        size={15}
+                        color={theme.colors.textMuted}
+                      />
+                    </TouchableOpacity>
+                  ) : null}
+                </View>
               </View>
 
               {/* Content */}
@@ -430,7 +510,9 @@ export default function ExercisePickerModal({ visible, onClose, onPick }: Props)
                     {step === 'sections' && (
                       sectionList.length === 0
                         ? <EmptyState text="No body parts found." />
-                        : sectionList.map((section) => (
+                        : filteredSections.length === 0
+                          ? <EmptyState text="No matches found." />
+                          : filteredSections.map((section) => (
                           <TouchableOpacity
                             key={section.id}
                             style={styles.row}
@@ -452,7 +534,9 @@ export default function ExercisePickerModal({ visible, onClose, onPick }: Props)
                     {step === 'exerciseTypes' && (
                       exerciseTypeList.length === 0
                         ? <EmptyState text="No exercises in this body part yet." />
-                        : exerciseTypeList.map((et) => (
+                        : filteredExerciseTypes.length === 0
+                          ? <EmptyState text="No matches found." />
+                          : filteredExerciseTypes.map((et) => (
                           <TouchableOpacity
                             key={et.id}
                             style={styles.row}
@@ -488,7 +572,9 @@ export default function ExercisePickerModal({ visible, onClose, onPick }: Props)
                     {step === 'methods' && (
                       methodList.length === 0
                         ? <EmptyState text="No methods found." />
-                        : methodList.map((method) => (
+                        : filteredMethods.length === 0
+                          ? <EmptyState text="No matches found." />
+                          : filteredMethods.map((method) => (
                           <TouchableOpacity
                             key={method.id}
                             style={styles.row}
@@ -537,6 +623,12 @@ export default function ExercisePickerModal({ visible, onClose, onPick }: Props)
         onSelectMethod={setSelectedMethodId}
         onClose={closeCreateModal}
         onSubmit={submitCreate}
+      />
+      <ThemedDialog
+        visible={Boolean(dialog)}
+        title={dialog?.title ?? ''}
+        message={dialog?.message}
+        actions={dialog?.actions ?? []}
       />
     </Modal>
   )
@@ -823,6 +915,33 @@ const stylesheet = createStyleSheet((theme) => ({
     fontFamily: theme.fontFamily.bold,
     textTransform: 'uppercase',
     letterSpacing: 0.8,
+  },
+  searchBox: {
+    minHeight: 40,
+    borderRadius: theme.radius.md,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.surface,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: theme.spacing.xs,
+    paddingHorizontal: theme.spacing.sm,
+  },
+  searchInput: {
+    flex: 1,
+    minWidth: 0,
+    color: theme.colors.text,
+    fontSize: theme.fontSize.sm,
+    fontFamily: theme.fontFamily.semiBold,
+    paddingVertical: 0,
+  },
+  searchClearButton: {
+    width: 26,
+    height: 26,
+    borderRadius: theme.radius.full,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: theme.colors.surface2,
   },
   scroll: {
     flex: 1,

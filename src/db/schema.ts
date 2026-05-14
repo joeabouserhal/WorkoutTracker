@@ -78,6 +78,7 @@ export const profile = sqliteTable('profile', {
   weight: real('weight'),
   heightUnit: text('height_unit').notNull().default('cm'),
   defaultWeightUnit: text('default_weight_unit').notNull().default('kg'),
+  avatarIcon: text('avatar_icon'),
 })
 
 export const workoutTemplates = sqliteTable('workout_templates', {

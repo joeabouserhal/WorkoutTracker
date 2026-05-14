@@ -69,6 +69,11 @@ function hasPrValue(value: number | null | undefined): value is number {
   return typeof value === 'number' && Number.isFinite(value)
 }
 
+function matchesQuery(name: string, query: string) {
+  const trimmed = query.trim().toLowerCase()
+  return trimmed.length === 0 || name.toLowerCase().includes(trimmed)
+}
+
 export default function LibraryScreen() {
   const { styles, theme } = useStyles(stylesheet)
   const { showHeaderFade, handleHeaderScroll } = useHeaderFade()
@@ -92,6 +97,7 @@ export default function LibraryScreen() {
   const [createTargetMuscleIds, setCreateTargetMuscleIds] = useState<string[]>([])
   const [showRestoreDefaults, setShowRestoreDefaults] = useState(false)
   const [convertedPrUnits, setConvertedPrUnits] = useState<Record<string, boolean>>({})
+  const [searchQuery, setSearchQuery] = useState('')
   const [subMuscleEditor, setSubMuscleEditor] = useState<{
     exerciseType: ExerciseTypeRow
     selectedIds: string[]
@@ -102,6 +108,28 @@ export default function LibraryScreen() {
     message?: string
     actions: ThemedDialogAction[]
   } | null>(null)
+
+  const filteredSections = useMemo(
+    () => sectionList.filter((section) => matchesQuery(section.name, searchQuery)),
+    [sectionList, searchQuery],
+  )
+  const filteredExerciseTypes = useMemo(
+    () => exerciseTypeList.filter((exerciseType) => matchesQuery(exerciseType.name, searchQuery)),
+    [exerciseTypeList, searchQuery],
+  )
+  const filteredMethods = useMemo(
+    () => methodList.filter((method) => matchesQuery(method.name, searchQuery)),
+    [methodList, searchQuery],
+  )
+  const searchLabel = step === 'sections'
+    ? 'sections'
+    : step === 'exerciseTypes'
+      ? 'exercises'
+      : 'methods'
+
+  useEffect(() => {
+    setSearchQuery('')
+  }, [step])
 
   const loadSections = useCallback(async () => {
     setLoading(true)
@@ -202,6 +230,7 @@ export default function LibraryScreen() {
   const handleBack = useCallback(() => {
     if (step === 'methods') {
       setStep('exerciseTypes')
+      setSearchQuery('')
       setSelectedExerciseType(null)
       setLockedMethodName('')
       setShowRestoreDefaults(false)
@@ -210,6 +239,7 @@ export default function LibraryScreen() {
     }
     if (step === 'exerciseTypes') {
       setStep('sections')
+      setSearchQuery('')
       setSelectedSection(null)
       setExerciseTypeList([])
       setExercisePrSummaries({})
@@ -334,6 +364,7 @@ export default function LibraryScreen() {
     if (handledDataVersionRef.current === dataVersion) return
     handledDataVersionRef.current = dataVersion
     setStep('sections')
+    setSearchQuery('')
     setSelectedSection(null)
     setSelectedExerciseType(null)
     setExerciseTypeList([])
@@ -609,7 +640,9 @@ export default function LibraryScreen() {
     if (step === 'sections') {
       return sectionList.length === 0 ? (
         <EmptyState text="No sections found." />
-      ) : sectionList.map((section) => (
+      ) : filteredSections.length === 0 ? (
+        <EmptyState text="No matches found." />
+      ) : filteredSections.map((section) => (
         <TouchableOpacity
           key={section.id}
           style={styles.row}
@@ -631,7 +664,9 @@ export default function LibraryScreen() {
     if (step === 'exerciseTypes') {
       return exerciseTypeList.length === 0 ? (
         <EmptyState text="No exercises in this section yet." />
-      ) : exerciseTypeList.map((exerciseType) => {
+      ) : filteredExerciseTypes.length === 0 ? (
+        <EmptyState text="No matches found." />
+      ) : filteredExerciseTypes.map((exerciseType) => {
         const prSummary = exercisePrSummaries[exerciseType.id]
         const row = (
           <TouchableOpacity
@@ -708,7 +743,9 @@ export default function LibraryScreen() {
 
     return methodList.length === 0 ? (
       <EmptyState text="No methods found." />
-    ) : methodList.map((method) => {
+    ) : filteredMethods.length === 0 ? (
+      <EmptyState text="No matches found." />
+    ) : filteredMethods.map((method) => {
       const prSummary = methodPrSummaries[method.id]
       const canRemoveMethod = Boolean(selectedExerciseType)
       const row = (
@@ -856,6 +893,35 @@ export default function LibraryScreen() {
         onScroll={handleHeaderScroll}
         scrollEventThrottle={16}
       >
+        <View style={styles.searchBox}>
+          <MaterialCommunityIcons
+            name="magnify"
+            size={17}
+            color={theme.colors.textMuted}
+          />
+          <TextInput
+            style={styles.searchInput}
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            placeholder={`Search ${searchLabel}`}
+            placeholderTextColor={theme.colors.textMuted}
+            autoCorrect={false}
+            returnKeyType="search"
+          />
+          {searchQuery ? (
+            <TouchableOpacity
+              style={styles.searchClearButton}
+              onPress={() => setSearchQuery('')}
+              activeOpacity={0.78}
+            >
+              <MaterialCommunityIcons
+                name="close"
+                size={15}
+                color={theme.colors.textMuted}
+              />
+            </TouchableOpacity>
+          ) : null}
+        </View>
         {step === 'methods' && showRestoreDefaults ? (
           <View style={styles.restoreRow}>
             <TouchableOpacity style={styles.restoreButton} onPress={restoreDefaultMethods}>
@@ -1325,6 +1391,34 @@ const stylesheet = createStyleSheet((theme) => ({
     paddingHorizontal: theme.spacing.md,
     paddingTop: theme.spacing.sm,
     paddingBottom: theme.spacing.xl,
+  },
+  searchBox: {
+    minHeight: 40,
+    borderRadius: theme.radius.md,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.surface,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: theme.spacing.xs,
+    paddingHorizontal: theme.spacing.sm,
+    marginBottom: theme.spacing.sm,
+  },
+  searchInput: {
+    flex: 1,
+    minWidth: 0,
+    color: theme.colors.text,
+    fontSize: theme.fontSize.sm,
+    fontFamily: theme.fontFamily.semiBold,
+    paddingVertical: 0,
+  },
+  searchClearButton: {
+    width: 26,
+    height: 26,
+    borderRadius: theme.radius.full,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: theme.colors.surface2,
   },
   listPanel: {
     gap: theme.spacing.xs,

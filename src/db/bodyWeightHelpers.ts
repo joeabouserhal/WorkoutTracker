@@ -1,4 +1,4 @@
-import { asc } from 'drizzle-orm'
+import { asc, eq } from 'drizzle-orm'
 import { db } from './client'
 import { bodyWeightLogs } from './schema'
 
@@ -48,4 +48,19 @@ export async function getBodyWeightLogs(): Promise<WeightLog[]> {
     unit: row.unit as string,
     loggedAt: row.loggedAt as number,
   }))
+}
+
+export async function updateBodyWeightLog(id: string, weightKg: number): Promise<void> {
+  await ensureTable()
+  await db
+    .update(bodyWeightLogs)
+    .set({ weight: weightKg, unit: 'kg' })
+    .where(eq(bodyWeightLogs.id, id))
+}
+
+export async function deleteBodyWeightLog(id: string): Promise<void> {
+  await ensureTable()
+  await db
+    .delete(bodyWeightLogs)
+    .where(eq(bodyWeightLogs.id, id))
 }

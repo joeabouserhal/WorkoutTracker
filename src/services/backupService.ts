@@ -25,6 +25,7 @@ import {
 } from '@/store/sessionStore'
 import { seedDatabaseIfEmpty } from '@/db/seedData'
 import { REST_TIMER_DEFAULT_SECONDS_KEY } from './restTimerSettings'
+import { WORKOUT_SCHEDULE_STORAGE_KEY } from './workoutSchedule'
 
 const APP_BACKUP_VERSION = 3
 const DRIVE_UPLOAD_URL = 'https://www.googleapis.com/upload/drive/v3/files'
@@ -145,8 +146,10 @@ function getBackupSettings() {
   const settings: Record<string, string> = {}
   const restSeconds = getString(REST_TIMER_DEFAULT_SECONDS_KEY)
   const theme = getString(THEME_STORAGE_KEY)
+  const schedule = getString(WORKOUT_SCHEDULE_STORAGE_KEY)
   if (restSeconds) settings[REST_TIMER_DEFAULT_SECONDS_KEY] = restSeconds
   if (theme) settings[THEME_STORAGE_KEY] = theme
+  if (schedule) settings[WORKOUT_SCHEDULE_STORAGE_KEY] = schedule
   return settings
 }
 
@@ -247,7 +250,8 @@ async function ensureBackupTables() {
     height REAL,
     weight REAL,
     height_unit TEXT NOT NULL DEFAULT 'cm',
-    default_weight_unit TEXT NOT NULL DEFAULT 'kg'
+    default_weight_unit TEXT NOT NULL DEFAULT 'kg',
+    avatar_icon TEXT
   )`)
   await db.$client.execute(`CREATE TABLE IF NOT EXISTS workout_templates (
     id TEXT PRIMARY KEY,
@@ -279,6 +283,11 @@ async function ensureBackupTables() {
   }
   if (!exerciseTypeColumns.includes('sub_muscle_ids')) {
     await db.$client.execute("ALTER TABLE exercise_types ADD COLUMN sub_muscle_ids TEXT NOT NULL DEFAULT '[]'")
+  }
+
+  const profileColumns = await getTableColumns('profile')
+  if (!profileColumns.includes('avatar_icon')) {
+    await db.$client.execute('ALTER TABLE profile ADD COLUMN avatar_icon TEXT')
   }
 }
 

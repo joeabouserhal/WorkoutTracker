@@ -29,6 +29,7 @@ export default function ProfileScreen({ navigation }: Props) {
     weight: number | null
     heightUnit: string
     defaultWeightUnit: string
+    avatarIcon: string | null
   } | null>(null)
   const [loading, setLoading] = useState(true)
   const [dialog, setDialog] = useState<DialogState | null>(null)
@@ -52,7 +53,8 @@ export default function ProfileScreen({ navigation }: Props) {
         height: p.height,
         weight: p.weight,
         heightUnit: p.heightUnit || 'cm',
-        defaultWeightUnit: p.defaultWeightUnit || 'kg'
+        defaultWeightUnit: p.defaultWeightUnit || 'kg',
+        avatarIcon: p.avatarIcon || null,
       } : null)
     } catch (e) {
       console.error('Failed to load profile', e)
@@ -134,7 +136,15 @@ export default function ProfileScreen({ navigation }: Props) {
       <View style={styles.profileCard}>
         <View style={styles.profileHeader}>
           <View style={styles.avatar}>
-            <Text style={styles.avatarText}>{getInitials(profile?.name)}</Text>
+            {profile?.avatarIcon ? (
+              <MaterialCommunityIcons
+                name={profile.avatarIcon}
+                size={28}
+                color={theme.colors.accent}
+              />
+            ) : (
+              <Text style={styles.avatarText}>{getInitials(profile?.name)}</Text>
+            )}
           </View>
 
           <View style={styles.profileHeaderText}>
@@ -188,8 +198,8 @@ export default function ProfileScreen({ navigation }: Props) {
         </View>
         <View style={styles.settingsTextBlock}>
           <Text style={styles.settingsButtonTitle}>Backup</Text>
-          <Text style={styles.settingsButtonDescription}>
-            Back up and restore your data with Google Drive.
+          <Text style={styles.settingsButtonDescription} numberOfLines={1}>
+            Backup & restore with Google Drive.
           </Text>
         </View>
         <MaterialCommunityIcons name="chevron-right" size={20} color={theme.colors.textMuted} />
@@ -207,8 +217,8 @@ export default function ProfileScreen({ navigation }: Props) {
         </View>
         <View style={styles.settingsTextBlock}>
           <Text style={styles.settingsButtonTitle}>Edit Profile</Text>
-          <Text style={styles.settingsButtonDescription}>
-            Update your personal information.
+          <Text style={styles.settingsButtonDescription} numberOfLines={1}>
+            Update personal info.
           </Text>
         </View>
         <MaterialCommunityIcons name="chevron-right" size={20} color={theme.colors.textMuted} />
@@ -224,8 +234,8 @@ export default function ProfileScreen({ navigation }: Props) {
         </View>
         <View style={styles.settingsTextBlock}>
           <Text style={styles.settingsButtonTitle}>Workout settings</Text>
-          <Text style={styles.settingsButtonDescription}>
-            Manage default units, rest timers, and recovery.
+          <Text style={styles.settingsButtonDescription} numberOfLines={1}>
+            Units, rest timers & recovery.
           </Text>
         </View>
         <MaterialCommunityIcons name="chevron-right" size={20} color={theme.colors.textMuted} />
@@ -241,8 +251,8 @@ export default function ProfileScreen({ navigation }: Props) {
         </View>
         <View style={styles.settingsTextBlock}>
           <Text style={styles.settingsButtonTitle}>Themes</Text>
-          <Text style={styles.settingsButtonDescription}>
-            Choose the look and feel of the app.
+          <Text style={styles.settingsButtonDescription} numberOfLines={1}>
+            App appearance & themes.
           </Text>
         </View>
         <MaterialCommunityIcons name="chevron-right" size={20} color={theme.colors.textMuted} />
@@ -258,8 +268,8 @@ export default function ProfileScreen({ navigation }: Props) {
         </View>
         <View style={styles.settingsTextBlock}>
           <Text style={styles.settingsButtonTitle}>Schedule</Text>
-          <Text style={styles.settingsButtonDescription}>
-            Plan workout days and reminders.
+          <Text style={styles.settingsButtonDescription} numberOfLines={1}>
+            Plan days & reminders.
           </Text>
         </View>
         <MaterialCommunityIcons name="chevron-right" size={20} color={theme.colors.textMuted} />
@@ -275,8 +285,8 @@ export default function ProfileScreen({ navigation }: Props) {
         </View>
         <View style={styles.settingsTextBlock}>
           <Text style={styles.settingsButtonTitle}>About</Text>
-          <Text style={styles.settingsButtonDescription}>
-            Learn why this app exists.
+          <Text style={styles.settingsButtonDescription} numberOfLines={1}>
+            Why this app exists.
           </Text>
         </View>
         <MaterialCommunityIcons name="chevron-right" size={20} color={theme.colors.textMuted} />
@@ -294,8 +304,8 @@ export default function ProfileScreen({ navigation }: Props) {
         </View>
         <View style={styles.settingsTextBlock}>
           <Text style={styles.debugButtonTitle}>Debug Menu</Text>
-          <Text style={styles.settingsButtonDescription}>
-            Dangerous data cleanup tools.
+          <Text style={styles.settingsButtonDescription} numberOfLines={1}>
+            Data cleanup tools.
           </Text>
         </View>
         <MaterialCommunityIcons name="chevron-right" size={20} color={theme.colors.danger} />

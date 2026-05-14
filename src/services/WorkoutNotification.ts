@@ -18,6 +18,17 @@ type WorkoutNotificationOptions = {
   asForegroundService?: boolean
 }
 
+function formatElapsed(seconds: number): string {
+  const safeSeconds = Math.max(0, seconds)
+  const hours = Math.floor(safeSeconds / 3600)
+  const minutes = Math.floor((safeSeconds % 3600) / 60)
+  const remainder = safeSeconds % 60
+  if (hours > 0) {
+    return `${hours}:${String(minutes).padStart(2, '0')}:${String(remainder).padStart(2, '0')}`
+  }
+  return `${String(minutes).padStart(2, '0')}:${String(remainder).padStart(2, '0')}`
+}
+
 export function buildWorkoutNotification(
   elapsedSeconds: number,
   restSecondsRemaining = 0,
@@ -49,7 +60,7 @@ export function buildWorkoutNotification(
 
   return {
     id: WORKOUT_NOTIFICATION_ID,
-    title: 'Workout in Progress',
+    title: `Workout in Progress ${formatElapsed(elapsedSeconds)}`,
     body: isRestDone
       ? 'Rest time is done. Time for your next set.'
       : hasRestTimer

@@ -197,10 +197,10 @@ const BACK_BODY_MUSCLES = BACK_MUSCLES.filter(muscle =>
   Object.prototype.hasOwnProperty.call(BODY_MUSCLE_GROUP_BY_ID, muscle.id),
 );
 
-const FATIGUE_COLLAPSED_HEIGHT = 38;
+const FATIGUE_COLLAPSED_HEIGHT = 48;
 const FATIGUE_EXPANDED_MAX_HEIGHT = 540;
-const FATIGUE_EXPAND_MS = 260;
-const FATIGUE_COLLAPSE_MS = 190;
+const FATIGUE_EXPAND_MS = 210;
+const FATIGUE_COLLAPSE_MS = 155;
 
 export default function HomeScreen() {
   const { styles, theme } = useStyles(stylesheet);
@@ -677,10 +677,10 @@ function MuscleRecoveryCard({
     opacity: cardProgress.value,
     transform: [
       {
-        translateY: -8 + cardProgress.value * 8,
+        translateY: -5 + cardProgress.value * 5,
       },
       {
-        scale: 0.985 + cardProgress.value * 0.015,
+        scale: 0.992 + cardProgress.value * 0.008,
       },
     ],
   }));

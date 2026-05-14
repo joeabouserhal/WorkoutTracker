@@ -9,6 +9,7 @@ import {
   AppState,
   Animated,
   Easing,
+  InteractionManager,
   Keyboard,
   Modal,
   StatusBar,
@@ -33,6 +34,7 @@ import {
 } from 'react-native-keyboard-controller';
 import ReanimatedSwipeable from 'react-native-gesture-handler/ReanimatedSwipeable';
 import Reanimated, {
+  Easing as ReanimatedEasing,
   runOnJS,
   type SharedValue,
   useAnimatedStyle,
@@ -94,6 +96,8 @@ type WorkoutExerciseHeights = Record<string, number>;
 const LB_PER_KG = 2.20462;
 const WORKOUT_EXERCISE_DEFAULT_HEIGHT = 178;
 const WORKOUT_EXERCISE_GAP = 8;
+const WORKOUT_EXERCISE_SETTLE_MS = 105;
+const WORKOUT_EXERCISE_DRAG_ACTIVATE_MS = 65;
 const ACTIVE_WORKOUT_DRAFT_SAVE_DELAY_MS = 250;
 const DELETE_SWIPE_DRAG_OFFSET = 18;
 const KeyboardAwareGestureScrollView = Reanimated.createAnimatedComponent(
@@ -404,6 +408,7 @@ export default function ActiveWorkoutSheet() {
   const localSetsDraftHydratedForWorkoutRef = useRef<string | null>(null);
   const localSetsRef = useRef(localSets);
   const notificationRestEndsAtRef = useRef<number | null>(null);
+  const reorderPersistRequestIdRef = useRef(0);
 
   const activeWorkoutId = useSessionStore(state => state.activeWorkoutId);
   const startedAt = useSessionStore(state => state.startedAt);
@@ -1390,20 +1395,30 @@ export default function ActiveWorkoutSheet() {
         return exercise ? [exercise] : [];
       });
       reorderExercises(finalOrder);
-      updateWorkoutExerciseOrder(finalOrder).catch(e => {
-        console.error('Could not persist exercise order', e);
-        const byInitialId = new Map(
-          exercisesRef.current.map(exercise => [
-            exercise.workoutExerciseId,
-            exercise,
-          ]),
-        );
-        exercisesRef.current = currentOrder.flatMap(id => {
-          const exercise = byInitialId.get(id);
-          return exercise ? [exercise] : [];
+
+      const persistRequestId = reorderPersistRequestIdRef.current + 1;
+      reorderPersistRequestIdRef.current = persistRequestId;
+
+      InteractionManager.runAfterInteractions(() => {
+        if (reorderPersistRequestIdRef.current !== persistRequestId) return;
+
+        updateWorkoutExerciseOrder(finalOrder).catch(e => {
+          if (reorderPersistRequestIdRef.current !== persistRequestId) return;
+
+          console.error('Could not persist exercise order', e);
+          const byInitialId = new Map(
+            exercisesRef.current.map(exercise => [
+              exercise.workoutExerciseId,
+              exercise,
+            ]),
+          );
+          exercisesRef.current = currentOrder.flatMap(id => {
+            const exercise = byInitialId.get(id);
+            return exercise ? [exercise] : [];
+          });
+          reorderExercises(currentOrder);
+          showErrorDialog('Could not rearrange exercises.');
         });
-        reorderExercises(currentOrder);
-        showErrorDialog('Could not rearrange exercises.');
       });
     },
     [reorderExercises, showErrorDialog],
@@ -2103,11 +2118,21 @@ function SortableActiveWorkoutExerciseRow({
   );
   const didEndDrag = useSharedValue(false);
 
+  const finishReorder = useCallback(
+    (orderedExerciseIds: string[]) => {
+      onDragStateChange(null);
+      requestAnimationFrame(() => {
+        onReorder(orderedExerciseIds);
+      });
+    },
+    [onDragStateChange, onReorder],
+  );
+
   const dragGesture = useMemo(
     () =>
       Gesture.Pan()
         .enabled(exerciseCount > 1)
-        .activateAfterLongPress(80)
+        .activateAfterLongPress(WORKOUT_EXERCISE_DRAG_ACTIVATE_MS)
         .minDistance(1)
         .failOffsetX([-18, 18])
         .onStart(() => {
@@ -2177,12 +2202,18 @@ function SortableActiveWorkoutExerciseRow({
             heights.value,
             exerciseIds,
           );
-          top.value = withTiming(finalTop, { duration: 120 }, finished => {
-            if (!finished) return;
-            activeExerciseId.value = null;
-            runOnJS(onDragStateChange)(null);
-            runOnJS(onReorder)(orderedExerciseIds);
-          });
+          top.value = withTiming(
+            finalTop,
+            {
+              duration: WORKOUT_EXERCISE_SETTLE_MS,
+              easing: ReanimatedEasing.out(ReanimatedEasing.cubic),
+            },
+            finished => {
+              if (!finished) return;
+              activeExerciseId.value = null;
+              runOnJS(finishReorder)(orderedExerciseIds);
+            },
+          );
         })
         .onFinalize(() => {
           if (!didEndDrag.value) {
@@ -2192,7 +2223,10 @@ function SortableActiveWorkoutExerciseRow({
               heights.value,
               exerciseIds,
             );
-            top.value = withTiming(currentTop, { duration: 120 });
+            top.value = withTiming(currentTop, {
+              duration: WORKOUT_EXERCISE_SETTLE_MS,
+              easing: ReanimatedEasing.out(ReanimatedEasing.cubic),
+            });
             activeExerciseId.value = null;
             runOnJS(onDragStateChange)(null);
           }
@@ -2202,10 +2236,10 @@ function SortableActiveWorkoutExerciseRow({
       didEndDrag,
       exerciseCount,
       exerciseIds,
+      finishReorder,
       heights,
       index,
       onDragStateChange,
-      onReorder,
       positions,
       startTop,
       top,
@@ -2224,7 +2258,12 @@ function SortableActiveWorkoutExerciseRow({
     );
 
     return {
-      top: isActive ? top.value : withTiming(nextTop, { duration: 120 }),
+      top: isActive
+        ? top.value
+        : withTiming(nextTop, {
+          duration: WORKOUT_EXERCISE_SETTLE_MS,
+          easing: ReanimatedEasing.out(ReanimatedEasing.cubic),
+        }),
       zIndex: isActive ? 10 : 1,
       elevation: isActive ? 8 : 0,
     };

@@ -6,9 +6,10 @@ import {
   ViewStyle,
 } from 'react-native'
 import Animated, {
+  Easing as ReanimatedEasing,
   useSharedValue,
   useAnimatedStyle,
-  withSpring,
+  withTiming,
 } from 'react-native-reanimated'
 import { createStyleSheet, useStyles } from 'react-native-unistyles'
 
@@ -35,10 +36,16 @@ export default function Button({
   return (
     <Pressable
       onPressIn={() => {
-        scale.value = withSpring(0.96, { damping: 15, stiffness: 300 })
+        scale.value = withTiming(0.97, {
+          duration: 70,
+          easing: ReanimatedEasing.out(ReanimatedEasing.quad),
+        })
       }}
       onPressOut={() => {
-        scale.value = withSpring(1, { damping: 15, stiffness: 300 })
+        scale.value = withTiming(1, {
+          duration: 105,
+          easing: ReanimatedEasing.out(ReanimatedEasing.cubic),
+        })
       }}
       onPress={onPress}
     >
@@ -56,8 +63,7 @@ const stylesheet = createStyleSheet((theme) => ({
     paddingHorizontal: theme.spacing.md,
     alignItems: 'center' as const,
     justifyContent: 'center' as const,
-    // Add subtle shadow for depth
-    shadowColor: '#000',
+    shadowColor: theme.colors.bg,
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 4,
@@ -66,9 +72,8 @@ const stylesheet = createStyleSheet((theme) => ({
       variant: {
         filled: {
           backgroundColor: theme.colors.accent,
-          // Add visible border with white highlight
           borderWidth: 1.5,
-          borderColor: 'rgba(255, 255, 255, 0.3)',
+          borderColor: theme.colors.accentMuted,
         },
         ghost: {
           backgroundColor: 'transparent',
@@ -84,7 +89,7 @@ const stylesheet = createStyleSheet((theme) => ({
     variants: {
       variant: {
         filled: {
-          color: '#FFFFFF',
+          color: theme.colors.bg,
         },
         ghost: {
           color: theme.colors.accent,

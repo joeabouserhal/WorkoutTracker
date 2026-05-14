@@ -1,4 +1,10 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -8,22 +14,26 @@ import {
   TextInput,
   TouchableOpacity,
   View,
-} from 'react-native'
-import { useFocusEffect } from '@react-navigation/native'
-import type { NativeStackScreenProps } from '@react-navigation/native-stack'
-import { Gesture, GestureDetector } from 'react-native-gesture-handler'
+} from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
+import type { NativeStackScreenProps } from '@react-navigation/native-stack';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
+  Easing as ReanimatedEasing,
   runOnJS,
   type SharedValue,
   useAnimatedStyle,
   useSharedValue,
   withTiming,
-} from 'react-native-reanimated'
-import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons'
-import { createStyleSheet, useStyles } from 'react-native-unistyles'
-import ScreenHeader, { ScreenHeaderButton, useHeaderFade } from '@/components/ui/ScreenHeader'
-import ThemedDialog from '@/components/ui/ThemedDialog'
-import ExercisePickerModal from '@/components/ExercisePickerModal'
+} from 'react-native-reanimated';
+import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
+import { createStyleSheet, useStyles } from 'react-native-unistyles';
+import ScreenHeader, {
+  ScreenHeaderButton,
+  useHeaderFade,
+} from '@/components/ui/ScreenHeader';
+import ThemedDialog from '@/components/ui/ThemedDialog';
+import ExercisePickerModal from '@/components/ExercisePickerModal';
 import {
   addExerciseToWorkoutTemplate,
   createWorkoutFromTemplateDetail,
@@ -35,315 +45,352 @@ import {
   updateWorkoutTemplateExerciseSetCount,
   updateWorkoutTemplateName,
   type WorkoutTemplateDetail,
-} from '@/db/workoutHelpers'
-import { useSessionStore } from '@/store/sessionStore'
-import type { HomeStackParamList } from '../navigation/TabNavigator'
+} from '@/db/workoutHelpers';
+import { useSessionStore } from '@/store/sessionStore';
+import type { HomeStackParamList } from '../navigation/TabNavigator';
 
-type Props = NativeStackScreenProps<HomeStackParamList, 'TemplateDetail'>
-type TemplateExercise = WorkoutTemplateDetail['exercises'][number]
-type TemplateExercisePositions = Record<string, number>
-const TEMPLATE_EXERCISE_ROW_HEIGHT = 68
-const TEMPLATE_EXERCISE_ROW_GAP = 8
-const TEMPLATE_EXERCISE_SLOT_HEIGHT = TEMPLATE_EXERCISE_ROW_HEIGHT + TEMPLATE_EXERCISE_ROW_GAP
+type Props = NativeStackScreenProps<HomeStackParamList, 'TemplateDetail'>;
+type TemplateExercise = WorkoutTemplateDetail['exercises'][number];
+type TemplateExercisePositions = Record<string, number>;
+const TEMPLATE_EXERCISE_ROW_HEIGHT = 68;
+const TEMPLATE_EXERCISE_ROW_GAP = 8;
+const TEMPLATE_EXERCISE_SLOT_HEIGHT =
+  TEMPLATE_EXERCISE_ROW_HEIGHT + TEMPLATE_EXERCISE_ROW_GAP;
+const TEMPLATE_EXERCISE_SETTLE_MS = 105;
+const TEMPLATE_EXERCISE_DRAG_ACTIVATE_MS = 65;
 
-function buildExercisePositions(exercises: TemplateExercise[]): TemplateExercisePositions {
-  return exercises.reduce<TemplateExercisePositions>((positions, exercise, index) => {
-    positions[exercise.id] = index
-    return positions
-  }, {})
+function buildExercisePositions(
+  exercises: TemplateExercise[],
+): TemplateExercisePositions {
+  return exercises.reduce<TemplateExercisePositions>(
+    (positions, exercise, index) => {
+      positions[exercise.id] = index;
+      return positions;
+    },
+    {},
+  );
 }
 
 function clampIndex(value: number, min: number, max: number) {
-  'worklet'
-  return Math.max(min, Math.min(max, value))
+  'worklet';
+  return Math.max(min, Math.min(max, value));
 }
 
 export default function TemplateDetailScreen({ navigation, route }: Props) {
-  const { styles, theme } = useStyles(stylesheet)
-  const { showHeaderFade, handleHeaderScroll } = useHeaderFade()
-  const [template, setTemplate] = useState<WorkoutTemplateDetail | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [editMode, setEditMode] = useState(Boolean(route.params.initialEdit))
-  const [draftName, setDraftName] = useState('')
-  const [message, setMessage] = useState('')
-  const [pickerVisible, setPickerVisible] = useState(false)
-  const [deleteVisible, setDeleteVisible] = useState(false)
-  const [cancelVisible, setCancelVisible] = useState(false)
-  const [startingTemplate, setStartingTemplate] = useState(false)
-  const [editSnapshot, setEditSnapshot] = useState<WorkoutTemplateDetail | null>(null)
-  const [draggingExerciseId, setDraggingExerciseId] = useState<string | null>(null)
-  const templateRef = useRef<WorkoutTemplateDetail | null>(null)
-  const activeWorkoutId = useSessionStore((s) => s.activeWorkoutId)
-  const restoreWorkoutSession = useSessionStore((s) => s.restoreWorkoutSession)
-  const openWorkoutSheet = useSessionStore((s) => s.openWorkoutSheet)
-  const templateId = route.params.templateId
+  const { styles, theme } = useStyles(stylesheet);
+  const { showHeaderFade, handleHeaderScroll } = useHeaderFade();
+  const [template, setTemplate] = useState<WorkoutTemplateDetail | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [editMode, setEditMode] = useState(Boolean(route.params.initialEdit));
+  const [draftName, setDraftName] = useState('');
+  const [message, setMessage] = useState('');
+  const [pickerVisible, setPickerVisible] = useState(false);
+  const [deleteVisible, setDeleteVisible] = useState(false);
+  const [cancelVisible, setCancelVisible] = useState(false);
+  const [startingTemplate, setStartingTemplate] = useState(false);
+  const [editSnapshot, setEditSnapshot] =
+    useState<WorkoutTemplateDetail | null>(null);
+  const [draggingExerciseId, setDraggingExerciseId] = useState<string | null>(
+    null,
+  );
+  const templateRef = useRef<WorkoutTemplateDetail | null>(null);
+  const activeWorkoutId = useSessionStore(s => s.activeWorkoutId);
+  const restoreWorkoutSession = useSessionStore(s => s.restoreWorkoutSession);
+  const openWorkoutSheet = useSessionStore(s => s.openWorkoutSheet);
+  const templateId = route.params.templateId;
 
   useEffect(() => {
     if (!activeWorkoutId) {
-      setStartingTemplate(false)
+      setStartingTemplate(false);
     }
-  }, [activeWorkoutId])
+  }, [activeWorkoutId]);
 
   const loadTemplate = useCallback(async () => {
-    setLoading(true)
+    setLoading(true);
     try {
-      const detail = await getWorkoutTemplateDetail(templateId)
-      setTemplate(detail)
-      setDraftName(detail?.name ?? '')
+      const detail = await getWorkoutTemplateDetail(templateId);
+      setTemplate(detail);
+      setDraftName(detail?.name ?? '');
     } catch (e) {
-      console.error('Could not load template detail', e)
-      setTemplate(null)
+      console.error('Could not load template detail', e);
+      setTemplate(null);
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }, [templateId])
+  }, [templateId]);
 
   useFocusEffect(
     useCallback(() => {
-      loadTemplate().catch(console.error)
+      loadTemplate().catch(console.error);
     }, [loadTemplate]),
-  )
+  );
 
   useEffect(() => {
-    setEditMode(Boolean(route.params.initialEdit))
-  }, [route.params.initialEdit, templateId])
+    setEditMode(Boolean(route.params.initialEdit));
+  }, [route.params.initialEdit, templateId]);
 
   useEffect(() => {
     if (editMode && template && !editSnapshot) {
       setEditSnapshot({
         ...template,
-        exercises: template.exercises.map((exercise) => ({ ...exercise })),
-      })
+        exercises: template.exercises.map(exercise => ({ ...exercise })),
+      });
     }
-  }, [editMode, editSnapshot, template])
+  }, [editMode, editSnapshot, template]);
 
   useEffect(() => {
-    templateRef.current = template
-  }, [template])
+    templateRef.current = template;
+  }, [template]);
 
   async function saveTemplate() {
-    const trimmed = draftName.trim()
+    const trimmed = draftName.trim();
     if (!trimmed) {
-      setMessage('Template name is required.')
-      return
+      setMessage('Template name is required.');
+      return;
     }
     try {
-      await updateWorkoutTemplateName(templateId, trimmed)
-      setMessage('')
-      await loadTemplate()
-      setEditMode(false)
-      setEditSnapshot(null)
-      navigation.setParams({ initialEdit: false })
+      await updateWorkoutTemplateName(templateId, trimmed);
+      setMessage('');
+      await loadTemplate();
+      setEditMode(false);
+      setEditSnapshot(null);
+      navigation.setParams({ initialEdit: false });
     } catch (e) {
-      console.error('Could not save template', e)
-      setMessage('Could not save this template.')
+      console.error('Could not save template', e);
+      setMessage('Could not save this template.');
     }
   }
 
   async function cancelEdit() {
     try {
-      setCancelVisible(false)
+      setCancelVisible(false);
       if (editSnapshot) {
-        await replaceWorkoutTemplateExercises(templateId, editSnapshot.exercises)
-        setTemplate(editSnapshot)
-        setDraftName(editSnapshot.name)
+        await replaceWorkoutTemplateExercises(
+          templateId,
+          editSnapshot.exercises,
+        );
+        setTemplate(editSnapshot);
+        setDraftName(editSnapshot.name);
       } else {
-        await loadTemplate()
+        await loadTemplate();
       }
-      setMessage('')
-      setEditMode(false)
-      setEditSnapshot(null)
-      navigation.setParams({ initialEdit: false })
+      setMessage('');
+      setEditMode(false);
+      setEditSnapshot(null);
+      navigation.setParams({ initialEdit: false });
     } catch (e) {
-      console.error('Could not cancel template edits', e)
-      setMessage('Could not cancel these changes.')
+      console.error('Could not cancel template edits', e);
+      setMessage('Could not cancel these changes.');
     }
   }
 
   function exitEditMode() {
-    setDraftName(template?.name ?? '')
-    setMessage('')
-    setEditMode(false)
-    setEditSnapshot(null)
-    navigation.setParams({ initialEdit: false })
+    setDraftName(template?.name ?? '');
+    setMessage('');
+    setEditMode(false);
+    setEditSnapshot(null);
+    navigation.setParams({ initialEdit: false });
   }
 
   async function toggleFavorite() {
-    if (!template) return
+    if (!template) return;
     try {
-      await setWorkoutTemplateFavorite(template.id, !template.isFavorite)
-      setMessage('')
-      await loadTemplate()
+      await setWorkoutTemplateFavorite(template.id, !template.isFavorite);
+      setMessage('');
+      await loadTemplate();
     } catch (e) {
-      console.error('Could not update favorite template', e)
-      setMessage('You can favorite up to 6 templates.')
+      console.error('Could not update favorite template', e);
+      setMessage('You can favorite up to 6 templates.');
     }
   }
 
   async function updateSetCount(templateExerciseId: string, setCount: number) {
-    if (!template) return
-    const currentExercise = template.exercises.find((exercise) => exercise.id === templateExerciseId)
-    if (!currentExercise) return
-    const safeSetCount = Math.max(1, Math.min(12, Math.trunc(setCount)))
-    if (currentExercise.setCount === safeSetCount) return
+    if (!template) return;
+    const currentExercise = template.exercises.find(
+      exercise => exercise.id === templateExerciseId,
+    );
+    if (!currentExercise) return;
+    const safeSetCount = Math.max(1, Math.min(12, Math.trunc(setCount)));
+    if (currentExercise.setCount === safeSetCount) return;
 
-    const setDelta = safeSetCount - currentExercise.setCount
+    const setDelta = safeSetCount - currentExercise.setCount;
     setTemplate({
       ...template,
       totalSetCount: Math.max(0, template.totalSetCount + setDelta),
-      exercises: template.exercises.map((exercise) =>
-        exercise.id === templateExerciseId ? { ...exercise, setCount: safeSetCount } : exercise,
+      exercises: template.exercises.map(exercise =>
+        exercise.id === templateExerciseId
+          ? { ...exercise, setCount: safeSetCount }
+          : exercise,
       ),
-    })
+    });
 
     try {
-      await updateWorkoutTemplateExerciseSetCount(templateExerciseId, safeSetCount)
+      await updateWorkoutTemplateExerciseSetCount(
+        templateExerciseId,
+        safeSetCount,
+      );
     } catch (e) {
-      console.error('Could not update template set count', e)
-      await loadTemplate()
+      console.error('Could not update template set count', e);
+      await loadTemplate();
     }
   }
 
   async function removeExercise(templateExerciseId: string) {
-    if (!template) return
-    const removedExercise = template.exercises.find((exercise) => exercise.id === templateExerciseId)
-    if (!removedExercise) return
+    if (!template) return;
+    const removedExercise = template.exercises.find(
+      exercise => exercise.id === templateExerciseId,
+    );
+    if (!removedExercise) return;
 
-    const previousTemplate = template
-    const nextExercises = template.exercises.filter((exercise) => exercise.id !== templateExerciseId)
+    const previousTemplate = template;
+    const nextExercises = template.exercises.filter(
+      exercise => exercise.id !== templateExerciseId,
+    );
     setTemplate({
       ...template,
       exerciseCount: nextExercises.length,
-      totalSetCount: Math.max(0, template.totalSetCount - removedExercise.setCount),
+      totalSetCount: Math.max(
+        0,
+        template.totalSetCount - removedExercise.setCount,
+      ),
       exercises: nextExercises,
-    })
-    setMessage('')
+    });
+    setMessage('');
 
     try {
-      await removeExerciseFromWorkoutTemplate(templateExerciseId)
+      await removeExerciseFromWorkoutTemplate(templateExerciseId);
     } catch (e) {
-      console.error('Could not remove template exercise', e)
-      setTemplate(previousTemplate)
-      setMessage('Could not remove this exercise.')
+      console.error('Could not remove template exercise', e);
+      setTemplate(previousTemplate);
+      setMessage('Could not remove this exercise.');
     }
   }
 
   async function persistExerciseOrder(orderedExerciseIds: string[]) {
-    const currentTemplate = templateRef.current
-    if (!currentTemplate || orderedExerciseIds.length !== currentTemplate.exercises.length) return
+    const currentTemplate = templateRef.current;
+    if (
+      !currentTemplate ||
+      orderedExerciseIds.length !== currentTemplate.exercises.length
+    )
+      return;
 
-    const previousTemplate = currentTemplate
-    const exerciseById = new Map(currentTemplate.exercises.map((exercise) => [exercise.id, exercise]))
+    const previousTemplate = currentTemplate;
+    const exerciseById = new Map(
+      currentTemplate.exercises.map(exercise => [exercise.id, exercise]),
+    );
     const orderedExercises = orderedExerciseIds.flatMap((exerciseId, index) => {
-      const exercise = exerciseById.get(exerciseId)
-      return exercise ? [{ ...exercise, orderIndex: index }] : []
-    })
-    if (orderedExercises.length !== currentTemplate.exercises.length) return
+      const exercise = exerciseById.get(exerciseId);
+      return exercise ? [{ ...exercise, orderIndex: index }] : [];
+    });
+    if (orderedExercises.length !== currentTemplate.exercises.length) return;
 
     setTemplate({
       ...currentTemplate,
       exercises: orderedExercises,
-    })
-    setMessage('')
+    });
+    setMessage('');
 
     try {
-      await replaceWorkoutTemplateExercises(templateId, orderedExercises)
+      await replaceWorkoutTemplateExercises(templateId, orderedExercises);
     } catch (e) {
-      console.error('Could not reorder template exercises', e)
-      setTemplate(previousTemplate)
-      setMessage('Could not reorder these exercises.')
+      console.error('Could not reorder template exercises', e);
+      setTemplate(previousTemplate);
+      setMessage('Could not reorder these exercises.');
     }
   }
 
   async function handleExercisePicked(params: {
-    exerciseTypeId: string
-    methodId: string
+    exerciseTypeId: string;
+    methodId: string;
   }) {
     try {
       await addExerciseToWorkoutTemplate({
         ...params,
         templateId,
         setCount: 3,
-      })
-      setPickerVisible(false)
-      await loadTemplate()
+      });
+      setPickerVisible(false);
+      await loadTemplate();
     } catch (e) {
-      console.error('Could not add exercise to template', e)
-      setMessage('Could not add this exercise.')
+      console.error('Could not add exercise to template', e);
+      setMessage('Could not add this exercise.');
     }
   }
 
   async function startTemplate() {
     if (activeWorkoutId) {
-      Alert.alert('Workout already active', 'Finish or cancel it before starting a template.')
-      return
+      Alert.alert(
+        'Workout already active',
+        'Finish or cancel it before starting a template.',
+      );
+      return;
     }
     if (!template?.exercises.length) {
-      setMessage('Add exercises to this template before starting it.')
-      return
+      setMessage('Add exercises to this template before starting it.');
+      return;
     }
-    setStartingTemplate(true)
+    setStartingTemplate(true);
     try {
-      const session = await createWorkoutFromTemplateDetail(template)
+      const session = await createWorkoutFromTemplateDetail(template);
       restoreWorkoutSession({
         workoutId: session.id,
         startedAt: session.startedAt,
         exercises: session.exercises,
         openSheet: false,
-      })
-      navigation.navigate('Home')
+      });
+      navigation.navigate('Home');
       InteractionManager.runAfterInteractions(() => {
-        openWorkoutSheet()
-      })
+        openWorkoutSheet();
+      });
     } catch (e) {
-      console.error('Could not start template', e)
-      setMessage('Add exercises to this template before starting it.')
-      setStartingTemplate(false)
+      console.error('Could not start template', e);
+      setMessage('Add exercises to this template before starting it.');
+      setStartingTemplate(false);
     }
   }
 
   async function confirmDelete() {
     try {
-      setDeleteVisible(false)
-      await deleteWorkoutTemplate(templateId)
-      navigation.goBack()
+      setDeleteVisible(false);
+      await deleteWorkoutTemplate(templateId);
+      navigation.goBack();
     } catch (e) {
-      console.error('Could not delete template', e)
-      setMessage('Could not delete this template.')
+      console.error('Could not delete template', e);
+      setMessage('Could not delete this template.');
     }
   }
 
-  const canStart = Boolean(template?.exercises.length && !activeWorkoutId && !startingTemplate)
+  const canStart = Boolean(
+    template?.exercises.length && !activeWorkoutId && !startingTemplate,
+  );
   const hasUnsavedChanges = useMemo(() => {
-    if (!editSnapshot || !template) return false
-    if (draftName.trim() !== editSnapshot.name.trim()) return true
-    if (template.exercises.length !== editSnapshot.exercises.length) return true
+    if (!editSnapshot || !template) return false;
+    if (draftName.trim() !== editSnapshot.name.trim()) return true;
+    if (template.exercises.length !== editSnapshot.exercises.length)
+      return true;
 
     return template.exercises.some((exercise, index) => {
-      const snapshotExercise = editSnapshot.exercises[index]
+      const snapshotExercise = editSnapshot.exercises[index];
       return (
         !snapshotExercise ||
         exercise.id !== snapshotExercise.id ||
         exercise.exerciseTypeId !== snapshotExercise.exerciseTypeId ||
         exercise.methodId !== snapshotExercise.methodId ||
         exercise.setCount !== snapshotExercise.setCount
-      )
-    })
-  }, [draftName, editSnapshot, template])
+      );
+    });
+  }, [draftName, editSnapshot, template]);
   const scrollContentStyle = useMemo(
-    () => [
-      styles.content,
-      !editMode ? styles.contentWithBottomAction : null,
-    ],
+    () => [styles.content, !editMode ? styles.contentWithBottomAction : null],
     [editMode, styles.content, styles.contentWithBottomAction],
-  )
+  );
 
   function handleCancelEditPress() {
     if (hasUnsavedChanges) {
-      setCancelVisible(true)
-      return
+      setCancelVisible(true);
+      return;
     }
-    exitEditMode()
+    exitEditMode();
   }
 
   return (
@@ -359,30 +406,59 @@ export default function TemplateDetailScreen({ navigation, route }: Props) {
             </Text>
           ) : null
         }
-        rightContent={(
+        rightContent={
           editMode ? (
             <View style={styles.headerActions}>
-              <ScreenHeaderButton label="Cancel" iconName="close" onPress={handleCancelEditPress} />
-              <ScreenHeaderButton label="Save" iconName="check" onPress={saveTemplate} />
+              <ScreenHeaderButton
+                label="Cancel"
+                iconName="close"
+                onPress={handleCancelEditPress}
+              />
+              <ScreenHeaderButton
+                label="Save"
+                iconName="check"
+                onPress={saveTemplate}
+              />
             </View>
           ) : (
             <View style={styles.headerActions}>
-              <TouchableOpacity style={styles.headerIconButton} onPress={() => setEditMode(true)}>
-                <MaterialCommunityIcons name="pencil-outline" size={17} color={theme.colors.text} />
+              <TouchableOpacity
+                style={styles.headerIconButton}
+                onPress={() => setEditMode(true)}
+              >
+                <MaterialCommunityIcons
+                  name="pencil-outline"
+                  size={17}
+                  color={theme.colors.text}
+                />
               </TouchableOpacity>
-              <TouchableOpacity style={styles.headerIconButton} onPress={toggleFavorite}>
+              <TouchableOpacity
+                style={styles.headerIconButton}
+                onPress={toggleFavorite}
+              >
                 <MaterialCommunityIcons
                   name={template?.isFavorite ? 'star' : 'star-outline'}
                   size={18}
-                  color={template?.isFavorite ? theme.colors.accent : theme.colors.text}
+                  color={
+                    template?.isFavorite
+                      ? theme.colors.accent
+                      : theme.colors.text
+                  }
                 />
               </TouchableOpacity>
-              <TouchableOpacity style={styles.headerIconButton} onPress={() => setDeleteVisible(true)}>
-                <MaterialCommunityIcons name="trash-can-outline" size={17} color={theme.colors.text} />
+              <TouchableOpacity
+                style={styles.headerIconButton}
+                onPress={() => setDeleteVisible(true)}
+              >
+                <MaterialCommunityIcons
+                  name="trash-can-outline"
+                  size={17}
+                  color={theme.colors.text}
+                />
               </TouchableOpacity>
             </View>
           )
-        )}
+        }
       />
 
       <ScrollView
@@ -394,7 +470,11 @@ export default function TemplateDetailScreen({ navigation, route }: Props) {
       >
         {message ? (
           <View style={styles.notice}>
-            <MaterialCommunityIcons name="information-outline" size={16} color={theme.colors.accent} />
+            <MaterialCommunityIcons
+              name="information-outline"
+              size={16}
+              color={theme.colors.accent}
+            />
             <Text style={styles.noticeText}>{message}</Text>
           </View>
         ) : null}
@@ -423,21 +503,28 @@ export default function TemplateDetailScreen({ navigation, route }: Props) {
               </View>
             ) : null}
 
-            {!editMode ? (
-              <TemplateSummaryPanel template={template} />
-            ) : null}
+            {!editMode ? <TemplateSummaryPanel template={template} /> : null}
 
             <View style={styles.exerciseCard}>
               <View style={styles.exerciseHeader}>
                 <View style={styles.exerciseHeaderText}>
                   <Text style={styles.sectionTitle}>Exercises</Text>
                   <Text style={styles.sectionSubtitle}>
-                    {editMode ? 'Hold and drag to reorder your plan.' : 'Planned in the order they will start.'}
+                    {editMode
+                      ? 'Hold and drag to reorder your plan.'
+                      : 'Planned in the order they will start.'}
                   </Text>
                 </View>
                 {editMode ? (
-                  <TouchableOpacity style={styles.addButton} onPress={() => setPickerVisible(true)}>
-                    <MaterialCommunityIcons name="plus" size={16} color={theme.colors.accent} />
+                  <TouchableOpacity
+                    style={styles.addButton}
+                    onPress={() => setPickerVisible(true)}
+                  >
+                    <MaterialCommunityIcons
+                      name="plus"
+                      size={16}
+                      color={theme.colors.accent}
+                    />
                     <Text style={styles.addButtonText}>Add</Text>
                   </TouchableOpacity>
                 ) : null}
@@ -473,26 +560,65 @@ export default function TemplateDetailScreen({ navigation, route }: Props) {
       </ScrollView>
 
       {!editMode && template ? (
-        <View style={styles.bottomBar}>
+        <View style={styles.bottomDock}>
           <TouchableOpacity
-            style={[styles.startButton, !canStart && styles.startButtonDisabled]}
+            style={[
+              styles.startDockAction,
+              !canStart && styles.startDockActionDisabled,
+            ]}
             onPress={startTemplate}
             disabled={!canStart}
             activeOpacity={0.82}
           >
-            <View style={styles.startIcon}>
+            <View
+              style={[
+                styles.startActionIcon,
+                !canStart && styles.startActionIconDisabled,
+              ]}
+            >
               {startingTemplate ? (
-                <ActivityIndicator size="small" color={theme.colors.accent} />
+                <ActivityIndicator
+                  size="small"
+                  color={
+                    canStart ? theme.colors.accent : theme.colors.textMuted
+                  }
+                />
               ) : (
-                <MaterialCommunityIcons name="play" size={18} color={theme.colors.accent} />
+                <MaterialCommunityIcons
+                  name={canStart ? 'play' : 'lock-outline'}
+                  size={18}
+                  color={
+                    canStart ? theme.colors.accent : theme.colors.textMuted
+                  }
+                />
               )}
             </View>
             <View style={styles.startTextBlock}>
-              <Text style={styles.startButtonText}>
-                {startingTemplate ? 'Starting...' : activeWorkoutId ? 'Workout Active' : 'Start Workout'}
+              <Text
+                style={[
+                  styles.startButtonText,
+                  !canStart && styles.startButtonTextDisabled,
+                ]}
+              >
+                {startingTemplate
+                  ? 'Starting workout'
+                  : activeWorkoutId
+                  ? 'Workout active'
+                  : 'Start workout'}
               </Text>
             </View>
-            <MaterialCommunityIcons name="chevron-right" size={18} color={theme.colors.textMuted} />
+            <View
+              style={[
+                styles.startChevron,
+                !canStart && styles.startChevronDisabled,
+              ]}
+            >
+              <MaterialCommunityIcons
+                name="chevron-right"
+                size={18}
+                color={canStart ? theme.colors.accent : theme.colors.textMuted}
+              />
+            </View>
           </TouchableOpacity>
         </View>
       ) : null}
@@ -505,7 +631,11 @@ export default function TemplateDetailScreen({ navigation, route }: Props) {
       <ThemedDialog
         visible={deleteVisible}
         title="Delete Template"
-        message={template ? `Delete ${template.name}? This removes the template only.` : undefined}
+        message={
+          template
+            ? `Delete ${template.name}? This removes the template only.`
+            : undefined
+        }
         actions={[
           { label: 'Cancel', onPress: () => setDeleteVisible(false) },
           { label: 'Delete', variant: 'danger', onPress: confirmDelete },
@@ -521,20 +651,24 @@ export default function TemplateDetailScreen({ navigation, route }: Props) {
         ]}
       />
     </View>
-  )
+  );
 }
 
 function TemplateSummaryPanel({
   template,
 }: {
-  template: WorkoutTemplateDetail
+  template: WorkoutTemplateDetail;
 }) {
-  const { styles, theme } = useStyles(stylesheet)
+  const { styles, theme } = useStyles(stylesheet);
 
   return (
     <View style={styles.summaryPanel}>
       <View style={styles.summaryIcon}>
-        <MaterialCommunityIcons name="clipboard-text-outline" size={21} color={theme.colors.text} />
+        <MaterialCommunityIcons
+          name="clipboard-text-outline"
+          size={21}
+          color={theme.colors.accent}
+        />
       </View>
       <View style={styles.summaryContent}>
         <Text style={styles.summaryEyebrow}>Template plan</Text>
@@ -548,12 +682,14 @@ function TemplateSummaryPanel({
           <TemplateSummaryStat
             iconName="format-list-numbered"
             value={String(template.totalSetCount)}
-            label={template.totalSetCount === 1 ? 'Planned set' : 'Planned sets'}
+            label={
+              template.totalSetCount === 1 ? 'Planned set' : 'Planned sets'
+            }
           />
         </View>
       </View>
     </View>
-  )
+  );
 }
 
 function TemplateSummaryStat({
@@ -561,19 +697,25 @@ function TemplateSummaryStat({
   value,
   label,
 }: {
-  iconName: string
-  value: string
-  label: string
+  iconName: string;
+  value: string;
+  label: string;
 }) {
-  const { styles, theme } = useStyles(stylesheet)
+  const { styles, theme } = useStyles(stylesheet);
 
   return (
     <View style={styles.summaryStat}>
-      <MaterialCommunityIcons name={iconName} size={15} color={theme.colors.textMuted} />
+      <MaterialCommunityIcons
+        name={iconName}
+        size={15}
+        color={theme.colors.textMuted}
+      />
       <Text style={styles.summaryStatValue}>{value}</Text>
-      <Text style={styles.summaryStatLabel} numberOfLines={1}>{label}</Text>
+      <Text style={styles.summaryStatLabel} numberOfLines={1}>
+        {label}
+      </Text>
     </View>
-  )
+  );
 }
 
 function SortableTemplateExerciseList({
@@ -583,29 +725,40 @@ function SortableTemplateExerciseList({
   onUpdateSetCount,
   onRemove,
 }: {
-  exercises: TemplateExercise[]
-  onDragStateChange: (exerciseId: string | null) => void
-  onReorder: (orderedExerciseIds: string[]) => void
-  onUpdateSetCount: (exerciseId: string, setCount: number) => void
-  onRemove: (exerciseId: string) => void
+  exercises: TemplateExercise[];
+  onDragStateChange: (exerciseId: string | null) => void;
+  onReorder: (orderedExerciseIds: string[]) => void;
+  onUpdateSetCount: (exerciseId: string, setCount: number) => void;
+  onRemove: (exerciseId: string) => void;
 }) {
-  const { styles } = useStyles(stylesheet)
-  const exerciseIds = useMemo(() => exercises.map((exercise) => exercise.id), [exercises])
-  const exerciseKey = exerciseIds.join('|')
-  const positions = useSharedValue<TemplateExercisePositions>(buildExercisePositions(exercises))
-  const activeExerciseId = useSharedValue<string | null>(null)
+  const { styles } = useStyles(stylesheet);
+  const exerciseIds = useMemo(
+    () => exercises.map(exercise => exercise.id),
+    [exercises],
+  );
+  const exerciseKey = exerciseIds.join('|');
+  const positions = useSharedValue<TemplateExercisePositions>(
+    buildExercisePositions(exercises),
+  );
+  const activeExerciseId = useSharedValue<string | null>(null);
 
   useEffect(() => {
-    positions.value = buildExercisePositions(exercises)
-  }, [exerciseKey, exercises, positions])
+    positions.value = buildExercisePositions(exercises);
+  }, [exerciseKey, exercises, positions]);
 
   const sortableListStyle = useMemo(
     () => [
       styles.sortableExerciseList,
-      { height: Math.max(0, exercises.length * TEMPLATE_EXERCISE_SLOT_HEIGHT - TEMPLATE_EXERCISE_ROW_GAP) },
+      {
+        height: Math.max(
+          0,
+          exercises.length * TEMPLATE_EXERCISE_SLOT_HEIGHT -
+            TEMPLATE_EXERCISE_ROW_GAP,
+        ),
+      },
     ],
     [exercises.length, styles.sortableExerciseList],
-  )
+  );
 
   return (
     <View style={sortableListStyle}>
@@ -624,7 +777,7 @@ function SortableTemplateExerciseList({
         />
       ))}
     </View>
-  )
+  );
 }
 
 function SortableTemplateExerciseRow({
@@ -638,83 +791,104 @@ function SortableTemplateExerciseRow({
   onUpdateSetCount,
   onRemove,
 }: {
-  exercise: TemplateExercise
-  index: number
-  exerciseIds: string[]
-  positions: SharedValue<TemplateExercisePositions>
-  activeExerciseId: SharedValue<string | null>
-  onDragStateChange: (exerciseId: string | null) => void
-  onReorder: (orderedExerciseIds: string[]) => void
-  onUpdateSetCount: (exerciseId: string, setCount: number) => void
-  onRemove: (exerciseId: string) => void
+  exercise: TemplateExercise;
+  index: number;
+  exerciseIds: string[];
+  positions: SharedValue<TemplateExercisePositions>;
+  activeExerciseId: SharedValue<string | null>;
+  onDragStateChange: (exerciseId: string | null) => void;
+  onReorder: (orderedExerciseIds: string[]) => void;
+  onUpdateSetCount: (exerciseId: string, setCount: number) => void;
+  onRemove: (exerciseId: string) => void;
 }) {
-  const { styles, theme } = useStyles(stylesheet)
-  const top = useSharedValue(index * TEMPLATE_EXERCISE_SLOT_HEIGHT)
-  const startTop = useSharedValue(index * TEMPLATE_EXERCISE_SLOT_HEIGHT)
-  const didEndDrag = useSharedValue(false)
+  const { styles, theme } = useStyles(stylesheet);
+  const top = useSharedValue(index * TEMPLATE_EXERCISE_SLOT_HEIGHT);
+  const startTop = useSharedValue(index * TEMPLATE_EXERCISE_SLOT_HEIGHT);
+  const didEndDrag = useSharedValue(false);
 
   const rowGesture = useMemo(
     () =>
       Gesture.Pan()
         .enabled(exerciseIds.length > 1)
-        .activateAfterLongPress(80)
+        .activateAfterLongPress(TEMPLATE_EXERCISE_DRAG_ACTIVATE_MS)
         .minDistance(1)
         .onStart(() => {
-          didEndDrag.value = false
-          activeExerciseId.value = exercise.id
-          startTop.value = (positions.value[exercise.id] ?? index) * TEMPLATE_EXERCISE_SLOT_HEIGHT
-          top.value = startTop.value
-          runOnJS(onDragStateChange)(exercise.id)
+          didEndDrag.value = false;
+          activeExerciseId.value = exercise.id;
+          startTop.value =
+            (positions.value[exercise.id] ?? index) *
+            TEMPLATE_EXERCISE_SLOT_HEIGHT;
+          top.value = startTop.value;
+          runOnJS(onDragStateChange)(exercise.id);
         })
-        .onUpdate((event) => {
-          const nextTop = startTop.value + event.translationY
-          const currentIndex = positions.value[exercise.id] ?? index
+        .onUpdate(event => {
+          const nextTop = startTop.value + event.translationY;
+          const currentIndex = positions.value[exercise.id] ?? index;
           const targetIndex = clampIndex(
             Math.round(nextTop / TEMPLATE_EXERCISE_SLOT_HEIGHT),
             0,
             exerciseIds.length - 1,
-          )
+          );
 
-          top.value = nextTop
+          top.value = nextTop;
 
-          if (targetIndex === currentIndex) return
+          if (targetIndex === currentIndex) return;
 
-          const nextPositions = { ...positions.value }
+          const nextPositions = { ...positions.value };
           for (let i = 0; i < exerciseIds.length; i += 1) {
-            const exerciseId = exerciseIds[i]
-            if (exerciseId === exercise.id) continue
-            const position = positions.value[exerciseId]
-            if (targetIndex > currentIndex && position > currentIndex && position <= targetIndex) {
-              nextPositions[exerciseId] = position - 1
-            } else if (targetIndex < currentIndex && position >= targetIndex && position < currentIndex) {
-              nextPositions[exerciseId] = position + 1
+            const exerciseId = exerciseIds[i];
+            if (exerciseId === exercise.id) continue;
+            const position = positions.value[exerciseId];
+            if (
+              targetIndex > currentIndex &&
+              position > currentIndex &&
+              position <= targetIndex
+            ) {
+              nextPositions[exerciseId] = position - 1;
+            } else if (
+              targetIndex < currentIndex &&
+              position >= targetIndex &&
+              position < currentIndex
+            ) {
+              nextPositions[exerciseId] = position + 1;
             }
           }
-          nextPositions[exercise.id] = targetIndex
-          positions.value = nextPositions
+          nextPositions[exercise.id] = targetIndex;
+          positions.value = nextPositions;
         })
         .onEnd(() => {
-          didEndDrag.value = true
-          const landedPositions = positions.value
+          didEndDrag.value = true;
+          const landedPositions = positions.value;
           const orderedExerciseIds = [...exerciseIds].sort(
-            (firstId, secondId) => landedPositions[firstId] - landedPositions[secondId],
-          )
+            (firstId, secondId) =>
+              landedPositions[firstId] - landedPositions[secondId],
+          );
           top.value = withTiming(
             landedPositions[exercise.id] * TEMPLATE_EXERCISE_SLOT_HEIGHT,
-            { duration: 120 },
-            (finished) => {
-              if (!finished) return
-              activeExerciseId.value = null
-              runOnJS(onDragStateChange)(null)
-              runOnJS(onReorder)(orderedExerciseIds)
+            {
+              duration: TEMPLATE_EXERCISE_SETTLE_MS,
+              easing: ReanimatedEasing.out(ReanimatedEasing.cubic),
             },
-          )
+            finished => {
+              if (!finished) return;
+              activeExerciseId.value = null;
+              runOnJS(onDragStateChange)(null);
+              runOnJS(onReorder)(orderedExerciseIds);
+            },
+          );
         })
         .onFinalize(() => {
           if (!didEndDrag.value) {
-            top.value = withTiming((positions.value[exercise.id] ?? index) * TEMPLATE_EXERCISE_SLOT_HEIGHT)
-            activeExerciseId.value = null
-            runOnJS(onDragStateChange)(null)
+            top.value = withTiming(
+              (positions.value[exercise.id] ?? index) *
+                TEMPLATE_EXERCISE_SLOT_HEIGHT,
+              {
+                duration: TEMPLATE_EXERCISE_SETTLE_MS,
+                easing: ReanimatedEasing.out(ReanimatedEasing.cubic),
+              },
+            );
+            activeExerciseId.value = null;
+            runOnJS(onDragStateChange)(null);
           }
         }),
     [
@@ -729,26 +903,28 @@ function SortableTemplateExerciseRow({
       startTop,
       top,
     ],
-  )
+  );
 
   const animatedRowStyle = useAnimatedStyle(() => {
-    const isActive = activeExerciseId.value === exercise.id
-    const nextTop = (positions.value[exercise.id] ?? index) * TEMPLATE_EXERCISE_SLOT_HEIGHT
+    const isActive = activeExerciseId.value === exercise.id;
+    const nextTop =
+      (positions.value[exercise.id] ?? index) * TEMPLATE_EXERCISE_SLOT_HEIGHT;
 
     return {
-      top: isActive ? top.value : withTiming(nextTop, { duration: 120 }),
+      top: isActive
+        ? top.value
+        : withTiming(nextTop, {
+            duration: TEMPLATE_EXERCISE_SETTLE_MS,
+            easing: ReanimatedEasing.out(ReanimatedEasing.cubic),
+          }),
       zIndex: isActive ? 10 : 1,
       elevation: isActive ? 6 : 0,
-    }
-  }, [exercise.id, index])
+    };
+  }, [exercise.id, index]);
 
   return (
     <Animated.View
-      style={[
-        styles.sortableExerciseRow,
-        styles.exerciseRow,
-        animatedRowStyle,
-      ]}
+      style={[styles.sortableExerciseRow, styles.exerciseRow, animatedRowStyle]}
     >
       <View style={styles.sortableIndexBadge}>
         <Text style={styles.sortableIndexText}>
@@ -762,7 +938,11 @@ function SortableTemplateExerciseRow({
             exerciseIds.length < 2 && styles.dragButtonDisabled,
           ]}
         >
-          <MaterialCommunityIcons name="drag" size={17} color={theme.colors.textMuted} />
+          <MaterialCommunityIcons
+            name="drag"
+            size={17}
+            color={theme.colors.textMuted}
+          />
         </View>
       </GestureDetector>
       <View style={styles.exerciseTextBlock}>
@@ -771,7 +951,11 @@ function SortableTemplateExerciseRow({
         </Text>
         {!exercise.methodLocked ? (
           <View style={styles.exerciseMethodLine}>
-            <MaterialCommunityIcons name="tune-variant" size={12} color={theme.colors.textMuted} />
+            <MaterialCommunityIcons
+              name="tune-variant"
+              size={12}
+              color={theme.colors.textMuted}
+            />
             <Text style={styles.exerciseMethod} numberOfLines={1}>
               {exercise.methodName}
             </Text>
@@ -785,7 +969,11 @@ function SortableTemplateExerciseRow({
           onPress={() => onUpdateSetCount(exercise.id, exercise.setCount - 1)}
           disabled={exercise.setCount <= 1}
         >
-          <MaterialCommunityIcons name="minus" size={15} color={theme.colors.textMuted} />
+          <MaterialCommunityIcons
+            name="minus"
+            size={15}
+            color={theme.colors.textMuted}
+          />
         </TouchableOpacity>
         <Text style={styles.setCount}>{exercise.setCount}</Text>
         <TouchableOpacity
@@ -793,17 +981,25 @@ function SortableTemplateExerciseRow({
           onPress={() => onUpdateSetCount(exercise.id, exercise.setCount + 1)}
           disabled={exercise.setCount >= 12}
         >
-          <MaterialCommunityIcons name="plus" size={15} color={theme.colors.textMuted} />
+          <MaterialCommunityIcons
+            name="plus"
+            size={15}
+            color={theme.colors.textMuted}
+          />
         </TouchableOpacity>
       </View>
       <TouchableOpacity
         style={styles.removeButton}
         onPress={() => onRemove(exercise.id)}
       >
-        <MaterialCommunityIcons name="trash-can-outline" size={17} color={theme.colors.textMuted} />
+        <MaterialCommunityIcons
+          name="trash-can-outline"
+          size={17}
+          color={theme.colors.textMuted}
+        />
       </TouchableOpacity>
     </Animated.View>
-  )
+  );
 }
 
 function TemplateExerciseRow({
@@ -811,14 +1007,19 @@ function TemplateExerciseRow({
   index,
   isLast,
 }: {
-  exercise: TemplateExercise
-  index: number
-  isLast: boolean
+  exercise: TemplateExercise;
+  index: number;
+  isLast: boolean;
 }) {
-  const { styles, theme } = useStyles(stylesheet)
+  const { styles, theme } = useStyles(stylesheet);
 
   return (
-    <View style={[styles.previewExerciseRow, !isLast && styles.previewExerciseRowDivider]}>
+    <View
+      style={[
+        styles.previewExerciseRow,
+        !isLast && styles.previewExerciseRowDivider,
+      ]}
+    >
       <View style={styles.previewIndexBadge}>
         <Text style={styles.previewIndexText}>
           {String(index + 1).padStart(2, '0')}
@@ -830,7 +1031,11 @@ function TemplateExerciseRow({
         </Text>
         {!exercise.methodLocked ? (
           <View style={styles.exerciseMethodLine}>
-            <MaterialCommunityIcons name="tune-variant" size={12} color={theme.colors.textMuted} />
+            <MaterialCommunityIcons
+              name="tune-variant"
+              size={12}
+              color={theme.colors.textMuted}
+            />
             <Text style={styles.exerciseMethod} numberOfLines={1}>
               {exercise.methodName}
             </Text>
@@ -838,19 +1043,21 @@ function TemplateExerciseRow({
         ) : null}
       </View>
       <View style={styles.previewSetBadge}>
-        <MaterialCommunityIcons name="format-list-numbered" size={13} color={theme.colors.textMuted} />
-        <Text style={styles.previewSetCount}>
-          {exercise.setCount}
-        </Text>
+        <MaterialCommunityIcons
+          name="format-list-numbered"
+          size={13}
+          color={theme.colors.textMuted}
+        />
+        <Text style={styles.previewSetCount}>{exercise.setCount}</Text>
         <Text style={styles.previewSetLabel}>
           {exercise.setCount === 1 ? 'set' : 'sets'}
         </Text>
       </View>
     </View>
-  )
+  );
 }
 
-const stylesheet = createStyleSheet((theme) => ({
+const stylesheet = createStyleSheet(theme => ({
   container: {
     flex: 1,
     backgroundColor: theme.colors.bg,
@@ -865,7 +1072,7 @@ const stylesheet = createStyleSheet((theme) => ({
     gap: theme.spacing.md,
   },
   contentWithBottomAction: {
-    paddingBottom: 72,
+    paddingBottom: 84,
   },
   headerActions: {
     flexDirection: 'row',
@@ -878,7 +1085,7 @@ const stylesheet = createStyleSheet((theme) => ({
     borderRadius: theme.radius.full,
     borderWidth: 1,
     borderColor: theme.colors.border,
-    backgroundColor: theme.colors.surface,
+    backgroundColor: theme.colors.surface2,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -937,21 +1144,21 @@ const stylesheet = createStyleSheet((theme) => ({
     backgroundColor: theme.colors.surface,
     borderRadius: theme.radius.md,
     borderWidth: 1,
-    borderColor: theme.colors.borderStrong,
+    borderColor: theme.colors.border,
     padding: theme.spacing.sm,
-    shadowColor: '#000',
+    shadowColor: theme.colors.bg,
     shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.14,
-    shadowRadius: 12,
-    elevation: 2,
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+    elevation: 1,
   },
   summaryIcon: {
     width: 46,
     height: 46,
     borderRadius: theme.radius.md,
-    backgroundColor: theme.colors.surface2,
+    backgroundColor: theme.colors.accentMuted,
     borderWidth: 1,
-    borderColor: theme.colors.border,
+    borderColor: theme.colors.accentMuted,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -1030,7 +1237,7 @@ const stylesheet = createStyleSheet((theme) => ({
     borderRadius: theme.radius.full,
     borderWidth: 1,
     borderColor: theme.colors.border,
-    backgroundColor: theme.colors.surface2,
+    backgroundColor: theme.colors.surface,
     paddingHorizontal: theme.spacing.sm,
   },
   addButtonText: {
@@ -1063,23 +1270,24 @@ const stylesheet = createStyleSheet((theme) => ({
     backgroundColor: theme.colors.surface,
     borderRadius: theme.radius.md,
     borderWidth: 1,
-    borderColor: theme.colors.borderStrong,
+    borderColor: theme.colors.border,
     paddingHorizontal: theme.spacing.sm,
     paddingVertical: theme.spacing.sm,
-    shadowColor: '#000',
+    shadowColor: theme.colors.bg,
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
+    shadowOpacity: 0.08,
+    shadowRadius: 6,
     elevation: 1,
   },
   exerciseRowDragging: {
     zIndex: 5,
     elevation: 5,
     borderColor: theme.colors.accent,
-    backgroundColor: theme.colors.surface,
+    backgroundColor: theme.colors.surface2,
   },
   exerciseRowDropTarget: {
     borderColor: theme.colors.accent,
+    backgroundColor: theme.colors.accentMuted,
   },
   sortableIndexBadge: {
     width: 32,
@@ -1102,7 +1310,7 @@ const stylesheet = createStyleSheet((theme) => ({
     borderRadius: theme.radius.full,
     borderWidth: 1,
     borderColor: theme.colors.border,
-    backgroundColor: theme.colors.surface2,
+    backgroundColor: theme.colors.surface,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -1165,7 +1373,7 @@ const stylesheet = createStyleSheet((theme) => ({
     borderRadius: theme.radius.full,
     borderWidth: 1,
     borderColor: theme.colors.border,
-    backgroundColor: theme.colors.surface2,
+    backgroundColor: theme.colors.surface,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -1186,9 +1394,9 @@ const stylesheet = createStyleSheet((theme) => ({
     width: 36,
     height: 36,
     borderRadius: theme.radius.full,
-    backgroundColor: theme.colors.bg,
+    backgroundColor: theme.colors.surface2,
     borderWidth: 1,
-    borderColor: theme.colors.borderStrong,
+    borderColor: theme.colors.border,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -1237,47 +1445,72 @@ const stylesheet = createStyleSheet((theme) => ({
     textAlign: 'center',
     paddingVertical: theme.spacing.sm,
   },
-  bottomBar: {
+  bottomDock: {
     position: 'absolute',
     left: 0,
     right: 0,
     bottom: 0,
-    paddingHorizontal: theme.spacing.md,
-    paddingVertical: theme.spacing.sm,
-    backgroundColor: theme.colors.bg,
-    borderTopWidth: 1,
-    borderTopColor: theme.colors.border,
+    paddingHorizontal: theme.spacing.lg,
+    paddingBottom: theme.spacing.md,
   },
-  startButton: {
-    minHeight: 46,
+  startDockAction: {
+    minHeight: 56,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
     gap: theme.spacing.sm,
     borderRadius: theme.radius.md,
     borderWidth: 1,
-    borderColor: theme.colors.border,
+    borderColor: theme.colors.borderStrong,
     backgroundColor: theme.colors.surface,
     paddingHorizontal: theme.spacing.sm,
+    paddingVertical: theme.spacing.sm,
+    shadowColor: theme.colors.bg,
+    shadowOffset: { width: 0, height: 18 },
+    shadowOpacity: 0.34,
+    shadowRadius: 24,
+    elevation: 12,
   },
-  startButtonDisabled: {
-    opacity: 0.45,
+  startDockActionDisabled: {
+    opacity: 0.62,
+    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.surface,
   },
   startButtonText: {
     color: theme.colors.text,
-    fontSize: theme.fontSize.sm,
+    fontSize: theme.fontSize.md,
     fontFamily: theme.fontFamily.extraBold,
   },
-  startIcon: {
-    width: 28,
-    height: 28,
+  startButtonTextDisabled: {
+    color: theme.colors.textMuted,
+  },
+  startActionIcon: {
+    width: 34,
+    height: 34,
     borderRadius: theme.radius.full,
     backgroundColor: theme.colors.accentMuted,
+    borderWidth: 1,
+    borderColor: theme.colors.accent,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  startActionIconDisabled: {
+    backgroundColor: theme.colors.surface2,
   },
   startTextBlock: {
     flex: 1,
     minWidth: 0,
   },
-}))
+  startChevron: {
+    width: 30,
+    height: 30,
+    borderRadius: theme.radius.full,
+    backgroundColor: theme.colors.surface2,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  startChevronDisabled: {
+    backgroundColor: theme.colors.surface,
+  },
+}));

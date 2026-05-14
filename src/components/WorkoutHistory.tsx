@@ -36,7 +36,7 @@ import {
 
 const LB_PER_KG = 2.20462;
 const PR_GOLD = '#D9A441';
-const TARGET_MAP_ANIMATION_MS = 220;
+const TARGET_MAP_ANIMATION_MS = 180;
 
 if (Platform.OS === 'android') {
   UIManager.setLayoutAnimationEnabledExperimental?.(true);
@@ -1116,7 +1116,7 @@ function TargetedMusclesCard({
               {
                 translateY: expandProgress.interpolate({
                   inputRange: [0, 1],
-                  outputRange: [-6, 0],
+                  outputRange: [-4, 0],
                 }),
               },
             ],

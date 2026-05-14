@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react'
+import { getFocusedRouteNameFromRoute } from '@react-navigation/native'
 import { type LayoutChangeEvent, Text, TouchableOpacity, View } from 'react-native'
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs'
 import type { BottomTabBarProps } from '@react-navigation/bottom-tabs'
@@ -6,6 +7,7 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack'
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons'
 import { Gesture, GestureDetector } from 'react-native-gesture-handler'
 import Animated, {
+  Easing as ReanimatedEasing,
   runOnJS,
   useAnimatedStyle,
   useSharedValue,
@@ -48,10 +50,11 @@ const TAB_BAR_HORIZONTAL_PADDING = 8
 const TAB_ICON_PILL_WIDTH = 52
 const TAB_ICON_PILL_TOP = 9
 const TAB_BAR_EXTRA_BOTTOM_PADDING = 10
-const TAB_TRANSITION_MS = 120
-const TAB_ICON_ANIMATION_MS = 90
-const TAB_RESET_ANIMATION_MS = 100
-const STACK_TRANSITION_MS = 150
+const TAB_TRANSITION_MS = 95
+const TAB_ICON_ANIMATION_MS = 80
+const TAB_RESET_ANIMATION_MS = 85
+const STACK_TRANSITION_MS = 125
+const FULL_SCREEN_ROUTES = new Set(['PostWorkout'])
 export type ProfileStackParamList = {
   Profile: undefined
   EditProfile: undefined
@@ -324,6 +327,7 @@ function TabBarItem({
   useEffect(() => {
     iconScale.value = withTiming(focused ? 1.08 : 1, {
       duration: TAB_ICON_ANIMATION_MS,
+      easing: ReanimatedEasing.out(ReanimatedEasing.quad),
     })
   }, [focused, iconScale])
 
@@ -370,12 +374,17 @@ function CustomTabBar(props: BottomTabBarProps) {
   const { styles } = useStyles(stylesheet)
   const insets = useSafeAreaInsets()
   const activeWorkoutId = useSessionStore((s) => s.activeWorkoutId)
+  const focusedRoute = state.routes[state.index]
+  const focusedRouteName = getFocusedRouteNameFromRoute(focusedRoute) ?? focusedRoute.name
   const bottomPadding = Math.max(insets.bottom + TAB_BAR_EXTRA_BOTTOM_PADDING, 18)
   const [tabBarWidth, setTabBarWidth] = useState(0)
   const activeIndex = useSharedValue(state.index)
 
   useEffect(() => {
-    activeIndex.value = withTiming(state.index, { duration: TAB_TRANSITION_MS })
+    activeIndex.value = withTiming(state.index, {
+      duration: TAB_TRANSITION_MS,
+      easing: ReanimatedEasing.out(ReanimatedEasing.cubic),
+    })
   }, [activeIndex, state.index])
 
   function handleTabBarLayout(event: LayoutChangeEvent) {
@@ -396,6 +405,10 @@ function CustomTabBar(props: BottomTabBarProps) {
       }],
     }
   })
+
+  if (FULL_SCREEN_ROUTES.has(focusedRouteName)) {
+    return null
+  }
 
   return (
     <View style={styles.tabArea}>
@@ -420,7 +433,10 @@ function CustomTabBar(props: BottomTabBarProps) {
             : route.name.replace('Tab', '')
 
           function handlePress() {
-            activeIndex.value = withTiming(index, { duration: TAB_TRANSITION_MS })
+            activeIndex.value = withTiming(index, {
+              duration: TAB_TRANSITION_MS,
+              easing: ReanimatedEasing.out(ReanimatedEasing.cubic),
+            })
             const event = navigation.emit({
               type: 'tabPress',
               target: route.key,
@@ -430,6 +446,7 @@ function CustomTabBar(props: BottomTabBarProps) {
             if (event.defaultPrevented) {
               activeIndex.value = withTiming(state.index, {
                 duration: TAB_RESET_ANIMATION_MS,
+                easing: ReanimatedEasing.out(ReanimatedEasing.quad),
               })
               return
             }

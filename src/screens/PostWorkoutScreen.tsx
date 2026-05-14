@@ -38,6 +38,16 @@ const PR_CONFETTI_COLORS = [
   '#75C7E6',
   '#8FE3B0',
 ];
+const PR_CELEBRATION_TITLES = [
+  'That one counts.',
+  'New ceiling unlocked.',
+  'Strength moved up.',
+  'That weight is yours now.',
+  'Progress made official.',
+  'The bar just got higher.',
+  'Top set, new standard.',
+  'That rep changed the board.',
+];
 const PR_CONFETTI = Array.from({ length: 28 }, (_, index) => {
   const column = index % 14;
   const row = Math.floor(index / 14);
@@ -49,7 +59,7 @@ const PR_CONFETTI = Array.from({ length: 28 }, (_, index) => {
     translateX: (column - 6.5) * (7 + row * 3),
     translateY: 118 + (index % 5) * 15,
     rotate: column % 2 === 0 ? 170 : -170,
-    delay: index * 14,
+    delay: index * 10,
   };
 });
 
@@ -293,7 +303,7 @@ export default function PostWorkoutScreen() {
       confettiAnimations.map((animation, index) =>
         Animated.timing(animation, {
           toValue: 1,
-          duration: 980 + (index % 4) * 80,
+          duration: 760 + (index % 4) * 60,
           delay: PR_CONFETTI[index].delay,
           easing: Easing.out(Easing.cubic),
           useNativeDriver: true,
@@ -305,13 +315,13 @@ export default function PostWorkoutScreen() {
       Animated.sequence([
         Animated.timing(spotlightAnimation, {
           toValue: 1,
-          duration: 1650,
+          duration: 1350,
           easing: Easing.inOut(Easing.sin),
           useNativeDriver: true,
         }),
         Animated.timing(spotlightAnimation, {
           toValue: 0,
-          duration: 1650,
+          duration: 1350,
           easing: Easing.inOut(Easing.sin),
           useNativeDriver: true,
         }),
@@ -585,6 +595,13 @@ function PrCelebrationBlock({
   spotlightAnimation: Animated.Value;
 }) {
   const { styles, theme } = useStyles(stylesheet);
+  const celebrationTitle = useMemo(
+    () =>
+      PR_CELEBRATION_TITLES[
+        Math.floor(Math.random() * PR_CELEBRATION_TITLES.length)
+      ],
+    [],
+  );
 
   return (
     <View style={styles.prCard}>
@@ -619,7 +636,7 @@ function PrCelebrationBlock({
           </View>
         </View>
         <Text style={styles.prCelebrationEyebrow}>New Personal Record</Text>
-        <Text style={styles.prCelebrationTitle}>That one counts.</Text>
+        <Text style={styles.prCelebrationTitle}>{celebrationTitle}</Text>
         <Text style={styles.prCelebrationMessage}>
           You pushed your top weight higher this workout.
         </Text>

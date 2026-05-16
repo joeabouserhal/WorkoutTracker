@@ -29,23 +29,21 @@ function parseStoredTimestamp(value) {
   return Number.isFinite(parsed) ? parsed : null
 }
 
-async function showRestDoneOnWorkoutNotification(startedAt, notificationId) {
-  const elapsed = Math.floor((Date.now() - startedAt) / 1000)
-  const nextNotification = buildWorkoutNotification(elapsed, 0, startedAt, {
-    restDone: true,
-  })
-  await notifee.displayNotification({
-    ...nextNotification,
-    id: notificationId ?? nextNotification.id,
-  })
-}
-
 async function showActiveWorkoutNotification(notificationId) {
   const startedAt = parseStoredTimestamp(storage.getString(MMKV_STARTED_AT))
   if (!startedAt) return
 
   const elapsed = Math.floor((Date.now() - startedAt) / 1000)
-  const nextNotification = buildWorkoutNotification(elapsed, 0, startedAt)
+  const restEndsAt = parseStoredTimestamp(storage.getString(MMKV_REST_ENDS_AT))
+  const restRemaining = restEndsAt && restEndsAt > Date.now()
+    ? Math.ceil((restEndsAt - Date.now()) / 1000)
+    : 0
+  const nextNotification = buildWorkoutNotification(
+    elapsed,
+    restRemaining,
+    startedAt,
+    { restEndsAt },
+  )
   await notifee.displayNotification({
     ...nextNotification,
     id: notificationId ?? nextNotification.id,
@@ -65,13 +63,10 @@ notifee.registerForegroundService((notification) => {
           return
         }
 
-        const startedAt = parseStoredTimestamp(startedAtStr) ?? Date.now()
         const restEndsAt = parseStoredTimestamp(storage.getString(MMKV_REST_ENDS_AT))
 
         if (restEndsAt && restEndsAt <= Date.now()) {
           removeKey(MMKV_REST_ENDS_AT)
-          await cancelRestDoneTrigger()
-          await showRestDoneOnWorkoutNotification(startedAt, notification.id)
           await sleep(SERVICE_IDLE_CHECK_MS)
           continue
         }
@@ -98,7 +93,14 @@ notifee.onBackgroundEvent(async ({ type, detail }) => {
     detail.notification?.data?.event === 'rest_done'
   ) {
     removeKey(MMKV_REST_ENDS_AT)
-    await cancelRestDoneTrigger()
+  }
+
+  if (
+    type === EventType.DISMISSED &&
+    detail.notification?.id === WORKOUT_NOTIFICATION_ID
+  ) {
+    await sleep(750)
+    await showActiveWorkoutNotification(detail.notification?.id)
   }
 
   if (type === EventType.PRESS) {

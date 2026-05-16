@@ -1,8 +1,9 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Animated, Easing, View } from 'react-native';
+import { Animated, Easing, StyleSheet, View } from 'react-native';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
-import { createStyleSheet, useStyles } from 'react-native-unistyles';
+import { darkTheme } from '@/theme/themes';
 
+const SPLASH_BACKGROUND = darkTheme.colors.accent;
 const LOGO_COLOR = '#FFFFFF';
 const MINIMUM_SPLASH_MS = 650;
 
@@ -11,32 +12,7 @@ type Props = {
   onFinished: () => void;
 };
 
-const stylesheet = createStyleSheet(theme => ({
-  container: {
-    position: 'absolute',
-    top: 0,
-    right: 0,
-    bottom: 0,
-    left: 0,
-    backgroundColor: theme.colors.surface2,
-    elevation: 1000,
-    zIndex: 1000,
-  },
-  center: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  logoWrap: {
-    width: 132,
-    height: 132,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-}));
-
 export default function SplashScreen({ ready, onFinished }: Props) {
-  const { styles } = useStyles(stylesheet);
   const [minimumElapsed, setMinimumElapsed] = useState(false);
   const logoScale = useRef(new Animated.Value(0.9)).current;
   const logoOpacity = useRef(new Animated.Value(0)).current;
@@ -128,3 +104,27 @@ export default function SplashScreen({ ready, onFinished }: Props) {
     </Animated.View>
   );
 }
+
+const styles = StyleSheet.create({
+  container: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    backgroundColor: SPLASH_BACKGROUND,
+    elevation: 1000,
+    zIndex: 1000,
+  },
+  center: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  logoWrap: {
+    width: 132,
+    height: 132,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+});

@@ -65,9 +65,12 @@ import {
   updateWorkoutName,
 } from '@/db/workoutHelpers';
 import {
+  WORKOUT_NOTIFICATION_ID,
   cancelWorkoutNotification,
+  openRestAlarmPermissionSettings,
   setupWorkoutChannel,
   showWorkoutNotification,
+  shouldPromptForRestAlarmPermission,
 } from '@/services/WorkoutNotification';
 import {
   formatRestTimer,
@@ -99,6 +102,7 @@ const WORKOUT_EXERCISE_GAP = 8;
 const WORKOUT_EXERCISE_SETTLE_MS = 105;
 const WORKOUT_EXERCISE_DRAG_ACTIVATE_MS = 65;
 const ACTIVE_WORKOUT_DRAFT_SAVE_DELAY_MS = 250;
+const REST_ALARM_PERMISSION_PROMPTED_KEY = 'rest_alarm_permission_prompted';
 const DELETE_SWIPE_DRAG_OFFSET = 18;
 const KeyboardAwareGestureScrollView = Reanimated.createAnimatedComponent(
   GestureScrollView,
@@ -542,6 +546,33 @@ export default function ActiveWorkoutSheet() {
     [closeDialog],
   );
 
+  const maybePromptRestAlarmPermission = useCallback(() => {
+    if (getString(REST_ALARM_PERMISSION_PROMPTED_KEY) === 'true') return;
+
+    shouldPromptForRestAlarmPermission()
+      .then(shouldPrompt => {
+        if (!shouldPrompt) return;
+        setString(REST_ALARM_PERMISSION_PROMPTED_KEY, 'true');
+        setDialog({
+          title: 'Enable Rest Alerts',
+          message:
+            'Allow alarms and reminders so rest timers can finish on time after this app is closed.',
+          actions: [
+            { label: 'Not Now', onPress: closeDialog },
+            {
+              label: 'Open Settings',
+              variant: 'primary',
+              onPress: () => {
+                closeDialog();
+                openRestAlarmPermissionSettings().catch(console.error);
+              },
+            },
+          ],
+        });
+      })
+      .catch(console.error);
+  }, [closeDialog]);
+
   const markInvalidSetFields = useCallback(
     (
       invalidFields: Array<{
@@ -951,6 +982,25 @@ export default function ActiveWorkoutSheet() {
     const unsub = notifee.onForegroundEvent(({ type, detail }) => {
       if (type === EventType.PRESS) openWorkoutSheet();
       if (
+        type === EventType.DISMISSED &&
+        detail.notification?.id === WORKOUT_NOTIFICATION_ID
+      ) {
+        setTimeout(() => {
+          const session = useSessionStore.getState();
+          if (!session.activeWorkoutId || !session.startedAt) return;
+          const restRemaining =
+            session.restEndsAt && session.restEndsAt > Date.now()
+              ? Math.ceil((session.restEndsAt - Date.now()) / 1000)
+              : 0;
+          showWorkoutNotification(
+            Math.floor((Date.now() - session.startedAt) / 1000),
+            restRemaining,
+            session.startedAt,
+            { restEndsAt: session.restEndsAt },
+          ).catch(console.error);
+        }, 750);
+      }
+      if (
         type === EventType.ACTION_PRESS &&
         detail.pressAction?.id === 'skip_rest'
       ) {
@@ -985,6 +1035,34 @@ export default function ActiveWorkoutSheet() {
       if (state === 'active') {
         dismissSetKeyboard();
         handleNotificationAction(getString(MMKV_PENDING_WORKOUT_ACTION));
+        const session = useSessionStore.getState();
+        if (
+          session.startedAt &&
+          session.restEndsAt &&
+          session.restEndsAt <= Date.now()
+        ) {
+          useSessionStore.getState().clearRest();
+          restDoneNotifiedRef.current = true;
+          setRestSetKey(null);
+          showWorkoutNotification(
+            Math.floor((Date.now() - session.startedAt) / 1000),
+            0,
+            session.startedAt,
+          ).catch(console.error);
+          return;
+        }
+        if (
+          session.startedAt &&
+          session.restEndsAt &&
+          session.restEndsAt > Date.now()
+        ) {
+          showWorkoutNotification(
+            Math.floor((Date.now() - session.startedAt) / 1000),
+            session.restSecondsRemaining,
+            session.startedAt,
+            { restEndsAt: session.restEndsAt },
+          ).catch(console.error);
+        }
       }
     });
     return () => appStateSub.remove();
@@ -1318,6 +1396,7 @@ export default function ActiveWorkoutSheet() {
       restDoneNotifiedRef.current = false;
       setRestSetKey(getRestSetKey(weId, setId));
       startRest(restSeconds);
+      maybePromptRestAlarmPermission();
       showWorkoutNotification(elapsed, restSeconds, startedAt, {
         restEndsAt: useSessionStore.getState().restEndsAt,
       }).catch(console.error);

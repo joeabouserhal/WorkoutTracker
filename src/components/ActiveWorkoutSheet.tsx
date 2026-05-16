@@ -7,18 +7,16 @@ import React, {
 } from 'react';
 import {
   AppState,
-  Animated,
-  Easing,
   InteractionManager,
   Keyboard,
   Modal,
   StatusBar,
   type LayoutChangeEvent,
-  type NativeScrollEvent,
-  type NativeSyntheticEvent,
+  type StyleProp,
   StyleSheet,
   Text,
   TextInput,
+  type TextStyle,
   TouchableOpacity,
   View,
 } from 'react-native';
@@ -37,8 +35,10 @@ import Reanimated, {
   Easing as ReanimatedEasing,
   runOnJS,
   type SharedValue,
+  useAnimatedScrollHandler,
   useAnimatedStyle,
   useSharedValue,
+  withSpring,
   withTiming,
 } from 'react-native-reanimated';
 import notifee, { EventType } from '@notifee/react-native';
@@ -104,6 +104,11 @@ const WORKOUT_EXERCISE_DRAG_ACTIVATE_MS = 65;
 const ACTIVE_WORKOUT_DRAFT_SAVE_DELAY_MS = 250;
 const REST_ALARM_PERMISSION_PROMPTED_KEY = 'rest_alarm_permission_prompted';
 const DELETE_SWIPE_DRAG_OFFSET = 18;
+const PULL_TO_CLOSE_TOP_EPSILON = 1;
+const PULL_TO_CLOSE_ACTIVATE_DISTANCE = 10;
+const PULL_TO_CLOSE_TRIGGER_DISTANCE = 68;
+const PULL_TO_CLOSE_MAX_DISTANCE = 104;
+const PULL_TO_CLOSE_TRIGGER_VELOCITY = 850;
 const KeyboardAwareGestureScrollView = Reanimated.createAnimatedComponent(
   GestureScrollView,
 ) as NonNullable<KeyboardAwareScrollViewProps['ScrollViewComponent']>;
@@ -360,13 +365,58 @@ function areLocalSetArraysEqual(a: LocalSet[], b: LocalSet[]) {
 }
 
 function formatElapsed(seconds: number): string {
-  const h = Math.floor(seconds / 3600);
-  const m = Math.floor((seconds % 3600) / 60);
-  const s = seconds % 60;
+  const safeSeconds = Math.max(0, seconds);
+  const h = Math.floor(safeSeconds / 3600);
+  const m = Math.floor((safeSeconds % 3600) / 60);
+  const s = safeSeconds % 60;
   if (h > 0) {
     return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
   }
   return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+}
+
+function getElapsedSeconds(startedAt?: number | null): number {
+  return startedAt
+    ? Math.max(0, Math.floor((Date.now() - startedAt) / 1000))
+    : 0;
+}
+
+function WorkoutElapsedText({
+  startedAt,
+  style,
+}: {
+  startedAt: number | null;
+  style: StyleProp<TextStyle>;
+}) {
+  const [elapsed, setElapsed] = useState(() => getElapsedSeconds(startedAt));
+
+  useEffect(() => {
+    setElapsed(getElapsedSeconds(startedAt));
+    if (!startedAt) return;
+
+    const interval = setInterval(() => {
+      setElapsed(getElapsedSeconds(startedAt));
+    }, 1000);
+
+    const appStateSub = AppState.addEventListener('change', state => {
+      if (state === 'active') setElapsed(getElapsedSeconds(startedAt));
+    });
+
+    return () => {
+      clearInterval(interval);
+      appStateSub.remove();
+    };
+  }, [startedAt]);
+
+  return <Text style={style}>{formatElapsed(elapsed)}</Text>;
+}
+
+function RestTimerCountdownText({ style }: { style: StyleProp<TextStyle> }) {
+  const restSecondsRemaining = useSessionStore(
+    state => state.restSecondsRemaining,
+  );
+
+  return <Text style={style}>{formatRestTimer(restSecondsRemaining)}</Text>;
 }
 
 function formatVolumeKg(value: number): string {
@@ -385,7 +435,6 @@ export default function ActiveWorkoutSheet() {
   const [pickerVisible, setPickerVisible] = useState(false);
   const [localSets, setLocalSets] = useState<Record<string, LocalSet[]>>({});
   const [restSetKey, setRestSetKey] = useState<string | null>(null);
-  const [elapsed, setElapsed] = useState(0);
   const [workoutName, setWorkoutName] = useState('');
   const [dialog, setDialog] = useState<{
     title: string;
@@ -403,10 +452,15 @@ export default function ActiveWorkoutSheet() {
   const [draggingExerciseId, setDraggingExerciseId] = useState<string | null>(
     null,
   );
-  const elapsedRef = useRef(0);
+  const appStateRef = useRef(AppState.currentState);
+  const activeSinceRef = useRef<number | null>(
+    AppState.currentState === 'active' ? Date.now() : null,
+  );
   const startedAtRef = useRef<number | null>(null);
-  const pullToCloseHintOpacity = useRef(new Animated.Value(0)).current;
-  const pullToCloseStartedAtTopRef = useRef(false);
+  const scrollOffsetY = useSharedValue(0);
+  const pullToCloseDistance = useSharedValue(0);
+  const pullToCloseStartX = useSharedValue(0);
+  const pullToCloseStartY = useSharedValue(0);
   const restDoneNotifiedRef = useRef(false);
   const handledEndRequestRef = useRef(0);
   const localSetsDraftHydratedForWorkoutRef = useRef<string | null>(null);
@@ -418,9 +472,6 @@ export default function ActiveWorkoutSheet() {
   const startedAt = useSessionStore(state => state.startedAt);
   const exercises = useSessionStore(state => state.exercises);
   const isResting = useSessionStore(state => state.isResting);
-  const restSecondsRemaining = useSessionStore(
-    state => state.restSecondsRemaining,
-  );
   const restEndsAt = useSessionStore(state => state.restEndsAt);
   const isWorkoutSheetOpen = useSessionStore(state => state.isWorkoutSheetOpen);
   const endWorkoutRequestId = useSessionStore(
@@ -726,6 +777,7 @@ export default function ActiveWorkoutSheet() {
   ]);
 
   const requestCancelWorkout = useCallback(() => {
+    dismissSetKeyboard();
     setDialog({
       title: 'Cancel Workout',
       message:
@@ -745,7 +797,7 @@ export default function ActiveWorkoutSheet() {
         },
       ],
     });
-  }, [closeDialog, discardWorkout, showErrorDialog]);
+  }, [closeDialog, discardWorkout, dismissSetKeyboard, showErrorDialog]);
 
   const handleNotificationAction = useCallback(
     (action?: string | null) => {
@@ -757,7 +809,7 @@ export default function ActiveWorkoutSheet() {
         clearRest();
         setRestSetKey(null);
         showWorkoutNotification(
-          elapsedRef.current,
+          getElapsedSeconds(startedAtRef.current),
           0,
           startedAtRef.current,
         ).catch(console.error);
@@ -774,14 +826,12 @@ export default function ActiveWorkoutSheet() {
   const skipRestTimer = useCallback(() => {
     clearRest();
     setRestSetKey(null);
-    showWorkoutNotification(elapsedRef.current, 0, startedAtRef.current).catch(
-      console.error,
-    );
+    showWorkoutNotification(
+      getElapsedSeconds(startedAtRef.current),
+      0,
+      startedAtRef.current,
+    ).catch(console.error);
   }, [clearRest]);
-
-  useEffect(() => {
-    elapsedRef.current = elapsed;
-  }, [elapsed]);
 
   useEffect(() => {
     startedAtRef.current = startedAt;
@@ -795,10 +845,10 @@ export default function ActiveWorkoutSheet() {
     setPickerVisible(false);
     setLocalSets({});
     localSetsDraftHydratedForWorkoutRef.current = null;
-    pullToCloseHintOpacity.setValue(0);
-    pullToCloseStartedAtTopRef.current = false;
+    pullToCloseDistance.value = 0;
+    scrollOffsetY.value = 0;
     setDraggingExerciseId(null);
-  }, [activeWorkoutId, pullToCloseHintOpacity]);
+  }, [activeWorkoutId, pullToCloseDistance, scrollOffsetY]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1023,7 +1073,9 @@ export default function ActiveWorkoutSheet() {
 
     handleNotificationAction(getString(MMKV_PENDING_WORKOUT_ACTION));
     const appStateSub = AppState.addEventListener('change', state => {
+      appStateRef.current = state;
       if (state !== 'active') {
+        activeSinceRef.current = null;
         dismissSetKeyboard();
         writeActiveWorkoutDraft(
           activeWorkoutId,
@@ -1033,6 +1085,7 @@ export default function ActiveWorkoutSheet() {
         return;
       }
       if (state === 'active') {
+        activeSinceRef.current = Date.now();
         dismissSetKeyboard();
         handleNotificationAction(getString(MMKV_PENDING_WORKOUT_ACTION));
         const session = useSessionStore.getState();
@@ -1058,9 +1111,20 @@ export default function ActiveWorkoutSheet() {
         ) {
           showWorkoutNotification(
             Math.floor((Date.now() - session.startedAt) / 1000),
-            session.restSecondsRemaining,
+            Math.ceil((session.restEndsAt - Date.now()) / 1000),
             session.startedAt,
             { restEndsAt: session.restEndsAt },
+          ).catch(console.error);
+        }
+        if (
+          session.startedAt &&
+          !session.restEndsAt &&
+          restDoneNotifiedRef.current
+        ) {
+          showWorkoutNotification(
+            Math.floor((Date.now() - session.startedAt) / 1000),
+            0,
+            session.startedAt,
           ).catch(console.error);
         }
       }
@@ -1076,39 +1140,40 @@ export default function ActiveWorkoutSheet() {
   }, [activeWorkoutId, endWorkoutRequestId, requestEndWorkout]);
 
   useEffect(() => {
-    if (!startedAt) {
-      setElapsed(0);
-      return;
-    }
-    setElapsed(Math.floor((Date.now() - startedAt) / 1000));
-    const interval = setInterval(() => {
-      setElapsed(Math.floor((Date.now() - startedAt) / 1000));
-    }, 1000);
-    const appStateSub = AppState.addEventListener('change', state => {
-      if (state === 'active')
-        setElapsed(Math.floor((Date.now() - startedAt) / 1000));
-    });
-    return () => {
-      clearInterval(interval);
-      appStateSub.remove();
-    };
-  }, [startedAt]);
-
-  useEffect(() => {
     if (!isResting) return;
 
     const interval = setInterval(() => {
       const state = useSessionStore.getState();
       const wasResting = state.isResting;
+      const restEndsAtBeforeTick = state.restEndsAt;
       tickRest();
       const stillResting = useSessionStore.getState().isResting;
 
       if (wasResting && !stillResting && !restDoneNotifiedRef.current) {
         restDoneNotifiedRef.current = true;
         setRestSetKey(null);
-        showWorkoutNotification(elapsedRef.current, 0, startedAtRef.current, {
-          restDone: true,
-        }).catch(console.error);
+        const completedBeforeCurrentForeground =
+          typeof restEndsAtBeforeTick === 'number' &&
+          typeof activeSinceRef.current === 'number' &&
+          restEndsAtBeforeTick <= activeSinceRef.current;
+
+        if (appStateRef.current !== 'active') return;
+
+        if (completedBeforeCurrentForeground) {
+          showWorkoutNotification(
+            getElapsedSeconds(startedAtRef.current),
+            0,
+            startedAtRef.current,
+          ).catch(console.error);
+          return;
+        }
+
+        showWorkoutNotification(
+          getElapsedSeconds(startedAtRef.current),
+          0,
+          startedAtRef.current,
+          { restDone: true },
+        ).catch(console.error);
       }
     }, 1000);
 
@@ -1123,15 +1188,13 @@ export default function ActiveWorkoutSheet() {
   const handleCloseSheet = useCallback(() => {
     Keyboard.dismiss();
     closeDialog();
-    // Immediately hide pull-to-close hint so it's not visible when reopening
-    pullToCloseHintOpacity.setValue(0);
-    pullToCloseStartedAtTopRef.current = false;
+    pullToCloseDistance.value = 0;
     setDraggingExerciseId(null);
     closeWorkoutSheet();
   }, [
     closeDialog,
     closeWorkoutSheet,
-    pullToCloseHintOpacity,
+    pullToCloseDistance,
     setDraggingExerciseId,
   ]);
 
@@ -1145,46 +1208,103 @@ export default function ActiveWorkoutSheet() {
     if (activeWorkoutId) openWorkoutSheet();
   }
 
-  const showPullToCloseHint = useCallback(() => {
-    Animated.timing(pullToCloseHintOpacity, {
-      toValue: 1,
-      duration: 90,
-      easing: Easing.out(Easing.quad),
-      useNativeDriver: true,
-    }).start();
-  }, [pullToCloseHintOpacity]);
+  const scrollHandler = useAnimatedScrollHandler(event => {
+    scrollOffsetY.value = Math.max(0, event.contentOffset.y);
+  });
 
-  const hidePullToCloseHint = useCallback(() => {
-    Animated.timing(pullToCloseHintOpacity, {
-      toValue: 0,
-      duration: 80,
-      easing: Easing.out(Easing.quad),
-      useNativeDriver: true,
-    }).start();
-  }, [pullToCloseHintOpacity]);
+  const pullToCloseGesture = useMemo(
+    () =>
+      Gesture.Pan()
+        .enabled(!draggingExerciseId)
+        .manualActivation(true)
+        .failOffsetX([-24, 24])
+        .onTouchesDown(event => {
+          const touch = event.allTouches[0];
+          if (!touch) return;
+          pullToCloseStartX.value = touch.absoluteX;
+          pullToCloseStartY.value = touch.absoluteY;
+        })
+        .onTouchesMove((event, state) => {
+          const touch = event.allTouches[0];
+          if (!touch) return;
 
-  function handleScrollBeginDrag(
-    event: NativeSyntheticEvent<NativeScrollEvent>,
-  ) {
-    const startedAtTop = event.nativeEvent.contentOffset.y <= 0;
-    pullToCloseStartedAtTopRef.current = startedAtTop;
-    if (startedAtTop) {
-      showPullToCloseHint();
-    }
-  }
+          const deltaX = touch.absoluteX - pullToCloseStartX.value;
+          const deltaY = touch.absoluteY - pullToCloseStartY.value;
+          const absDeltaX = Math.abs(deltaX);
+          const isHorizontalSwipe = absDeltaX > 16 && absDeltaX > deltaY;
 
-  function handleScrollEndDrag(event: NativeSyntheticEvent<NativeScrollEvent>) {
-    const shouldClose =
-      pullToCloseStartedAtTopRef.current &&
-      event.nativeEvent.contentOffset.y <= 0;
+          if (
+            scrollOffsetY.value > PULL_TO_CLOSE_TOP_EPSILON ||
+            deltaY < -2 ||
+            isHorizontalSwipe
+          ) {
+            state.fail();
+            return;
+          }
 
-    pullToCloseStartedAtTopRef.current = false;
-    hidePullToCloseHint();
+          if (
+            deltaY > PULL_TO_CLOSE_ACTIVATE_DISTANCE &&
+            deltaY > absDeltaX
+          ) {
+            state.activate();
+          }
+        })
+        .onUpdate(event => {
+          const nextDistance = Math.max(
+            0,
+            Math.min(
+              PULL_TO_CLOSE_MAX_DISTANCE,
+              event.translationY * 0.72,
+            ),
+          );
+          pullToCloseDistance.value = nextDistance;
+        })
+        .onEnd(event => {
+          const shouldClose =
+            pullToCloseDistance.value >= PULL_TO_CLOSE_TRIGGER_DISTANCE ||
+            event.velocityY >= PULL_TO_CLOSE_TRIGGER_VELOCITY;
 
-    if (shouldClose) {
-      handleCloseSheet();
-    }
-  }
+          pullToCloseDistance.value = withSpring(0, {
+            damping: 18,
+            stiffness: 240,
+          });
+
+          if (shouldClose) {
+            runOnJS(handleCloseSheet)();
+          }
+        })
+        .onFinalize(() => {
+          pullToCloseDistance.value = withSpring(0, {
+            damping: 18,
+            stiffness: 240,
+          });
+        }),
+    [
+      draggingExerciseId,
+      handleCloseSheet,
+      pullToCloseDistance,
+      pullToCloseStartX,
+      pullToCloseStartY,
+      scrollOffsetY,
+    ],
+  );
+
+  const pullToCloseHintStyle = useAnimatedStyle(() => {
+    const progress = Math.min(
+      1,
+      pullToCloseDistance.value / PULL_TO_CLOSE_TRIGGER_DISTANCE,
+    );
+
+    return {
+      opacity: progress,
+      transform: [
+        {
+          translateY: -18 + Math.min(34, pullToCloseDistance.value * 0.45),
+        },
+        { scale: 0.94 + progress * 0.06 },
+      ],
+    };
+  });
 
   function saveWorkoutName() {
     if (!activeWorkoutId) return;
@@ -1231,7 +1351,9 @@ export default function ActiveWorkoutSheet() {
     if (restSetKey === getRestSetKey(weId, setId)) {
       clearRest();
       setRestSetKey(null);
-      showWorkoutNotification(elapsed, 0, startedAt).catch(console.error);
+      showWorkoutNotification(getElapsedSeconds(startedAt), 0, startedAt).catch(
+        console.error,
+      );
     }
     setLocalSets(prev => ({
       ...prev,
@@ -1355,7 +1477,11 @@ export default function ActiveWorkoutSheet() {
       if (restSetKey === getRestSetKey(weId, setId)) {
         clearRest();
         setRestSetKey(null);
-        showWorkoutNotification(elapsed, 0, startedAt).catch(console.error);
+        showWorkoutNotification(
+          getElapsedSeconds(startedAt),
+          0,
+          startedAt,
+        ).catch(console.error);
       }
       return;
     }
@@ -1397,9 +1523,14 @@ export default function ActiveWorkoutSheet() {
       setRestSetKey(getRestSetKey(weId, setId));
       startRest(restSeconds);
       maybePromptRestAlarmPermission();
-      showWorkoutNotification(elapsed, restSeconds, startedAt, {
-        restEndsAt: useSessionStore.getState().restEndsAt,
-      }).catch(console.error);
+      showWorkoutNotification(
+        getElapsedSeconds(startedAt),
+        restSeconds,
+        startedAt,
+        {
+          restEndsAt: useSessionStore.getState().restEndsAt,
+        },
+      ).catch(console.error);
     } catch (e) {
       console.error('Could not complete set', e);
       showErrorDialog('Could not save this set.');
@@ -1422,7 +1553,9 @@ export default function ActiveWorkoutSheet() {
     if (restSetKey?.startsWith(`${weId}:`)) {
       clearRest();
       setRestSetKey(null);
-      showWorkoutNotification(elapsed, 0, startedAt).catch(console.error);
+      showWorkoutNotification(getElapsedSeconds(startedAt), 0, startedAt).catch(
+        console.error,
+      );
     }
     setLocalSets(prev => {
       const next = { ...prev };
@@ -1557,55 +1690,46 @@ export default function ActiveWorkoutSheet() {
                   </TouchableOpacity>
                   <View style={styles.timerPill}>
                     <View style={styles.timerDot} />
-                    <Text style={styles.timerText}>
-                      {formatElapsed(elapsed)}
-                    </Text>
+                    <WorkoutElapsedText
+                      startedAt={startedAt}
+                      style={styles.timerText}
+                    />
                   </View>
                 </View>
               </View>
               {/* Scrollable exercise list */}
-              <View style={styles.scrollRegion}>
-                <Animated.View
-                  pointerEvents="none"
-                  style={[
-                    styles.pullToCloseHint,
-                    {
-                      opacity: pullToCloseHintOpacity,
-                      transform: [
-                        {
-                          translateY: pullToCloseHintOpacity.interpolate({
-                            inputRange: [0, 1],
-                            outputRange: [-18, 0],
-                          }),
-                        },
-                      ],
-                    },
-                  ]}
-                >
-                  <View style={styles.pullToCloseHintIcon}>
-                    <MaterialCommunityIcons
-                      name="arrow-down"
-                      size={24}
-                      color={theme.colors.accent}
-                    />
-                  </View>
-                </Animated.View>
-                <KeyboardAwareScrollView
-                  ScrollViewComponent={KeyboardAwareGestureScrollView}
-                  bottomOffset={theme.spacing.md}
-                  style={styles.scroll}
-                  contentContainerStyle={[
-                    styles.scrollContent,
-                    {
-                      paddingBottom: theme.spacing.lg,
-                    },
-                  ]}
-                  keyboardShouldPersistTaps="handled"
-                  keyboardDismissMode="interactive"
-                  onScrollBeginDrag={handleScrollBeginDrag}
-                  onScrollEndDrag={handleScrollEndDrag}
-                  scrollEnabled={!draggingExerciseId}
-                >
+              <GestureDetector gesture={pullToCloseGesture}>
+                <View style={styles.scrollRegion}>
+                  <Reanimated.View
+                    pointerEvents="none"
+                    style={[styles.pullToCloseHint, pullToCloseHintStyle]}
+                  >
+                    <View style={styles.pullToCloseHintIcon}>
+                      <MaterialCommunityIcons
+                        name="chevron-down"
+                        size={25}
+                        color={theme.colors.accent}
+                      />
+                    </View>
+                  </Reanimated.View>
+                  <KeyboardAwareScrollView
+                    ScrollViewComponent={KeyboardAwareGestureScrollView}
+                    bottomOffset={theme.spacing.md}
+                    style={styles.scroll}
+                    contentContainerStyle={[
+                      styles.scrollContent,
+                      {
+                        paddingBottom: theme.spacing.lg,
+                      },
+                    ]}
+                    keyboardShouldPersistTaps="handled"
+                    keyboardDismissMode="interactive"
+                    alwaysBounceVertical
+                    overScrollMode="always"
+                    onScroll={scrollHandler}
+                    scrollEventThrottle={16}
+                    scrollEnabled={!draggingExerciseId}
+                  >
                   <View style={styles.workoutNameCard}>
                     <Text style={styles.workoutNameLabel}>Workout Name</Text>
                     <TextInput
@@ -1822,7 +1946,9 @@ export default function ActiveWorkoutSheet() {
                                       />
                                       <Text style={styles.restTimerText}>
                                         Rest timer started -{' '}
-                                        {formatRestTimer(restSecondsRemaining)}
+                                        <RestTimerCountdownText
+                                          style={styles.restTimerText}
+                                        />
                                       </Text>
                                       <TouchableOpacity
                                         style={styles.skipRestButton}
@@ -1871,8 +1997,9 @@ export default function ActiveWorkoutSheet() {
                     </View>
                     <Text style={styles.addExerciseText}>Add Exercise</Text>
                   </TouchableOpacity>
-                </KeyboardAwareScrollView>
-              </View>
+                  </KeyboardAwareScrollView>
+                </View>
+              </GestureDetector>
 
               <View
                 style={[
@@ -2075,6 +2202,9 @@ function SortableActiveWorkoutExerciseList({
   const activeExerciseId = useSharedValue<string | null>(null);
   const [measuredHeights, setMeasuredHeights] =
     useState<WorkoutExerciseHeights>({});
+  const pendingMeasuredHeightsRef = useRef<WorkoutExerciseHeights>({});
+  const measureFrameRef = useRef<number | null>(null);
+
   useEffect(() => {
     positions.value = buildWorkoutExercisePositions(exercises);
     activeExerciseId.value = null;
@@ -2104,21 +2234,59 @@ function SortableActiveWorkoutExerciseList({
     [listHeight, styles.sortableWorkoutExerciseList],
   );
 
+  useEffect(
+    () => () => {
+      if (measureFrameRef.current !== null) {
+        cancelAnimationFrame(measureFrameRef.current);
+      }
+    },
+    [],
+  );
+
   const handleExerciseMeasure = useCallback(
     (workoutExerciseId: string, height: number) => {
       if (!Number.isFinite(height) || height <= 0) return;
+      const currentHeight = heights.value[workoutExerciseId];
+      if (
+        typeof currentHeight === 'number' &&
+        Math.abs(currentHeight - height) < 1
+      ) {
+        return;
+      }
+
       heights.value = {
         ...heights.value,
         [workoutExerciseId]: height,
       };
-      setMeasuredHeights(prev => {
-        const current = prev[workoutExerciseId];
-        if (typeof current === 'number' && Math.abs(current - height) < 1)
-          return prev;
-        return {
-          ...prev,
-          [workoutExerciseId]: height,
-        };
+      pendingMeasuredHeightsRef.current = {
+        ...pendingMeasuredHeightsRef.current,
+        [workoutExerciseId]: height,
+      };
+
+      if (measureFrameRef.current !== null) return;
+      measureFrameRef.current = requestAnimationFrame(() => {
+        measureFrameRef.current = null;
+        const nextHeights = pendingMeasuredHeightsRef.current;
+        pendingMeasuredHeightsRef.current = {};
+
+        setMeasuredHeights(prev => {
+          let didChange = false;
+          const next = { ...prev };
+          for (const [exerciseId, measuredHeight] of Object.entries(
+            nextHeights,
+          )) {
+            const current = prev[exerciseId];
+            if (
+              typeof current === 'number' &&
+              Math.abs(current - measuredHeight) < 1
+            ) {
+              continue;
+            }
+            next[exerciseId] = measuredHeight;
+            didChange = true;
+          }
+          return didChange ? next : prev;
+        });
       });
     },
     [heights],
@@ -2443,15 +2611,16 @@ const stylesheet = createStyleSheet(theme => ({
   },
   pullToCloseHint: {
     position: 'absolute',
-    top: theme.spacing.sm,
+    top: theme.spacing.md,
     left: 0,
     right: 0,
-    zIndex: 5,
+    zIndex: 20,
+    elevation: 20,
     alignItems: 'center',
   },
   pullToCloseHintIcon: {
-    width: 38,
-    height: 38,
+    width: 58,
+    height: 32,
     borderRadius: theme.radius.full,
     backgroundColor: theme.colors.surface,
     borderWidth: 1,

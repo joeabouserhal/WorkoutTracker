@@ -24,6 +24,7 @@ import {
   MMKV_WORKOUT_ID,
 } from '@/store/sessionStore'
 import { seedDatabaseIfEmpty } from '@/db/seedData'
+import { PROGRESS_PINNED_EXERCISE_TYPE_IDS_KEY } from './progressPins'
 import { REST_TIMER_DEFAULT_SECONDS_KEY } from './restTimerSettings'
 import { WORKOUT_SCHEDULE_STORAGE_KEY } from './workoutSchedule'
 
@@ -147,9 +148,11 @@ function getBackupSettings() {
   const restSeconds = getString(REST_TIMER_DEFAULT_SECONDS_KEY)
   const theme = getString(THEME_STORAGE_KEY)
   const schedule = getString(WORKOUT_SCHEDULE_STORAGE_KEY)
+  const progressPins = getString(PROGRESS_PINNED_EXERCISE_TYPE_IDS_KEY)
   if (restSeconds) settings[REST_TIMER_DEFAULT_SECONDS_KEY] = restSeconds
   if (theme) settings[THEME_STORAGE_KEY] = theme
   if (schedule) settings[WORKOUT_SCHEDULE_STORAGE_KEY] = schedule
+  if (progressPins) settings[PROGRESS_PINNED_EXERCISE_TYPE_IDS_KEY] = progressPins
   return settings
 }
 

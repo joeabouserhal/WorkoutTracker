@@ -9,7 +9,7 @@ import {
   workouts,
 } from './schema'
 
-type ProgressSetRow = {
+export type ProgressSetRow = {
   setId: string
   exerciseTypeId: string
   exerciseName: string
@@ -73,9 +73,35 @@ export type ProgressExerciseSummary = {
   methods: ProgressMethodSummary[]
 }
 
+export type ProgressHighlight = {
+  exerciseTypeId: string
+  exerciseName: string
+  methodId: string
+  methodName: string
+  weightKg: number
+  weightUnit: string
+  reps: number
+  estimatedOneRmKg: number
+  deltaKg: number
+  timestamp: number
+}
+
+export type ProgressOverviewSummary = {
+  recentWindowDays: number
+  recentPrCount: number
+  recentImprovedLiftCount: number
+  latestRecentPr: ProgressHighlight | null
+  bestRecentImprovement: ProgressHighlight | null
+  latestPr: ProgressHighlight | null
+}
+
 export type ProgressOverview = {
   exercises: ProgressExerciseSummary[]
+  summary: ProgressOverviewSummary
 }
+
+const RECENT_PROGRESS_WINDOW_DAYS = 30
+const DAY_MS = 24 * 60 * 60 * 1000
 
 async function ensureProgressTables() {
   await db.$client.execute(`CREATE TABLE IF NOT EXISTS workouts (
@@ -213,41 +239,75 @@ function buildAnalytics(rows: ProgressSetRow[]): ProgressAnalyticsSummary {
   }
 }
 
-export async function getProgressOverview(limit = 6): Promise<ProgressOverview> {
-  await ensureProgressTables()
+function makePrHighlight(
+  exercise: ProgressExerciseSummary,
+  method: ProgressMethodSummary,
+  pr: ProgressPrPoint,
+  deltaKg = 0,
+): ProgressHighlight {
+  return {
+    exerciseTypeId: exercise.exerciseTypeId,
+    exerciseName: exercise.exerciseName,
+    methodId: method.methodId,
+    methodName: method.methodName,
+    weightKg: pr.weightKg,
+    weightUnit: pr.weightUnit,
+    reps: pr.reps,
+    estimatedOneRmKg: estimateOneRmKg(pr.weightKg, pr.reps),
+    deltaKg,
+    timestamp: pr.timestamp,
+  }
+}
 
-  const rows = (await db
-    .select({
-      setId: sets.id,
-      exerciseTypeId: exerciseRows.exerciseTypeId,
-      exerciseName: exerciseTypes.name,
-      methodId: exerciseRows.methodId,
-      methodName: methods.name,
-      workoutId: workouts.id,
-      workoutStartedAt: workouts.startedAt,
-      weightKg: sets.weight,
-      weightUnit: sets.weightUnit,
-      reps: sets.reps,
-      completedAt: sets.completedAt,
-    })
-    .from(sets)
-    .innerJoin(workoutExercises, eq(workoutExercises.id, sets.workoutExerciseId))
-    .innerJoin(workouts, eq(workouts.id, workoutExercises.workoutId))
-    .innerJoin(exerciseRows, eq(exerciseRows.id, workoutExercises.exerciseId))
-    .innerJoin(exerciseTypes, eq(exerciseTypes.id, exerciseRows.exerciseTypeId))
-    .innerJoin(methods, eq(methods.id, exerciseRows.methodId))
-    .where(and(
-      isNotNull(workouts.endedAt),
-      gt(sets.weight, 0),
-      gt(sets.reps, 0),
-    ))
-    .orderBy(asc(sets.completedAt), asc(sets.id))).map((row) => ({
-    ...row,
-    workoutStartedAt: Number(row.workoutStartedAt),
-    weightKg: Number(row.weightKg),
-    reps: Number(row.reps),
-    completedAt: Number(row.completedAt),
-  }))
+function buildOverviewSummary(
+  exercises: ProgressExerciseSummary[],
+  now = Date.now(),
+): ProgressOverviewSummary {
+  const recentWindowStart = now - RECENT_PROGRESS_WINDOW_DAYS * DAY_MS
+  const prHighlights = exercises.flatMap((exercise) =>
+    exercise.methods.flatMap((method) =>
+      method.prHistory.map((pr) => makePrHighlight(exercise, method, pr)),
+    ),
+  )
+  const recentPrHighlights = exercises.flatMap((exercise) =>
+    exercise.methods.flatMap((method) =>
+      method.prHistory.flatMap((pr, index) => {
+        if (index === 0 || pr.timestamp < recentWindowStart) return []
+        const previousPr = method.prHistory[index - 1]
+        const deltaKg = pr.weightKg - previousPr.weightKg
+        if (!isGreater(deltaKg, 0)) return []
+        return [makePrHighlight(exercise, method, pr, deltaKg)]
+      }),
+    ),
+  )
+  const latestPr =
+    [...prHighlights].sort((a, b) => b.timestamp - a.timestamp)[0] ?? null
+  const latestRecentPr =
+    [...recentPrHighlights].sort((a, b) => b.timestamp - a.timestamp)[0] ?? null
+  const bestRecentImprovement = [...recentPrHighlights]
+    .sort((a, b) => {
+      if (a.deltaKg !== b.deltaKg) return b.deltaKg - a.deltaKg
+      return b.timestamp - a.timestamp
+    })[0] ?? null
+  const improvedLiftKeys = new Set(
+    recentPrHighlights.map((item) => `${item.exerciseTypeId}:${item.methodId}`),
+  )
+
+  return {
+    recentWindowDays: RECENT_PROGRESS_WINDOW_DAYS,
+    recentPrCount: recentPrHighlights.length,
+    recentImprovedLiftCount: improvedLiftKeys.size,
+    latestRecentPr,
+    bestRecentImprovement,
+    latestPr,
+  }
+}
+
+export function buildProgressOverviewFromRows(
+  rows: ProgressSetRow[],
+  limit?: number,
+  now = Date.now(),
+): ProgressOverview {
   const grouped = rows.reduce<Record<string, ProgressSetRow[]>>((acc, row) => {
     acc[row.exerciseTypeId] = [...(acc[row.exerciseTypeId] ?? []), row]
     return acc
@@ -287,13 +347,56 @@ export async function getProgressOverview(limit = 6): Promise<ProgressOverview> 
     } satisfies ProgressExerciseSummary
   })
 
+  const sortedExercises = exerciseSummaries.sort((a, b) => {
+    if (a.setCount !== b.setCount) return b.setCount - a.setCount
+    if (a.workoutCount !== b.workoutCount) return b.workoutCount - a.workoutCount
+    return b.latestSetAt - a.latestSetAt
+  })
+  const exercises = typeof limit === 'number'
+    ? sortedExercises.slice(0, limit)
+    : sortedExercises
+
   return {
-    exercises: exerciseSummaries
-      .sort((a, b) => {
-        if (a.setCount !== b.setCount) return b.setCount - a.setCount
-        if (a.workoutCount !== b.workoutCount) return b.workoutCount - a.workoutCount
-        return b.latestSetAt - a.latestSetAt
-      })
-      .slice(0, limit),
+    exercises,
+    summary: buildOverviewSummary(exercises, now),
   }
+}
+
+export async function getProgressOverview(limit?: number): Promise<ProgressOverview> {
+  await ensureProgressTables()
+
+  const rows = (await db
+    .select({
+      setId: sets.id,
+      exerciseTypeId: exerciseRows.exerciseTypeId,
+      exerciseName: exerciseTypes.name,
+      methodId: exerciseRows.methodId,
+      methodName: methods.name,
+      workoutId: workouts.id,
+      workoutStartedAt: workouts.startedAt,
+      weightKg: sets.weight,
+      weightUnit: sets.weightUnit,
+      reps: sets.reps,
+      completedAt: sets.completedAt,
+    })
+    .from(sets)
+    .innerJoin(workoutExercises, eq(workoutExercises.id, sets.workoutExerciseId))
+    .innerJoin(workouts, eq(workouts.id, workoutExercises.workoutId))
+    .innerJoin(exerciseRows, eq(exerciseRows.id, workoutExercises.exerciseId))
+    .innerJoin(exerciseTypes, eq(exerciseTypes.id, exerciseRows.exerciseTypeId))
+    .innerJoin(methods, eq(methods.id, exerciseRows.methodId))
+    .where(and(
+      isNotNull(workouts.endedAt),
+      gt(sets.weight, 0),
+      gt(sets.reps, 0),
+    ))
+    .orderBy(asc(sets.completedAt), asc(sets.id))).map((row) => ({
+    ...row,
+    workoutStartedAt: Number(row.workoutStartedAt),
+    weightKg: Number(row.weightKg),
+    reps: Number(row.reps),
+    completedAt: Number(row.completedAt),
+  }))
+
+  return buildProgressOverviewFromRows(rows, limit)
 }

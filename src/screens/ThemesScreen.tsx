@@ -14,7 +14,6 @@ import {
   normalizeThemeKey,
   type ThemeKey,
 } from '../theme/themes';
-import { refreshGeneralInfoWidget } from '@/widgets/generalInfoWidgetData';
 import type { ProfileStackParamList } from '../navigation/TabNavigator';
 
 type Props = NativeStackScreenProps<ProfileStackParamList, 'Themes'>;
@@ -30,7 +29,6 @@ export default function ThemesScreen({ navigation }: Props) {
     UnistylesRuntime.setTheme(themeKey as never);
     setString(THEME_STORAGE_KEY, themeKey);
     setActiveTheme(themeKey);
-    refreshGeneralInfoWidget().catch(console.error);
   }
 
   return (

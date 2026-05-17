@@ -26,7 +26,6 @@ import {
   WEEKDAY_SHORT_LABELS,
   type WeekStartDay,
 } from '@/services/calendarSettings';
-import { refreshGeneralInfoWidget } from '@/widgets/generalInfoWidgetData';
 
 type CalendarView = 'daily' | 'weekly' | 'monthly';
 type DailyMode = 'all' | 'day';
@@ -168,36 +167,67 @@ export default function CalendarScreen() {
   const [visibleWorkoutCount, setVisibleWorkoutCount] =
     useState(WORKOUT_PAGE_SIZE);
   const [hasMoreDailyWorkouts, setHasMoreDailyWorkouts] = useState(false);
+  const [loadedWorkoutsQueryKey, setLoadedWorkoutsQueryKey] = useState<
+    string | null
+  >(null);
   const workoutDetailRequestRef = useRef(0);
+  const workoutListRequestRef = useRef(0);
 
   const range = useMemo(
     () => getRange(selectedDate, view, firstDayOfWeek),
     [firstDayOfWeek, selectedDate, view],
   );
+  const rangeStartMs = range.start.getTime();
+  const rangeEndMs = range.end.getTime();
+  const workoutsQueryKey = useMemo(() => {
+    if (view === 'daily' && dailyMode === 'all') {
+      return `daily:all:${visibleWorkoutCount}`;
+    }
+
+    return `${view}:${rangeStartMs}:${rangeEndMs}`;
+  }, [dailyMode, rangeEndMs, rangeStartMs, view, visibleWorkoutCount]);
+  const showWorkoutLoading =
+    loading || loadedWorkoutsQueryKey !== workoutsQueryKey;
 
   const loadWorkouts = useCallback(async () => {
+    const requestId = workoutListRequestRef.current + 1;
+    workoutListRequestRef.current = requestId;
     setLoading(true);
     try {
       if (view === 'daily' && dailyMode === 'all') {
         const rows = await getCompletedWorkoutsPage(visibleWorkoutCount + 1);
+        if (workoutListRequestRef.current !== requestId) return;
         setHasMoreDailyWorkouts(rows.length > visibleWorkoutCount);
         setWorkouts(rows.slice(0, visibleWorkoutCount));
       } else {
         const rows = await getCompletedWorkoutsInRange(
-          range.start.getTime(),
-          range.end.getTime(),
+          rangeStartMs,
+          rangeEndMs,
         );
+        if (workoutListRequestRef.current !== requestId) return;
         setHasMoreDailyWorkouts(false);
         setWorkouts(rows);
       }
+      setLoadedWorkoutsQueryKey(workoutsQueryKey);
     } catch (e) {
+      if (workoutListRequestRef.current !== requestId) return;
       console.error('Failed to load workouts', e);
       setWorkouts([]);
       setHasMoreDailyWorkouts(false);
+      setLoadedWorkoutsQueryKey(workoutsQueryKey);
     } finally {
-      setLoading(false);
+      if (workoutListRequestRef.current === requestId) {
+        setLoading(false);
+      }
     }
-  }, [dailyMode, range.end, range.start, view, visibleWorkoutCount]);
+  }, [
+    dailyMode,
+    rangeEndMs,
+    rangeStartMs,
+    view,
+    visibleWorkoutCount,
+    workoutsQueryKey,
+  ]);
 
   useEffect(() => {
     setVisibleWorkoutCount(WORKOUT_PAGE_SIZE);
@@ -287,7 +317,6 @@ export default function CalendarScreen() {
     setSelectedWorkout(workout);
     setWorkoutPreviews(prev => ({ ...prev, [workoutId]: workout }));
     loadWorkouts().catch(console.error);
-    refreshGeneralInfoWidget().catch(console.error);
   }
 
   function handleWorkoutDeleted(workoutId: string) {
@@ -310,7 +339,6 @@ export default function CalendarScreen() {
       return next;
     });
     loadWorkouts().catch(console.error);
-    refreshGeneralInfoWidget().catch(console.error);
   }
 
   function moveDate(direction: -1 | 1) {
@@ -578,7 +606,7 @@ export default function CalendarScreen() {
           </Text>
         </View>
 
-        {loading ? (
+        {showWorkoutLoading ? (
           <Text style={styles.emptyText}>Loading workouts...</Text>
         ) : listWorkouts.length === 0 ? (
           <Text style={styles.emptyText}>
@@ -621,7 +649,7 @@ export default function CalendarScreen() {
           })
         )}
 
-        {!loading &&
+        {!showWorkoutLoading &&
         view === 'daily' &&
         dailyMode === 'all' &&
         hasMoreDailyWorkouts ? (

@@ -1,13 +1,8 @@
-import { Platform } from 'react-native'
 import notifee, {
   AndroidFlags,
-  AlarmType,
   AndroidForegroundServiceType,
   AndroidImportance,
-  AndroidNotificationSetting,
-  TriggerType,
   type Notification,
-  type TimestampTrigger,
 } from '@notifee/react-native'
 
 export const WORKOUT_CHANNEL_ID = 'workout'
@@ -21,11 +16,6 @@ type WorkoutNotificationOptions = {
   restEndsAt?: number | null
   restDone?: boolean
   asForegroundService?: boolean
-}
-
-type RestDoneTrigger = {
-  trigger: TimestampTrigger
-  usesExactAlarm: boolean
 }
 
 export function buildWorkoutNotification(
@@ -106,19 +96,6 @@ export async function setupWorkoutChannel() {
   })
 }
 
-export async function shouldPromptForRestAlarmPermission(): Promise<boolean> {
-  if (Platform.OS !== 'android') return false
-
-  const settings = await notifee.getNotificationSettings()
-  return settings.android.alarm === AndroidNotificationSetting.DISABLED
-}
-
-export async function openRestAlarmPermissionSettings(): Promise<void> {
-  if (Platform.OS === 'android') {
-    await notifee.openAlarmPermissionSettings()
-  }
-}
-
 export async function showWorkoutNotification(
   elapsedSeconds: number,
   restSecondsRemaining = 0,
@@ -129,17 +106,10 @@ export async function showWorkoutNotification(
   await notifee.requestPermission().catch(() => {})
   await notifee.cancelNotification(LEGACY_REST_DONE_NOTIFICATION_ID).catch(() => {})
   await notifee.cancelNotification(LEGACY_WORKOUT_REST_DONE_NOTIFICATION_ID).catch(() => {})
+  await cancelRestDoneTrigger()
 
   const restEndsAt = options.restEndsAt ??
     (restSecondsRemaining > 0 ? Date.now() + restSecondsRemaining * 1000 : null)
-
-  if (restEndsAt && restEndsAt > Date.now() && startedAt) {
-    await scheduleRestDoneNotification(restEndsAt, startedAt).catch(error => {
-      console.error('Could not schedule rest done notification', error)
-    })
-  } else {
-    await cancelRestDoneTrigger()
-  }
 
   await notifee.displayNotification(
     buildWorkoutNotification(elapsedSeconds, restSecondsRemaining, startedAt, {
@@ -147,70 +117,6 @@ export async function showWorkoutNotification(
       restEndsAt,
       asForegroundService: true,
     }),
-  )
-}
-
-async function getRestDoneTrigger(restEndsAt: number): Promise<RestDoneTrigger> {
-  const trigger: TimestampTrigger = {
-    type: TriggerType.TIMESTAMP,
-    timestamp: restEndsAt,
-  }
-
-  if (Platform.OS !== 'android') {
-    return { trigger, usesExactAlarm: false }
-  }
-
-  const settings = await notifee.getNotificationSettings().catch(() => null)
-  const canUseExactAlarm =
-    settings?.android.alarm === AndroidNotificationSetting.ENABLED ||
-    settings?.android.alarm === AndroidNotificationSetting.NOT_SUPPORTED
-
-  return {
-    trigger: {
-      ...trigger,
-      alarmManager: {
-        type: canUseExactAlarm
-          ? AlarmType.SET_EXACT_AND_ALLOW_WHILE_IDLE
-          : AlarmType.SET_AND_ALLOW_WHILE_IDLE,
-      },
-    },
-    usesExactAlarm: canUseExactAlarm,
-  }
-}
-
-async function createRestDoneTriggerNotification(
-  notification: Notification,
-  restEndsAt: number,
-) {
-  const { trigger, usesExactAlarm } = await getRestDoneTrigger(restEndsAt)
-
-  try {
-    await notifee.createTriggerNotification(notification, trigger)
-  } catch (error) {
-    if (!usesExactAlarm || Platform.OS !== 'android') throw error
-
-    await notifee.createTriggerNotification(notification, {
-      ...trigger,
-      alarmManager: {
-        type: AlarmType.SET_AND_ALLOW_WHILE_IDLE,
-      },
-    })
-  }
-}
-
-export async function scheduleRestDoneNotification(restEndsAt: number, startedAt: number) {
-  await cancelRestDoneTrigger()
-  if (restEndsAt <= Date.now()) return
-
-  await setupWorkoutChannel()
-  const elapsedAtRestEnd = Math.max(0, Math.floor((restEndsAt - startedAt) / 1000))
-
-  await createRestDoneTriggerNotification(
-    buildWorkoutNotification(elapsedAtRestEnd, 0, startedAt, {
-      restDone: true,
-      asForegroundService: true,
-    }),
-    restEndsAt,
   )
 }
 
@@ -223,8 +129,10 @@ export async function cancelRestDoneTrigger() {
 
 export async function cancelWorkoutNotification() {
   await cancelRestDoneTrigger()
-  await notifee.stopForegroundService()
-  await notifee.cancelNotification(WORKOUT_NOTIFICATION_ID)
-  await notifee.cancelNotification(LEGACY_WORKOUT_REST_DONE_NOTIFICATION_ID)
-  await notifee.cancelNotification(LEGACY_REST_DONE_NOTIFICATION_ID)
+  await Promise.all([
+    notifee.stopForegroundService().catch(() => {}),
+    notifee.cancelNotification(WORKOUT_NOTIFICATION_ID).catch(() => {}),
+    notifee.cancelNotification(LEGACY_WORKOUT_REST_DONE_NOTIFICATION_ID).catch(() => {}),
+    notifee.cancelNotification(LEGACY_REST_DONE_NOTIFICATION_ID).catch(() => {}),
+  ])
 }

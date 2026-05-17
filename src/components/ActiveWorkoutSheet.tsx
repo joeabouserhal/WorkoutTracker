@@ -67,10 +67,8 @@ import {
 import {
   WORKOUT_NOTIFICATION_ID,
   cancelWorkoutNotification,
-  openRestAlarmPermissionSettings,
   setupWorkoutChannel,
   showWorkoutNotification,
-  shouldPromptForRestAlarmPermission,
 } from '@/services/WorkoutNotification';
 import {
   formatRestTimer,
@@ -80,7 +78,6 @@ import {
   backupToGoogleDrive,
   getAutoBackupAfterWorkoutEnabled,
 } from '@/services/backupService';
-import { refreshGeneralInfoWidget } from '@/widgets/generalInfoWidgetData';
 import ExercisePickerModal from './ExercisePickerModal';
 import { type ThemedDialogAction } from './ui/ThemedDialog';
 
@@ -103,7 +100,6 @@ const WORKOUT_EXERCISE_GAP = 8;
 const WORKOUT_EXERCISE_SETTLE_MS = 105;
 const WORKOUT_EXERCISE_DRAG_ACTIVATE_MS = 65;
 const ACTIVE_WORKOUT_DRAFT_SAVE_DELAY_MS = 250;
-const REST_ALARM_PERMISSION_PROMPTED_KEY = 'rest_alarm_permission_prompted';
 const DELETE_SWIPE_DRAG_OFFSET = 18;
 const PULL_TO_CLOSE_TOP_EPSILON = 1;
 const PULL_TO_CLOSE_ACTIVATE_DISTANCE = 10;
@@ -549,10 +545,9 @@ export default function ActiveWorkoutSheet() {
     const completedWorkoutId = activeWorkoutId;
     await updateWorkoutName(completedWorkoutId, workoutName);
     await finishWorkout(completedWorkoutId);
-    refreshGeneralInfoWidget().catch(console.error);
     await maybeRunAutoBackup();
-    await cancelWorkoutNotification();
     endWorkout();
+    await cancelWorkoutNotification();
     navigation.navigate('HomeTab', {
       screen: 'PostWorkout',
       params: { workoutId: completedWorkoutId },
@@ -568,6 +563,7 @@ export default function ActiveWorkoutSheet() {
   const discardWorkout = useCallback(async () => {
     if (activeWorkoutId) await deleteWorkout(activeWorkoutId);
     endWorkout();
+    await cancelWorkoutNotification();
   }, [activeWorkoutId, endWorkout]);
 
   const getRestSetKey = useCallback(
@@ -598,33 +594,6 @@ export default function ActiveWorkoutSheet() {
     },
     [closeDialog],
   );
-
-  const maybePromptRestAlarmPermission = useCallback(() => {
-    if (getString(REST_ALARM_PERMISSION_PROMPTED_KEY) === 'true') return;
-
-    shouldPromptForRestAlarmPermission()
-      .then(shouldPrompt => {
-        if (!shouldPrompt) return;
-        setString(REST_ALARM_PERMISSION_PROMPTED_KEY, 'true');
-        setDialog({
-          title: 'Enable Rest Alerts',
-          message:
-            'Allow alarms and reminders so rest timers can finish on time after this app is closed.',
-          actions: [
-            { label: 'Not Now', onPress: closeDialog },
-            {
-              label: 'Open Settings',
-              variant: 'primary',
-              onPress: () => {
-                closeDialog();
-                openRestAlarmPermissionSettings().catch(console.error);
-              },
-            },
-          ],
-        });
-      })
-      .catch(console.error);
-  }, [closeDialog]);
 
   const markInvalidSetFields = useCallback(
     (
@@ -1524,7 +1493,6 @@ export default function ActiveWorkoutSheet() {
       restDoneNotifiedRef.current = false;
       setRestSetKey(getRestSetKey(weId, setId));
       startRest(restSeconds);
-      maybePromptRestAlarmPermission();
       showWorkoutNotification(
         getElapsedSeconds(startedAt),
         restSeconds,

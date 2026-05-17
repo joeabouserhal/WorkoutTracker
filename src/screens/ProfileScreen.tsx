@@ -294,23 +294,6 @@ export default function ProfileScreen({ navigation }: Props) {
         <MaterialCommunityIcons name="chevron-right" size={20} color={theme.colors.textMuted} />
       </TouchableOpacity>
 
-      <TouchableOpacity
-        style={styles.settingsButton}
-        onPress={() => navigation.navigate('Widgets')}
-        activeOpacity={0.82}
-      >
-        <View style={styles.settingsIconBadge}>
-          <MaterialCommunityIcons name="widgets-outline" size={19} color={theme.colors.accent} />
-        </View>
-        <View style={styles.settingsTextBlock}>
-          <Text style={styles.settingsButtonTitle}>Widgets</Text>
-          <Text style={styles.settingsButtonDescription} numberOfLines={1}>
-            Preview home-screen widgets.
-          </Text>
-        </View>
-        <MaterialCommunityIcons name="chevron-right" size={20} color={theme.colors.textMuted} />
-      </TouchableOpacity>
-
       <Text style={styles.sectionTitle}>Debug</Text>
 
       <TouchableOpacity

@@ -1,5 +1,4 @@
 import 'react-native-gesture-handler'
-import { registerWidgetTaskHandler } from 'react-native-android-widget'
 
 /**
  * @format
@@ -20,7 +19,6 @@ import {
   MMKV_REST_ENDS_AT,
   MMKV_STARTED_AT,
 } from './src/store/sessionStore'
-import { widgetTaskHandler } from './src/widgets/widgetTaskHandler'
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 const SERVICE_IDLE_CHECK_MS = 5000
@@ -31,12 +29,14 @@ function parseStoredTimestamp(value) {
   return Number.isFinite(parsed) ? parsed : null
 }
 
-async function showActiveWorkoutNotification(notificationId) {
+async function showActiveWorkoutNotification(notificationId, options = {}) {
   const startedAt = parseStoredTimestamp(storage.getString(MMKV_STARTED_AT))
   if (!startedAt) return
 
   const elapsed = Math.floor((Date.now() - startedAt) / 1000)
-  const restEndsAt = parseStoredTimestamp(storage.getString(MMKV_REST_ENDS_AT))
+  const restEndsAt = options.restDone
+    ? null
+    : parseStoredTimestamp(storage.getString(MMKV_REST_ENDS_AT))
   const restRemaining = restEndsAt && restEndsAt > Date.now()
     ? Math.ceil((restEndsAt - Date.now()) / 1000)
     : 0
@@ -44,7 +44,7 @@ async function showActiveWorkoutNotification(notificationId) {
     elapsed,
     restRemaining,
     startedAt,
-    { restEndsAt },
+    { restEndsAt, restDone: options.restDone },
   )
   await notifee.displayNotification({
     ...nextNotification,
@@ -69,6 +69,9 @@ notifee.registerForegroundService((notification) => {
 
         if (restEndsAt && restEndsAt <= Date.now()) {
           removeKey(MMKV_REST_ENDS_AT)
+          await showActiveWorkoutNotification(notification?.id, {
+            restDone: true,
+          })
           await sleep(SERVICE_IDLE_CHECK_MS)
           continue
         }
@@ -122,4 +125,3 @@ notifee.onBackgroundEvent(async ({ type, detail }) => {
 })
 
 AppRegistry.registerComponent(appName, () => App)
-registerWidgetTaskHandler(widgetTaskHandler)

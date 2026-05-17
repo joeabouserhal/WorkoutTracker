@@ -9,7 +9,6 @@ import { seedDatabaseIfEmpty } from './src/db/seedData';
 import { restoreActiveWorkoutSession } from './src/services/activeWorkoutRecovery';
 import { configureAppFonts } from './src/theme/fontBootstrap';
 import { KeyboardProvider } from 'react-native-keyboard-controller';
-import { refreshGeneralInfoWidget } from './src/widgets/generalInfoWidgetData';
 
 configureAppFonts();
 
@@ -34,7 +33,6 @@ export default function App() {
       try {
         await seedDatabaseIfEmpty();
         await restoreActiveWorkoutSession();
-        refreshGeneralInfoWidget().catch(console.error);
       } catch (e) {
         console.error(e);
       } finally {

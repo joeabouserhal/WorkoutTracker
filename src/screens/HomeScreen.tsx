@@ -51,7 +51,6 @@ type WorkoutSummary,
 import { getDefaultMuscleRecoveryHours } from '@/services/muscleRecoverySettings';
 import { getScheduledTemplateForToday } from '@/services/workoutSchedule';
 import { useSessionStore } from '@/store/sessionStore';
-import { refreshGeneralInfoWidget } from '@/widgets/generalInfoWidgetData';
 import type { HomeStackParamList } from '../navigation/TabNavigator';
 
 type DialogState = {
@@ -379,7 +378,6 @@ export default function HomeScreen() {
     setSelectedWorkout(workout);
     setWorkoutPreviews(prev => ({ ...prev, [workoutId]: workout }));
     loadHome(false).catch(console.error);
-    refreshGeneralInfoWidget().catch(console.error);
   }
 
   function handleWorkoutDeleted(workoutId: string) {
@@ -403,7 +401,6 @@ export default function HomeScreen() {
       return next;
     });
     loadHome(false).catch(console.error);
-    refreshGeneralInfoWidget().catch(console.error);
   }
 
   const isWorkoutActive = Boolean(activeWorkoutId);

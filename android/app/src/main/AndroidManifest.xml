@@ -5,7 +5,9 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
-    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <uses-permission
+      android:name="android.permission.SCHEDULE_EXACT_ALARM"
+      tools:node="remove" />
 
     <application
       android:name=".MainApplication"
@@ -27,25 +29,7 @@
             <action android:name="android.intent.action.MAIN" />
             <category android:name="android.intent.category.LAUNCHER" />
         </intent-filter>
-        <intent-filter>
-            <action android:name="android.intent.action.VIEW" />
-            <category android:name="android.intent.category.DEFAULT" />
-            <category android:name="android.intent.category.BROWSABLE" />
-            <data android:scheme="workouttracker" android:host="home" />
-        </intent-filter>
       </activity>
-      <receiver
-        android:name=".widget.GeneralInfo"
-        android:label="Workout Status"
-        android:exported="false">
-        <intent-filter>
-          <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
-          <action android:name="com.joeabouserhal.workouttracker.WIDGET_CLICK" />
-        </intent-filter>
-        <meta-data
-          android:name="android.appwidget.provider"
-          android:resource="@xml/widgetprovider_general_info" />
-      </receiver>
       <service
         android:name="app.notifee.core.ForegroundService"
         android:foregroundServiceType="specialUse"

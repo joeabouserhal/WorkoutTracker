@@ -26,7 +26,6 @@ import ProfileScreen from '../screens/ProfileScreen'
 import EditProfileScreen from '../screens/EditProfileScreen'
 import SettingsScreen from '../screens/SettingsScreen'
 import ThemesScreen from '../screens/ThemesScreen'
-import WidgetsScreen from '../screens/WidgetsScreen'
 import ScheduleScreen from '../screens/ScheduleScreen'
 import AboutScreen from '../screens/AboutScreen'
 import BackupScreen from '../screens/BackupScreen'
@@ -66,7 +65,6 @@ export type ProfileStackParamList = {
   EditProfile: undefined
   Settings: undefined
   Themes: undefined
-  Widgets: undefined
   Backup: undefined
   Schedule: undefined
   About: undefined
@@ -148,7 +146,6 @@ function ProfileStackScreen() {
       <ProfileStack.Screen name="EditProfile" component={EditProfileScreen} />
       <ProfileStack.Screen name="Settings" component={SettingsScreen} />
       <ProfileStack.Screen name="Themes" component={ThemesScreen} />
-      <ProfileStack.Screen name="Widgets" component={WidgetsScreen} />
       <ProfileStack.Screen name="Backup" component={BackupScreen} />
       <ProfileStack.Screen name="Schedule" component={ScheduleScreen} />
       <ProfileStack.Screen name="About" component={AboutScreen} />

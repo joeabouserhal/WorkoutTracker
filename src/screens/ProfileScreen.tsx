@@ -233,26 +233,9 @@ export default function ProfileScreen({ navigation }: Props) {
           <MaterialCommunityIcons name="cog-outline" size={19} color={theme.colors.accent} />
         </View>
         <View style={styles.settingsTextBlock}>
-          <Text style={styles.settingsButtonTitle}>Workout settings</Text>
+          <Text style={styles.settingsButtonTitle}>Settings</Text>
           <Text style={styles.settingsButtonDescription} numberOfLines={1}>
-            Units, rest timers & recovery.
-          </Text>
-        </View>
-        <MaterialCommunityIcons name="chevron-right" size={20} color={theme.colors.textMuted} />
-      </TouchableOpacity>
-
-      <TouchableOpacity
-        style={styles.settingsButton}
-        onPress={() => navigation.navigate('Themes')}
-        activeOpacity={0.82}
-      >
-        <View style={styles.settingsIconBadge}>
-          <MaterialCommunityIcons name="palette-outline" size={19} color={theme.colors.accent} />
-        </View>
-        <View style={styles.settingsTextBlock}>
-          <Text style={styles.settingsButtonTitle}>Themes</Text>
-          <Text style={styles.settingsButtonDescription} numberOfLines={1}>
-            App appearance & themes.
+            Units, calendar & recovery.
           </Text>
         </View>
         <MaterialCommunityIcons name="chevron-right" size={20} color={theme.colors.textMuted} />
@@ -287,6 +270,42 @@ export default function ProfileScreen({ navigation }: Props) {
           <Text style={styles.settingsButtonTitle}>About</Text>
           <Text style={styles.settingsButtonDescription} numberOfLines={1}>
             Why this app exists.
+          </Text>
+        </View>
+        <MaterialCommunityIcons name="chevron-right" size={20} color={theme.colors.textMuted} />
+      </TouchableOpacity>
+
+      <Text style={styles.sectionTitle}>Appearance</Text>
+
+      <TouchableOpacity
+        style={styles.settingsButton}
+        onPress={() => navigation.navigate('Themes')}
+        activeOpacity={0.82}
+      >
+        <View style={styles.settingsIconBadge}>
+          <MaterialCommunityIcons name="palette-outline" size={19} color={theme.colors.accent} />
+        </View>
+        <View style={styles.settingsTextBlock}>
+          <Text style={styles.settingsButtonTitle}>Themes</Text>
+          <Text style={styles.settingsButtonDescription} numberOfLines={1}>
+            App appearance & colors.
+          </Text>
+        </View>
+        <MaterialCommunityIcons name="chevron-right" size={20} color={theme.colors.textMuted} />
+      </TouchableOpacity>
+
+      <TouchableOpacity
+        style={styles.settingsButton}
+        onPress={() => navigation.navigate('Widgets')}
+        activeOpacity={0.82}
+      >
+        <View style={styles.settingsIconBadge}>
+          <MaterialCommunityIcons name="widgets-outline" size={19} color={theme.colors.accent} />
+        </View>
+        <View style={styles.settingsTextBlock}>
+          <Text style={styles.settingsButtonTitle}>Widgets</Text>
+          <Text style={styles.settingsButtonDescription} numberOfLines={1}>
+            Preview home-screen widgets.
           </Text>
         </View>
         <MaterialCommunityIcons name="chevron-right" size={20} color={theme.colors.textMuted} />

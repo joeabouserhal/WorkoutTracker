@@ -1,4 +1,5 @@
 import 'react-native-gesture-handler'
+import { registerWidgetTaskHandler } from 'react-native-android-widget'
 
 /**
  * @format
@@ -19,6 +20,7 @@ import {
   MMKV_REST_ENDS_AT,
   MMKV_STARTED_AT,
 } from './src/store/sessionStore'
+import { widgetTaskHandler } from './src/widgets/widgetTaskHandler'
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 const SERVICE_IDLE_CHECK_MS = 5000
@@ -120,3 +122,4 @@ notifee.onBackgroundEvent(async ({ type, detail }) => {
 })
 
 AppRegistry.registerComponent(appName, () => App)
+registerWidgetTaskHandler(widgetTaskHandler)

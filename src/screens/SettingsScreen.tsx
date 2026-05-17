@@ -15,6 +15,12 @@ import {
   getDefaultMuscleRecoveryHours,
   setDefaultMuscleRecoveryHours,
 } from '@/services/muscleRecoverySettings'
+import {
+  getFirstDayOfWeek,
+  setFirstDayOfWeek as saveFirstDayOfWeek,
+  WEEK_START_OPTIONS,
+  type WeekStartDay,
+} from '@/services/calendarSettings'
 import type { ProfileStackParamList } from '../navigation/TabNavigator'
 
 type WeightUnit = 'kg' | 'lb'
@@ -29,6 +35,9 @@ export default function SettingsScreen({ navigation }: Props) {
   const [heightUnit, setHeightUnit] = useState<HeightUnit>('cm')
   const [restTimerSeconds, setRestTimerSeconds] = useState(getDefaultRestSeconds)
   const [muscleRecoveryHours, setMuscleRecoveryHours] = useState(getDefaultMuscleRecoveryHours)
+  const [firstDayOfWeek, setFirstDayOfWeekState] = useState<WeekStartDay>(
+    getFirstDayOfWeek,
+  )
 
   useEffect(() => {
     async function loadSettings() {
@@ -42,6 +51,7 @@ export default function SettingsScreen({ navigation }: Props) {
         }
         setRestTimerSeconds(getDefaultRestSeconds())
         setMuscleRecoveryHours(getDefaultMuscleRecoveryHours())
+        setFirstDayOfWeekState(getFirstDayOfWeek())
       } catch (e) {
         console.error('Failed to load settings', e)
       }
@@ -85,10 +95,15 @@ export default function SettingsScreen({ navigation }: Props) {
     setDefaultMuscleRecoveryHours(DEFAULT_MUSCLE_RECOVERY_HOURS)
   }
 
+  function handleFirstDayOfWeekChange(day: WeekStartDay) {
+    setFirstDayOfWeekState(day)
+    saveFirstDayOfWeek(day)
+  }
+
   return (
     <View style={styles.container}>
       <ScreenHeader
-        title="Workout Settings"
+        title="Settings"
         onBack={() => navigation.goBack()}
         showFade={showHeaderFade}
       />
@@ -191,6 +206,51 @@ export default function SettingsScreen({ navigation }: Props) {
                   ft
                 </Text>
               </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+
+        <View style={styles.sectionHeaderRow}>
+          <MaterialCommunityIcons
+            name="calendar-month-outline"
+            size={15}
+            color={theme.colors.textMuted}
+          />
+          <Text style={styles.sectionHeaderTitle}>Calendar</Text>
+        </View>
+
+        <View style={styles.unitsCard}>
+          <View style={styles.settingCardColumn}>
+            <View style={styles.settingCardHeader}>
+              <View style={styles.cardIconBadge}>
+                <MaterialCommunityIcons name="calendar-week-begin" size={18} color={theme.colors.accent} />
+              </View>
+              <Text style={styles.unitLabel}>First Day of Week</Text>
+            </View>
+            <View style={styles.weekStartButtonsRow}>
+              {WEEK_START_OPTIONS.map(option => (
+                <TouchableOpacity
+                  key={option.value}
+                  style={[
+                    styles.weekStartButton,
+                    firstDayOfWeek === option.value &&
+                      styles.weekStartButtonActive,
+                  ]}
+                  onPress={() => handleFirstDayOfWeekChange(option.value)}
+                  activeOpacity={0.78}
+                  accessibilityLabel={`Start week on ${option.label}`}
+                >
+                  <Text
+                    style={[
+                      styles.weekStartButtonText,
+                      firstDayOfWeek === option.value &&
+                        styles.weekStartButtonTextActive,
+                    ]}
+                  >
+                    {option.shortLabel}
+                  </Text>
+                </TouchableOpacity>
+              ))}
             </View>
           </View>
         </View>
@@ -309,6 +369,20 @@ const stylesheet = createStyleSheet((theme) => ({
     marginTop: theme.spacing.md,
     marginBottom: theme.spacing.xs,
   },
+  sectionHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: theme.spacing.xs,
+    marginTop: theme.spacing.md,
+    marginBottom: theme.spacing.xs,
+  },
+  sectionHeaderTitle: {
+    color: theme.colors.textMuted,
+    fontSize: theme.fontSize.xs,
+    fontFamily: theme.fontFamily.semiBold,
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
+  },
   cardIconBadge: {
     width: 34,
     height: 34,
@@ -332,6 +406,10 @@ const stylesheet = createStyleSheet((theme) => ({
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: theme.spacing.sm,
+  },
+  settingCardColumn: {
+    gap: theme.spacing.sm,
+    paddingVertical: theme.spacing.xs,
   },
   settingCardHeader: {
     flex: 1,
@@ -359,6 +437,35 @@ const stylesheet = createStyleSheet((theme) => ({
     width: 132,
     flexDirection: 'row',
     gap: theme.spacing.xs,
+  },
+  weekStartButtonsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: theme.spacing.xs,
+  },
+  weekStartButton: {
+    minWidth: 42,
+    flexGrow: 1,
+    paddingVertical: theme.spacing.xs,
+    paddingHorizontal: theme.spacing.xs,
+    borderRadius: theme.radius.md,
+    backgroundColor: theme.colors.surface2,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    alignItems: 'center',
+  },
+  weekStartButtonActive: {
+    backgroundColor: theme.colors.accentMuted,
+    borderColor: theme.colors.accent,
+  },
+  weekStartButtonText: {
+    color: theme.colors.text,
+    fontSize: theme.fontSize.xs,
+    fontFamily: theme.fontFamily.semiBold,
+  },
+  weekStartButtonTextActive: {
+    color: theme.colors.accent,
+    fontFamily: theme.fontFamily.extraBold,
   },
   timerControlRow: {
     flexDirection: 'row',

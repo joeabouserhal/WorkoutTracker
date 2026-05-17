@@ -5,6 +5,19 @@ import { createStyleSheet, useStyles } from 'react-native-unistyles'
 import TabNavigator from './TabNavigator'
 
 const stylesheet = createStyleSheet(() => ({}))
+const linking = {
+  prefixes: ['workouttracker://'],
+  config: {
+    screens: {
+      HomeTab: {
+        path: 'home',
+        screens: {
+          Home: '',
+        },
+      },
+    },
+  },
+}
 
 export default function RootNavigator() {
   const { theme } = useStyles(stylesheet)
@@ -24,7 +37,7 @@ export default function RootNavigator() {
   }
 
   return (
-    <NavigationContainer theme={navTheme}>
+    <NavigationContainer theme={navTheme} linking={linking}>
       <TabNavigator />
     </NavigationContainer>
   )

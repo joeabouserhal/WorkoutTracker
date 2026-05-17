@@ -49,6 +49,8 @@ const createTheme = (colors: {
     radius: baseRadius,
   } as const);
 
+export const THEME_STORAGE_KEY = 'app_theme';
+
 export const darkTheme = createTheme({
   bg: '#111111',
   surface: '#1C1C1E',
@@ -188,3 +190,40 @@ export const whimsyTheme = createTheme({
   border: '#252E26',
   borderStrong: '#374A38',
 });
+
+export const APP_THEMES = {
+  dark: darkTheme,
+  oled: oledTheme,
+  dracula: draculaTheme,
+  oneDark: oneDarkTheme,
+  nord: nordTheme,
+  catppuccin: catppuccinTheme,
+  tokyoNight: tokyoNightTheme,
+  gruvbox: gruvboxTheme,
+  solarized: solarizedTheme,
+  whimsy: whimsyTheme,
+} as const;
+
+export type ThemeKey = keyof typeof APP_THEMES;
+export type AppTheme = typeof APP_THEMES[ThemeKey];
+
+export const THEME_OPTIONS: Array<{
+  key: ThemeKey;
+  label: string;
+  accent: string;
+}> = [
+  { key: 'dark', label: 'Dark', accent: darkTheme.colors.accent },
+  { key: 'oled', label: 'OLED Black', accent: oledTheme.colors.accent },
+  { key: 'dracula', label: 'Dracula', accent: draculaTheme.colors.accent },
+  { key: 'oneDark', label: 'One Dark', accent: oneDarkTheme.colors.accent },
+  { key: 'nord', label: 'Nord', accent: nordTheme.colors.accent },
+  { key: 'catppuccin', label: 'Catppuccin', accent: catppuccinTheme.colors.accent },
+  { key: 'tokyoNight', label: 'Tokyo Night', accent: tokyoNightTheme.colors.accent },
+  { key: 'gruvbox', label: 'Gruvbox', accent: gruvboxTheme.colors.accent },
+  { key: 'solarized', label: 'Solarized', accent: solarizedTheme.colors.accent },
+  { key: 'whimsy', label: 'Whimsy', accent: whimsyTheme.colors.accent },
+];
+
+export function normalizeThemeKey(value?: string | null): ThemeKey {
+  return value && value in APP_THEMES ? (value as ThemeKey) : 'dark';
+}

@@ -21,6 +21,12 @@ import {
   type WorkoutDetail,
   type WorkoutSummary,
 } from '@/db/workoutHelpers';
+import {
+  getFirstDayOfWeek,
+  WEEKDAY_SHORT_LABELS,
+  type WeekStartDay,
+} from '@/services/calendarSettings';
+import { refreshGeneralInfoWidget } from '@/widgets/generalInfoWidgetData';
 
 type CalendarView = 'daily' | 'weekly' | 'monthly';
 type DailyMode = 'all' | 'day';
@@ -36,14 +42,36 @@ function endOfDay(date: Date) {
   return new Date(startOfDay(date).getTime() + DAY_MS);
 }
 
-function startOfWeek(date: Date) {
+function startOfWeek(date: Date, firstDayOfWeek: WeekStartDay) {
   const day = startOfDay(date);
-  const diff = day.getDay();
+  const diff = (day.getDay() - firstDayOfWeek + 7) % 7;
   return new Date(day.getTime() - diff * DAY_MS);
 }
 
 function startOfMonth(date: Date) {
   return new Date(date.getFullYear(), date.getMonth(), 1);
+}
+
+function isWeekendDay(day: number) {
+  return day === 0 || day === 6;
+}
+
+function isAfterToday(date: Date) {
+  return startOfDay(date).getTime() > startOfDay(new Date()).getTime();
+}
+
+function clampToToday(date: Date) {
+  return isAfterToday(date) ? startOfDay(new Date()) : date;
+}
+
+function getPeriodStart(
+  date: Date,
+  view: CalendarView,
+  firstDayOfWeek: WeekStartDay,
+) {
+  if (view === 'weekly') return startOfWeek(date, firstDayOfWeek);
+  if (view === 'monthly') return startOfMonth(date);
+  return startOfDay(date);
 }
 
 function endOfMonth(date: Date) {
@@ -76,27 +104,16 @@ function formatWorkoutDateSubtitle(timestamp: number) {
   return dateLabel;
 }
 
-function formatSummaryDate(timestamp: number | undefined) {
-  if (!timestamp) return '-';
-  const date = new Date(timestamp);
-  const today = startOfDay(new Date());
-  const day = startOfDay(date);
-  const diffDays = Math.round((today.getTime() - day.getTime()) / DAY_MS);
-
-  if (diffDays === 0) return 'Today';
-  if (diffDays === 1) return 'Yesterday';
-  return date.toLocaleDateString([], {
-    month: 'short',
-    day: 'numeric',
-  });
-}
-
-function formatDateTitle(date: Date, view: CalendarView) {
+function formatDateTitle(
+  date: Date,
+  view: CalendarView,
+  firstDayOfWeek: WeekStartDay,
+) {
   if (view === 'daily') {
     return 'Workout History';
   }
   if (view === 'weekly') {
-    const start = startOfWeek(date);
+    const start = startOfWeek(date, firstDayOfWeek);
     const end = new Date(start.getTime() + 6 * DAY_MS);
     return `${start.toLocaleDateString([], {
       month: 'short',
@@ -106,13 +123,17 @@ function formatDateTitle(date: Date, view: CalendarView) {
   return date.toLocaleDateString([], { month: 'long', year: 'numeric' });
 }
 
-function getRange(date: Date, view: CalendarView) {
+function getRange(
+  date: Date,
+  view: CalendarView,
+  firstDayOfWeek: WeekStartDay,
+) {
   if (view === 'daily') {
     const start = startOfDay(date);
     return { start, end: endOfDay(date) };
   }
   if (view === 'weekly') {
-    const start = startOfWeek(date);
+    const start = startOfWeek(date, firstDayOfWeek);
     return { start, end: new Date(start.getTime() + 7 * DAY_MS) };
   }
   return { start: startOfMonth(date), end: endOfMonth(date) };
@@ -123,6 +144,8 @@ export default function CalendarScreen() {
   const { showHeaderFade, handleHeaderScroll } = useHeaderFade();
   const [view, setView] = useState<CalendarView>('daily');
   const [dailyMode, setDailyMode] = useState<DailyMode>('all');
+  const [firstDayOfWeek, setFirstDayOfWeek] =
+    useState<WeekStartDay>(getFirstDayOfWeek);
   const [selectedDate, setSelectedDate] = useState(() => new Date());
   const [workouts, setWorkouts] = useState<WorkoutSummary[]>([]);
   const [selectedWorkoutId, setSelectedWorkoutId] = useState<string | null>(
@@ -148,8 +171,8 @@ export default function CalendarScreen() {
   const workoutDetailRequestRef = useRef(0);
 
   const range = useMemo(
-    () => getRange(selectedDate, view),
-    [selectedDate, view],
+    () => getRange(selectedDate, view, firstDayOfWeek),
+    [firstDayOfWeek, selectedDate, view],
   );
 
   const loadWorkouts = useCallback(async () => {
@@ -180,9 +203,16 @@ export default function CalendarScreen() {
     setVisibleWorkoutCount(WORKOUT_PAGE_SIZE);
   }, [dailyMode, view]);
 
+  useEffect(() => {
+    if (isAfterToday(selectedDate)) {
+      setSelectedDate(startOfDay(new Date()));
+    }
+  }, [selectedDate]);
+
   useFocusEffect(
     useCallback(() => {
       let isActive = true;
+      setFirstDayOfWeek(getFirstDayOfWeek());
       loadWorkouts().finally(() => {
         if (!isActive) return;
       });
@@ -257,6 +287,7 @@ export default function CalendarScreen() {
     setSelectedWorkout(workout);
     setWorkoutPreviews(prev => ({ ...prev, [workoutId]: workout }));
     loadWorkouts().catch(console.error);
+    refreshGeneralInfoWidget().catch(console.error);
   }
 
   function handleWorkoutDeleted(workoutId: string) {
@@ -279,29 +310,40 @@ export default function CalendarScreen() {
       return next;
     });
     loadWorkouts().catch(console.error);
+    refreshGeneralInfoWidget().catch(console.error);
   }
 
   function moveDate(direction: -1 | 1) {
     setSelectedDate(current => {
       if (view === 'daily') {
-        return new Date(current.getTime() + direction * DAY_MS);
+        return clampToToday(new Date(current.getTime() + direction * DAY_MS));
       }
       if (view === 'weekly') {
-        return new Date(current.getTime() + direction * 7 * DAY_MS);
+        return clampToToday(
+          new Date(current.getTime() + direction * 7 * DAY_MS),
+        );
       }
-      return new Date(current.getFullYear(), current.getMonth() + direction, 1);
+      return clampToToday(
+        new Date(current.getFullYear(), current.getMonth() + direction, 1),
+      );
     });
   }
 
   function jumpDate(direction: -1 | 1) {
     setSelectedDate(current => {
       if (view === 'daily') {
-        return new Date(current.getTime() + direction * 7 * DAY_MS);
+        return clampToToday(
+          new Date(current.getTime() + direction * 7 * DAY_MS),
+        );
       }
       if (view === 'weekly') {
-        return new Date(current.getTime() + direction * 28 * DAY_MS);
+        return clampToToday(
+          new Date(current.getTime() + direction * 28 * DAY_MS),
+        );
       }
-      return new Date(current.getFullYear() + direction, current.getMonth(), 1);
+      return clampToToday(
+        new Date(current.getFullYear() + direction, current.getMonth(), 1),
+      );
     });
   }
 
@@ -313,32 +355,6 @@ export default function CalendarScreen() {
     (sum, workout) => sum + workout.volume,
     0,
   );
-  const allDailySummaryItems = useMemo(() => {
-    const newestWorkout = workouts[0];
-    const oldestShownWorkout = workouts[workouts.length - 1];
-    return [
-      {
-        value: String(workouts.length),
-        label: hasMoreDailyWorkouts ? 'Shown so far' : 'Shown',
-      },
-      {
-        value: formatSummaryDate(newestWorkout?.startedAt),
-        label: 'Newest',
-      },
-      {
-        value: formatSummaryDate(oldestShownWorkout?.startedAt),
-        label: hasMoreDailyWorkouts ? 'Loaded through' : 'Oldest',
-      },
-    ];
-  }, [hasMoreDailyWorkouts, workouts]);
-  const selectedDaySummaryItems = useMemo(
-    () => [
-      { value: String(workouts.length), label: 'Workouts' },
-      { value: String(totalSets), label: 'Sets' },
-      { value: String(Math.round(totalVolume)), label: 'kg volume' },
-    ],
-    [totalSets, totalVolume, workouts.length],
-  );
   const periodSummaryItems = useMemo(
     () => [
       { value: String(workouts.length), label: 'Workouts' },
@@ -347,12 +363,6 @@ export default function CalendarScreen() {
     ],
     [totalSets, totalVolume, workouts.length],
   );
-  const summaryItems =
-    view === 'daily'
-      ? dailyMode === 'all'
-        ? allDailySummaryItems
-        : selectedDaySummaryItems
-      : periodSummaryItems;
   const listWorkouts = useMemo(() => {
     if (view === 'daily') return workouts;
     const start = startOfDay(selectedDate).getTime();
@@ -361,16 +371,88 @@ export default function CalendarScreen() {
       workout => workout.startedAt >= start && workout.startedAt < end,
     );
   }, [selectedDate, view, workouts]);
-  const viewLabel = view.charAt(0).toUpperCase() + view.slice(1);
   const periodLabel =
     view === 'daily'
       ? selectedDate.toLocaleDateString([], { month: 'short', day: 'numeric' })
-      : formatDateTitle(selectedDate, view);
+      : formatDateTitle(selectedDate, view, firstDayOfWeek);
+  const canNavigateForward =
+    getPeriodStart(selectedDate, view, firstDayOfWeek).getTime() <
+    getPeriodStart(new Date(), view, firstDayOfWeek).getTime();
+  const dateNavigation = (
+    <View style={styles.dateNavRow}>
+      <TouchableOpacity
+        style={styles.navButton}
+        onPress={() => jumpDate(-1)}
+        activeOpacity={0.82}
+      >
+        <MaterialCommunityIcons
+          name="chevron-double-left"
+          size={19}
+          color={theme.colors.text}
+        />
+      </TouchableOpacity>
+      <TouchableOpacity
+        style={styles.navButton}
+        onPress={() => moveDate(-1)}
+        activeOpacity={0.82}
+      >
+        <MaterialCommunityIcons
+          name="chevron-left"
+          size={20}
+          color={theme.colors.text}
+        />
+      </TouchableOpacity>
+      <TouchableOpacity
+        style={styles.todayButton}
+        onPress={() => setSelectedDate(new Date())}
+        activeOpacity={0.82}
+      >
+        <Text style={styles.todayButtonText}>Today</Text>
+        <Text style={styles.periodLabel} numberOfLines={1}>
+          {periodLabel}
+        </Text>
+      </TouchableOpacity>
+      <TouchableOpacity
+        style={[
+          styles.navButton,
+          !canNavigateForward && styles.navButtonDisabled,
+        ]}
+        onPress={() => moveDate(1)}
+        activeOpacity={canNavigateForward ? 0.82 : 1}
+        disabled={!canNavigateForward}
+      >
+        <MaterialCommunityIcons
+          name="chevron-right"
+          size={20}
+          color={
+            canNavigateForward ? theme.colors.text : theme.colors.textMuted
+          }
+        />
+      </TouchableOpacity>
+      <TouchableOpacity
+        style={[
+          styles.navButton,
+          !canNavigateForward && styles.navButtonDisabled,
+        ]}
+        onPress={() => jumpDate(1)}
+        activeOpacity={canNavigateForward ? 0.82 : 1}
+        disabled={!canNavigateForward}
+      >
+        <MaterialCommunityIcons
+          name="chevron-double-right"
+          size={19}
+          color={
+            canNavigateForward ? theme.colors.text : theme.colors.textMuted
+          }
+        />
+      </TouchableOpacity>
+    </View>
+  );
 
   return (
     <View style={styles.container}>
       <ScreenHeader
-        title={formatDateTitle(selectedDate, view)}
+        title={formatDateTitle(selectedDate, view, firstDayOfWeek)}
         eyebrow="Calendar"
         showFade={showHeaderFade}
       />
@@ -404,64 +486,7 @@ export default function CalendarScreen() {
           ))}
         </View>
 
-        {view !== 'daily' || dailyMode === 'day' ? (
-          <View style={styles.dateNavRow}>
-            <TouchableOpacity
-              style={styles.navButton}
-              onPress={() => jumpDate(-1)}
-              activeOpacity={0.82}
-            >
-              <MaterialCommunityIcons
-                name="chevron-double-left"
-                size={19}
-                color={theme.colors.text}
-              />
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.navButton}
-              onPress={() => moveDate(-1)}
-              activeOpacity={0.82}
-            >
-              <MaterialCommunityIcons
-                name="chevron-left"
-                size={20}
-                color={theme.colors.text}
-              />
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.todayButton}
-              onPress={() => setSelectedDate(new Date())}
-              activeOpacity={0.82}
-            >
-              <Text style={styles.todayButtonText}>Today</Text>
-              <Text style={styles.periodLabel} numberOfLines={1}>
-                {periodLabel}
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.navButton}
-              onPress={() => moveDate(1)}
-              activeOpacity={0.82}
-            >
-              <MaterialCommunityIcons
-                name="chevron-right"
-                size={20}
-                color={theme.colors.text}
-              />
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.navButton}
-              onPress={() => jumpDate(1)}
-              activeOpacity={0.82}
-            >
-              <MaterialCommunityIcons
-                name="chevron-double-right"
-                size={19}
-                color={theme.colors.text}
-              />
-            </TouchableOpacity>
-          </View>
-        ) : null}
+        {view !== 'daily' ? dateNavigation : null}
 
         {view === 'daily' ? (
           <View style={styles.dailyModeBlock}>
@@ -490,6 +515,7 @@ export default function CalendarScreen() {
                 </TouchableOpacity>
               ))}
             </View>
+            {dailyMode === 'day' ? dateNavigation : null}
             <View style={styles.dailyHintRow}>
               <MaterialCommunityIcons
                 name={
@@ -509,27 +535,26 @@ export default function CalendarScreen() {
           </View>
         ) : null}
 
-        <View style={styles.currentViewRow}>
-          <Text style={styles.currentViewText}>{viewLabel}</Text>
-        </View>
-
-        <View style={styles.summaryRow}>
-          {summaryItems.map(item => (
-            <View key={item.label} style={styles.summaryItem}>
-              <Text style={styles.summaryValue} numberOfLines={1}>
-                {item.value}
-              </Text>
-              <Text style={styles.summaryLabel} numberOfLines={1}>
-                {item.label}
-              </Text>
-            </View>
-          ))}
-        </View>
+        {view !== 'daily' ? (
+          <View style={styles.summaryRow}>
+            {periodSummaryItems.map(item => (
+              <View key={item.label} style={styles.summaryItem}>
+                <Text style={styles.summaryValue} numberOfLines={1}>
+                  {item.value}
+                </Text>
+                <Text style={styles.summaryLabel} numberOfLines={1}>
+                  {item.label}
+                </Text>
+              </View>
+            ))}
+          </View>
+        ) : null}
 
         {view !== 'daily' ? (
           <CalendarStrip
             view={view}
             selectedDate={selectedDate}
+            firstDayOfWeek={firstDayOfWeek}
             workouts={workouts}
             onSelectDate={setSelectedDate}
           />
@@ -633,31 +658,47 @@ export default function CalendarScreen() {
 function CalendarStrip({
   view,
   selectedDate,
+  firstDayOfWeek,
   workouts,
   onSelectDate,
 }: {
   view: CalendarView;
   selectedDate: Date;
+  firstDayOfWeek: WeekStartDay;
   workouts: WorkoutSummary[];
   onSelectDate: (date: Date) => void;
 }) {
   const { styles } = useStyles(stylesheet);
-  const weekDays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const weekDays = useMemo(
+    () =>
+      Array.from(
+        { length: 7 },
+        (_, index) => {
+          const day = (firstDayOfWeek + index) % 7;
+          return {
+            day,
+            label: WEEKDAY_SHORT_LABELS[day],
+          };
+        },
+      ),
+    [firstDayOfWeek],
+  );
+  const today = startOfDay(new Date());
   const days = useMemo(() => {
     if (view === 'weekly') {
-      const start = startOfWeek(selectedDate);
+      const start = startOfWeek(selectedDate, firstDayOfWeek);
       return Array.from(
         { length: 7 },
         (_, index) => new Date(start.getTime() + index * DAY_MS),
       );
     }
     const monthStart = startOfMonth(selectedDate);
-    const gridStart = startOfWeek(monthStart);
+    const gridStart = startOfWeek(monthStart, firstDayOfWeek);
     return Array.from(
       { length: 42 },
       (_, index) => new Date(gridStart.getTime() + index * DAY_MS),
     );
-  }, [selectedDate, view]);
+  }, [firstDayOfWeek, selectedDate, view]);
 
   function countForDay(day: Date) {
     const start = startOfDay(day).getTime();
@@ -671,25 +712,33 @@ function CalendarStrip({
     <View style={styles.calendarShell}>
       <View style={styles.weekdayRow}>
         {weekDays.map(day => (
-          <Text key={day} style={styles.weekdayText}>
-            {day}
+          <Text
+            key={day.label}
+            style={[
+              styles.weekdayText,
+              isWeekendDay(day.day) && styles.weekendWeekdayText,
+            ]}
+          >
+            {day.label}
           </Text>
         ))}
       </View>
       <View style={styles.calendarGrid}>
         {days.map(day => {
           const count = countForDay(day);
-          const isToday =
-            startOfDay(day).getTime() === startOfDay(new Date()).getTime();
-          const isSelected =
-            startOfDay(day).getTime() === startOfDay(selectedDate).getTime();
+          const dayStart = startOfDay(day).getTime();
+          const isToday = dayStart === today.getTime();
+          const isSelected = dayStart === startOfDay(selectedDate).getTime();
           const isCurrentMonth = day.getMonth() === selectedDate.getMonth();
+          const isFuture = dayStart > today.getTime();
+          const isWeekend = isWeekendDay(day.getDay());
           return (
             <TouchableOpacity
               key={day.toISOString()}
               style={styles.dayCell}
               onPress={() => onSelectDate(day)}
-              activeOpacity={0.82}
+              activeOpacity={isFuture ? 1 : 0.82}
+              disabled={isFuture}
             >
               <View
                 style={[
@@ -699,9 +748,17 @@ function CalendarStrip({
                   view === 'monthly' &&
                     !isCurrentMonth &&
                     styles.outsideMonthCell,
+                  isFuture && styles.futureDayCell,
                 ]}
               >
-                <Text style={[styles.dayText, isToday && styles.todayText]}>
+                <Text
+                  style={[
+                    styles.dayText,
+                    isWeekend && styles.weekendDayText,
+                    isToday && styles.todayText,
+                    isFuture && styles.futureDayText,
+                  ]}
+                >
                   {day.getDate()}
                 </Text>
                 <View style={styles.workoutMarkerSlot}>
@@ -773,6 +830,9 @@ const stylesheet = createStyleSheet(theme => ({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  navButtonDisabled: {
+    opacity: 0.45,
+  },
   todayButton: {
     minHeight: 38,
     flex: 1,
@@ -805,6 +865,7 @@ const stylesheet = createStyleSheet(theme => ({
     borderWidth: 1,
     borderColor: theme.colors.border,
     padding: 3,
+    marginBottom: theme.spacing.sm,
   },
   dailyModeButton: {
     flex: 1,
@@ -836,16 +897,6 @@ const stylesheet = createStyleSheet(theme => ({
     color: theme.colors.textMuted,
     fontSize: theme.fontSize.xs,
     fontFamily: theme.fontFamily.semiBold,
-  },
-  currentViewRow: {
-    alignItems: 'center',
-  },
-  currentViewText: {
-    color: theme.colors.textMuted,
-    fontSize: theme.fontSize.xs,
-    fontFamily: theme.fontFamily.bold,
-    textTransform: 'uppercase',
-    letterSpacing: 1,
   },
   summaryRow: {
     flexDirection: 'row',
@@ -889,6 +940,9 @@ const stylesheet = createStyleSheet(theme => ({
     textAlign: 'center',
     textTransform: 'uppercase',
   },
+  weekendWeekdayText: {
+    color: theme.colors.danger,
+  },
   calendarGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -916,13 +970,22 @@ const stylesheet = createStyleSheet(theme => ({
   outsideMonthCell: {
     opacity: 0.32,
   },
+  futureDayCell: {
+    opacity: 0.35,
+  },
   dayText: {
     color: theme.colors.text,
     fontSize: theme.fontSize.sm,
     fontFamily: theme.fontFamily.bold,
   },
+  weekendDayText: {
+    color: theme.colors.danger,
+  },
   todayText: {
     color: theme.colors.accent,
+  },
+  futureDayText: {
+    color: theme.colors.textMuted,
   },
   workoutMarkerSlot: {
     height: 7,

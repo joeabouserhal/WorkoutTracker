@@ -1,48 +1,17 @@
 import { UnistylesRegistry } from 'react-native-unistyles';
 import { getString } from '../storage/mmkv';
 import {
-  darkTheme,
-  oledTheme,
-  draculaTheme,
-  oneDarkTheme,
-  nordTheme,
-  catppuccinTheme,
-  tokyoNightTheme,
-  gruvboxTheme,
-  solarizedTheme,
-  whimsyTheme,
+  APP_THEMES,
+  THEME_STORAGE_KEY,
+  normalizeThemeKey,
 } from './themes';
 
-type AppThemes = {
-  dark: typeof darkTheme;
-  oled: typeof oledTheme;
-  dracula: typeof draculaTheme;
-  oneDark: typeof oneDarkTheme;
-  nord: typeof nordTheme;
-  catppuccin: typeof catppuccinTheme;
-  tokyoNight: typeof tokyoNightTheme;
-  gruvbox: typeof gruvboxTheme;
-  solarized: typeof solarizedTheme;
-  whimsy: typeof whimsyTheme;
-};
+type AppThemes = typeof APP_THEMES;
 
 declare module 'react-native-unistyles' {
   export interface UnistylesThemes extends AppThemes {}
 }
 
-const THEME_STORAGE_KEY = 'app_theme';
-
-UnistylesRegistry.addThemes({
-  dark: darkTheme,
-  oled: oledTheme,
-  dracula: draculaTheme,
-  oneDark: oneDarkTheme,
-  nord: nordTheme,
-  catppuccin: catppuccinTheme,
-  tokyoNight: tokyoNightTheme,
-  gruvbox: gruvboxTheme,
-  solarized: solarizedTheme,
-  whimsy: whimsyTheme,
-}).addConfig({
-  initialTheme: (getString(THEME_STORAGE_KEY) as never) ?? 'dark',
+UnistylesRegistry.addThemes(APP_THEMES).addConfig({
+  initialTheme: normalizeThemeKey(getString(THEME_STORAGE_KEY)) as never,
 });

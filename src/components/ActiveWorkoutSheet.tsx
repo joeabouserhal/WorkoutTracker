@@ -80,6 +80,7 @@ import {
   backupToGoogleDrive,
   getAutoBackupAfterWorkoutEnabled,
 } from '@/services/backupService';
+import { refreshGeneralInfoWidget } from '@/widgets/generalInfoWidgetData';
 import ExercisePickerModal from './ExercisePickerModal';
 import { type ThemedDialogAction } from './ui/ThemedDialog';
 
@@ -548,6 +549,7 @@ export default function ActiveWorkoutSheet() {
     const completedWorkoutId = activeWorkoutId;
     await updateWorkoutName(completedWorkoutId, workoutName);
     await finishWorkout(completedWorkoutId);
+    refreshGeneralInfoWidget().catch(console.error);
     await maybeRunAutoBackup();
     await cancelWorkoutNotification();
     endWorkout();

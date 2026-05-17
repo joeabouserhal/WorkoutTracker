@@ -1,3 +1,4 @@
 <resources>
     <string name="app_name">Workout Tracker</string>
+    <string name="widget_general_info_description">Workout Status</string>
 </resources>

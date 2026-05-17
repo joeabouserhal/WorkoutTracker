@@ -24,14 +24,15 @@ import {
   MMKV_WORKOUT_ID,
 } from '@/store/sessionStore'
 import { seedDatabaseIfEmpty } from '@/db/seedData'
+import { THEME_STORAGE_KEY } from '@/theme/themes'
 import { PROGRESS_PINNED_EXERCISE_TYPE_IDS_KEY } from './progressPins'
 import { REST_TIMER_DEFAULT_SECONDS_KEY } from './restTimerSettings'
 import { WORKOUT_SCHEDULE_STORAGE_KEY } from './workoutSchedule'
+import { FIRST_DAY_OF_WEEK_KEY } from './calendarSettings'
 
 const APP_BACKUP_VERSION = 3
 const DRIVE_UPLOAD_URL = 'https://www.googleapis.com/upload/drive/v3/files'
 const DRIVE_FILES_URL = 'https://www.googleapis.com/drive/v3/files'
-const THEME_STORAGE_KEY = 'app_theme'
 const AUTO_BACKUP_AFTER_WORKOUT_KEY = 'google_drive_auto_backup_after_workout'
 
 const BACKUP_TABLES = [
@@ -149,10 +150,12 @@ function getBackupSettings() {
   const theme = getString(THEME_STORAGE_KEY)
   const schedule = getString(WORKOUT_SCHEDULE_STORAGE_KEY)
   const progressPins = getString(PROGRESS_PINNED_EXERCISE_TYPE_IDS_KEY)
+  const firstDayOfWeek = getString(FIRST_DAY_OF_WEEK_KEY)
   if (restSeconds) settings[REST_TIMER_DEFAULT_SECONDS_KEY] = restSeconds
   if (theme) settings[THEME_STORAGE_KEY] = theme
   if (schedule) settings[WORKOUT_SCHEDULE_STORAGE_KEY] = schedule
   if (progressPins) settings[PROGRESS_PINNED_EXERCISE_TYPE_IDS_KEY] = progressPins
+  if (firstDayOfWeek) settings[FIRST_DAY_OF_WEEK_KEY] = firstDayOfWeek
   return settings
 }
 

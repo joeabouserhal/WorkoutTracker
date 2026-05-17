@@ -9,59 +9,13 @@ import {
 import ScreenHeader, { useHeaderFade } from '@/components/ui/ScreenHeader';
 import { setString } from '@/storage/mmkv';
 import {
-  darkTheme,
-  oledTheme,
-  draculaTheme,
-  oneDarkTheme,
-  nordTheme,
-  catppuccinTheme,
-  tokyoNightTheme,
-  gruvboxTheme,
-  solarizedTheme,
-  whimsyTheme,
+  THEME_OPTIONS,
+  THEME_STORAGE_KEY,
+  normalizeThemeKey,
+  type ThemeKey,
 } from '../theme/themes';
+import { refreshGeneralInfoWidget } from '@/widgets/generalInfoWidgetData';
 import type { ProfileStackParamList } from '../navigation/TabNavigator';
-
-const THEME_STORAGE_KEY = 'app_theme';
-
-type ThemeKey =
-  | 'dark'
-  | 'oled'
-  | 'dracula'
-  | 'oneDark'
-  | 'nord'
-  | 'catppuccin'
-  | 'tokyoNight'
-  | 'gruvbox'
-  | 'solarized'
-  | 'elite'
-  | 'whimsy';
-
-const themeAccents = {
-  dark: darkTheme.colors.accent,
-  oled: oledTheme.colors.accent,
-  dracula: draculaTheme.colors.accent,
-  oneDark: oneDarkTheme.colors.accent,
-  nord: nordTheme.colors.accent,
-  catppuccin: catppuccinTheme.colors.accent,
-  tokyoNight: tokyoNightTheme.colors.accent,
-  gruvbox: gruvboxTheme.colors.accent,
-  solarized: solarizedTheme.colors.accent,
-  whimsy: whimsyTheme.colors.accent,
-};
-
-const THEMES: { key: ThemeKey; label: string; accent: string }[] = [
-  { key: 'dark', label: 'Dark', accent: themeAccents.dark },
-  { key: 'oled', label: 'OLED Black', accent: themeAccents.oled },
-  { key: 'dracula', label: 'Dracula', accent: themeAccents.dracula },
-  { key: 'oneDark', label: 'One Dark', accent: themeAccents.oneDark },
-  { key: 'nord', label: 'Nord', accent: themeAccents.nord },
-  { key: 'catppuccin', label: 'Catppuccin', accent: themeAccents.catppuccin },
-  { key: 'tokyoNight', label: 'Tokyo Night', accent: themeAccents.tokyoNight },
-  { key: 'gruvbox', label: 'Gruvbox', accent: themeAccents.gruvbox },
-  { key: 'solarized', label: 'Solarized', accent: themeAccents.solarized },
-  { key: 'whimsy', label: 'Whimsy', accent: themeAccents.whimsy },
-];
 
 type Props = NativeStackScreenProps<ProfileStackParamList, 'Themes'>;
 
@@ -69,13 +23,14 @@ export default function ThemesScreen({ navigation }: Props) {
   const { styles, theme } = useStyles(stylesheet);
   const { showHeaderFade, handleHeaderScroll } = useHeaderFade();
   const [activeTheme, setActiveTheme] = useState<ThemeKey>(
-    (UnistylesRuntime.themeName as ThemeKey) ?? 'dark',
+    normalizeThemeKey(UnistylesRuntime.themeName),
   );
 
   function handleThemeChange(themeKey: ThemeKey) {
     UnistylesRuntime.setTheme(themeKey as never);
     setString(THEME_STORAGE_KEY, themeKey);
     setActiveTheme(themeKey);
+    refreshGeneralInfoWidget().catch(console.error);
   }
 
   return (
@@ -98,7 +53,7 @@ export default function ThemesScreen({ navigation }: Props) {
         </Text>
 
         <View style={styles.themeList}>
-          {THEMES.map(item => {
+          {THEME_OPTIONS.map(item => {
             const isActive = activeTheme === item.key;
 
             return (

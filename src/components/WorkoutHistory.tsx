@@ -67,6 +67,17 @@ function formatDuration(startedAt: number, endedAt: number) {
   return `${minutes}m`;
 }
 
+function formatDurationInput(startedAt: number, endedAt: number) {
+  return `${Math.max(1, Math.round((endedAt - startedAt) / 60000))}`;
+}
+
+function parseDurationInput(value: string): number | null {
+  const minutes = Number(value.trim());
+  if (!Number.isFinite(minutes)) return null;
+  const roundedMinutes = Math.round(minutes);
+  return roundedMinutes > 0 ? roundedMinutes : null;
+}
+
 function formatCompactNumber(value: number) {
   return Number.parseFloat(value.toFixed(2)).toString();
 }
@@ -272,16 +283,22 @@ export function WorkoutSummaryCard({
           onPress={onOpen}
           activeOpacity={0.75}
         >
-          <Text style={styles.workoutTitle}>
-            {title ?? workout.name ?? 'Workout'}
-          </Text>
-          <Text style={styles.workoutMeta}>
-            {formatDuration(workout.startedAt, workout.endedAt)} -{' '}
-            {workout.exerciseCount} exercises - {workout.setCount} sets
-          </Text>
+          <View style={styles.workoutSummaryTextBlock}>
+            <Text style={styles.workoutTitle} numberOfLines={1}>
+              {title ?? workout.name ?? 'Workout'}
+            </Text>
+            <Text style={styles.workoutMeta}>
+              {formatDuration(workout.startedAt, workout.endedAt)} -{' '}
+              {workout.exerciseCount} exercises - {workout.setCount} sets
+            </Text>
+          </View>
           {workout.weightPrCount > 0 ? (
             <View
-              style={[styles.prBadge, hasCurrentPr && styles.currentPrBadge]}
+              style={[
+                styles.prBadge,
+                styles.summaryPrBadge,
+                hasCurrentPr && styles.currentPrBadge,
+              ]}
             >
               <MaterialCommunityIcons
                 name="trophy-outline"
@@ -291,6 +308,7 @@ export function WorkoutSummaryCard({
               <Text
                 style={[
                   styles.prBadgeText,
+                  styles.summaryPrBadgeText,
                   hasCurrentPr && styles.currentPrBadgeText,
                 ]}
               >
@@ -409,6 +427,7 @@ export function WorkoutDetailModal({
   const { showHeaderFade, handleHeaderScroll } = useHeaderFade();
   const [name, setName] = useState('');
   const [dateText, setDateText] = useState('');
+  const [durationText, setDurationText] = useState('');
   const [editableSets, setEditableSets] = useState<Record<string, EditableSet>>(
     {},
   );
@@ -432,6 +451,9 @@ export function WorkoutDetailModal({
   useEffect(() => {
     setName(workout?.name || '');
     setDateText(workout ? formatDateInput(workout.startedAt) : '');
+    setDurationText(
+      workout ? formatDurationInput(workout.startedAt, workout.endedAt) : '',
+    );
     setEditableSets(buildEditableSets(workout));
     setEditing(false);
     setSaving(false);
@@ -449,6 +471,9 @@ export function WorkoutDetailModal({
   function resetEdits() {
     setName(workout?.name || '');
     setDateText(workout ? formatDateInput(workout.startedAt) : '');
+    setDurationText(
+      workout ? formatDurationInput(workout.startedAt, workout.endedAt) : '',
+    );
     setEditableSets(buildEditableSets(workout));
     setEditError(null);
     setEditing(false);
@@ -501,6 +526,12 @@ export function WorkoutDetailModal({
       setEditError('Use a valid date in YYYY-MM-DD format.');
       return;
     }
+    const durationMinutes = parseDurationInput(durationText);
+    if (durationMinutes === null) {
+      setEditError('Use a duration greater than 0 minutes.');
+      return;
+    }
+    const endedAt = startedAt + durationMinutes * 60_000;
 
     const setUpdates: CompletedWorkoutSetUpdate[] = [];
     for (const exercise of workout.exercises) {
@@ -535,6 +566,7 @@ export function WorkoutDetailModal({
         workoutId: detailWorkoutId,
         name,
         startedAt,
+        endedAt,
         sets: setUpdates,
       });
       const updated = await getWorkoutDetail(detailWorkoutId);
@@ -684,6 +716,23 @@ export function WorkoutDetailModal({
                   onChangeText={setDateText}
                   placeholder="YYYY-MM-DD"
                   placeholderTextColor={theme.colors.textMuted}
+                  returnKeyType="done"
+                />
+              </View>
+            ) : null}
+
+            {editing ? (
+              <View style={styles.renameCard}>
+                <Text style={styles.renameLabel}>Workout Duration (min)</Text>
+                <TextInput
+                  style={styles.renameInput}
+                  value={durationText}
+                  onChangeText={value =>
+                    setDurationText(value.replace(/[^0-9]/g, ''))
+                  }
+                  placeholder="60"
+                  placeholderTextColor={theme.colors.textMuted}
+                  keyboardType="number-pad"
                   returnKeyType="done"
                 />
               </View>
@@ -1173,6 +1222,14 @@ const stylesheet = createStyleSheet(theme => ({
   workoutCardBody: {
     flex: 1,
     minWidth: 0,
+    minHeight: 40,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: theme.spacing.sm,
+  },
+  workoutSummaryTextBlock: {
+    flex: 1,
+    minWidth: 0,
   },
   expandButton: {
     width: 32,
@@ -1188,6 +1245,7 @@ const stylesheet = createStyleSheet(theme => ({
     color: theme.colors.text,
     fontSize: theme.fontSize.sm,
     fontFamily: theme.fontFamily.bold,
+    lineHeight: 20,
   },
   workoutMeta: {
     color: theme.colors.textMuted,
@@ -1206,6 +1264,16 @@ const stylesheet = createStyleSheet(theme => ({
     paddingHorizontal: 6,
     paddingVertical: 2,
     marginTop: 4,
+  },
+  summaryPrBadge: {
+    height: 20,
+    flexShrink: 0,
+    alignSelf: 'center',
+    marginTop: 0,
+    paddingVertical: 0,
+  },
+  summaryPrBadgeText: {
+    lineHeight: 16,
   },
   prBadgeText: {
     color: theme.colors.accent,

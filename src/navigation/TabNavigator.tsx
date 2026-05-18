@@ -35,6 +35,7 @@ import ActiveWorkoutSheet from '../components/ActiveWorkoutSheet'
 import { useSessionStore } from '@/store/sessionStore'
 import { formatRestTimer } from '@/services/restTimerSettings'
 import { showWorkoutNotification } from '@/services/WorkoutNotification'
+import { useRestCountdownSeconds } from '@/hooks/useRestCountdownSeconds'
 
 const Tab = createBottomTabNavigator()
 export type HomeStackParamList = {
@@ -188,8 +189,11 @@ function WorkoutMiniBar() {
   const openWorkoutSheet = useSessionStore((s) => s.openWorkoutSheet)
   const requestEndWorkout = useSessionStore((s) => s.requestEndWorkout)
   const isResting = useSessionStore((s) => s.isResting)
-  const restSecondsRemaining = useSessionStore((s) => s.restSecondsRemaining)
+  const restEndsAt = useSessionStore((s) => s.restEndsAt)
   const clearRest = useSessionStore((s) => s.clearRest)
+  const restSecondsRemaining = useRestCountdownSeconds(
+    isResting ? restEndsAt : null,
+  )
   const [elapsed, setElapsed] = useState(0)
 
   useEffect(() => {
@@ -490,11 +494,17 @@ function CustomTabBar(props: BottomTabBarProps) {
   )
 }
 
+function renderCustomTabBar(props: BottomTabBarProps) {
+  return <CustomTabBar {...props} />
+}
+
 export default function TabNavigator() {
+  const { styles } = useStyles(stylesheet)
+
   return (
-    <>
+    <View style={styles.navigatorRoot}>
       <Tab.Navigator
-        tabBar={(props) => <CustomTabBar {...props} />}
+        tabBar={renderCustomTabBar}
         screenOptions={{
           headerShown: false,
           lazy: false,
@@ -545,11 +555,15 @@ export default function TabNavigator() {
       </Tab.Navigator>
 
       <ActiveWorkoutSheet />
-    </>
+    </View>
   )
 }
 
 const stylesheet = createStyleSheet((theme) => ({
+  navigatorRoot: {
+    flex: 1,
+    backgroundColor: theme.colors.bg,
+  },
   tabArea: {
     backgroundColor: 'transparent',
   },

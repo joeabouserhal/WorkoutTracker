@@ -10,6 +10,12 @@ export function formatRestTimer(seconds: number): string {
   return `${minutes}:${String(remainder).padStart(2, '0')}`
 }
 
+export function getRestSecondsRemaining(restEndsAt?: number | null): number {
+  return typeof restEndsAt === 'number'
+    ? Math.max(0, Math.ceil((restEndsAt - Date.now()) / 1000))
+    : 0
+}
+
 export function getDefaultRestSeconds(): number {
   const stored = getString(REST_TIMER_DEFAULT_SECONDS_KEY)
   const parsed = stored ? Number.parseInt(stored, 10) : NaN

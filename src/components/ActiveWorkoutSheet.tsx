@@ -7,9 +7,9 @@ import React, {
 } from 'react';
 import {
   AppState,
+  BackHandler,
   InteractionManager,
   Keyboard,
-  Modal,
   StatusBar,
   type LayoutChangeEvent,
   type StyleProp,
@@ -61,19 +61,19 @@ import {
   finishWorkout,
   getWorkoutName,
   isExerciseTypeMethodLocked,
+  updateCompletedSetInWorkout,
   updateWorkoutExerciseOrder,
   updateWorkoutName,
 } from '@/db/workoutHelpers';
 import {
-  WORKOUT_NOTIFICATION_ID,
   cancelWorkoutNotification,
-  setupWorkoutChannel,
   showWorkoutNotification,
 } from '@/services/WorkoutNotification';
 import {
   formatRestTimer,
   getDefaultRestSeconds,
 } from '@/services/restTimerSettings';
+import { useRestCountdownSeconds } from '@/hooks/useRestCountdownSeconds';
 import {
   backupToGoogleDrive,
   getAutoBackupAfterWorkoutEnabled,
@@ -409,9 +409,8 @@ function WorkoutElapsedText({
 }
 
 function RestTimerCountdownText({ style }: { style: StyleProp<TextStyle> }) {
-  const restSecondsRemaining = useSessionStore(
-    state => state.restSecondsRemaining,
-  );
+  const restEndsAt = useSessionStore(state => state.restEndsAt);
+  const restSecondsRemaining = useRestCountdownSeconds(restEndsAt);
 
   return <Text style={style}>{formatRestTimer(restSecondsRemaining)}</Text>;
 }
@@ -483,6 +482,7 @@ export default function ActiveWorkoutSheet() {
     state => state.updateExerciseWeightUnit,
   );
   const addSet = useSessionStore(state => state.addSet);
+  const updateSet = useSessionStore(state => state.updateSet);
   const removeSet = useSessionStore(state => state.removeSet);
   const startRest = useSessionStore(state => state.startRest);
   const tickRest = useSessionStore(state => state.tickRest);
@@ -985,8 +985,6 @@ export default function ActiveWorkoutSheet() {
     if (!restEndsAt && previousRestEndsAt) return;
 
     async function startNotification() {
-      await setupWorkoutChannel();
-      await notifee.requestPermission();
       const initial = Math.floor((Date.now() - startedAt!) / 1000);
       const restRemaining =
         restEndsAt && restEndsAt > Date.now()
@@ -1002,25 +1000,6 @@ export default function ActiveWorkoutSheet() {
   useEffect(() => {
     const unsub = notifee.onForegroundEvent(({ type, detail }) => {
       if (type === EventType.PRESS) openWorkoutSheet();
-      if (
-        type === EventType.DISMISSED &&
-        detail.notification?.id === WORKOUT_NOTIFICATION_ID
-      ) {
-        setTimeout(() => {
-          const session = useSessionStore.getState();
-          if (!session.activeWorkoutId || !session.startedAt) return;
-          const restRemaining =
-            session.restEndsAt && session.restEndsAt > Date.now()
-              ? Math.ceil((session.restEndsAt - Date.now()) / 1000)
-              : 0;
-          showWorkoutNotification(
-            Math.floor((Date.now() - session.startedAt) / 1000),
-            restRemaining,
-            session.startedAt,
-            { restEndsAt: session.restEndsAt },
-          ).catch(console.error);
-        }, 750);
-      }
       if (
         type === EventType.ACTION_PRESS &&
         detail.pressAction?.id === 'skip_rest'
@@ -1168,6 +1147,15 @@ export default function ActiveWorkoutSheet() {
     pullToCloseDistance,
     setDraggingExerciseId,
   ]);
+
+  useEffect(() => {
+    if (!isWorkoutSheetOpen) return;
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      handleCloseSheet();
+      return true;
+    });
+    return () => sub.remove();
+  }, [handleCloseSheet, isWorkoutSheetOpen]);
 
   function handlePickerOpen() {
     dismissSetKeyboard();
@@ -1347,6 +1335,17 @@ export default function ActiveWorkoutSheet() {
     const weightUnit = exerciseWeightUnitById[weId] ?? 'kg';
     const nextValue = field === 'reps' ? sanitizeRepsInput(value) : value;
     const errorKey = getFieldErrorKey(weId, setId, field);
+    const currentSet = localSets[weId]?.find(s => s.id === setId);
+    const nextSet = currentSet
+      ? field === 'weight'
+        ? {
+            ...currentSet,
+            weightInput: nextValue,
+            weightInputUnit: weightUnit,
+            weightKg: toKgInput(nextValue, weightUnit),
+          }
+        : { ...currentSet, reps: nextValue }
+      : null;
     setLocalSets(prev => ({
       ...prev,
       [weId]: (prev[weId] ?? []).map(s =>
@@ -1362,6 +1361,25 @@ export default function ActiveWorkoutSheet() {
           : { ...s, reps: nextValue },
       ),
     }));
+    if (nextSet?.completed && nextSet.persistedSetId) {
+      const weightKg = parseWeightInput(nextSet.weightKg);
+      const reps = parseRepsInput(nextSet.reps);
+      if (weightKg !== null && weightKg > 0 && reps > 0) {
+        updateSet(weId, nextSet.persistedSetId, {
+          weight: weightKg,
+          weightUnit: nextSet.weightInputUnit,
+          reps,
+        });
+        updateCompletedSetInWorkout({
+          setId: nextSet.persistedSetId,
+          weightKg,
+          weightUnit: nextSet.weightInputUnit,
+          reps,
+        }).catch(e => {
+          console.error('Could not update completed set', e);
+        });
+      }
+    }
     setValidationErrors(prev => {
       if (!prev[errorKey]) return prev;
       const isValid =
@@ -1493,14 +1511,6 @@ export default function ActiveWorkoutSheet() {
       restDoneNotifiedRef.current = false;
       setRestSetKey(getRestSetKey(weId, setId));
       startRest(restSeconds);
-      showWorkoutNotification(
-        getElapsedSeconds(startedAt),
-        restSeconds,
-        startedAt,
-        {
-          restEndsAt: useSessionStore.getState().restEndsAt,
-        },
-      ).catch(console.error);
     } catch (e) {
       console.error('Could not complete set', e);
       showErrorDialog('Could not save this set.');
@@ -1622,14 +1632,8 @@ export default function ActiveWorkoutSheet() {
 
   return (
     <>
-      {activeWorkoutId ? (
-        <Modal
-          visible={isWorkoutSheetOpen}
-          animationType="slide"
-          onRequestClose={handleCloseSheet}
-          statusBarTranslucent
-          navigationBarTranslucent
-        >
+      {activeWorkoutId && isWorkoutSheetOpen ? (
+        <View style={styles.sheetOverlay}>
           <GestureHandlerRootView style={styles.gestureRoot}>
             <View style={[styles.root, { paddingTop: topSafeInset }]}>
               {/* Fixed header */}
@@ -1915,11 +1919,11 @@ export default function ActiveWorkoutSheet() {
                                         color={theme.colors.accent}
                                       />
                                       <Text style={styles.restTimerText}>
-                                        Rest timer started -{' '}
-                                        <RestTimerCountdownText
-                                          style={styles.restTimerText}
-                                        />
+                                        Rest timer started
                                       </Text>
+                                      <RestTimerCountdownText
+                                        style={styles.restTimerCountdownText}
+                                      />
                                       <TouchableOpacity
                                         style={styles.skipRestButton}
                                         onPress={skipRestTimer}
@@ -2129,7 +2133,7 @@ export default function ActiveWorkoutSheet() {
               ) : null}
             </View>
           </GestureHandlerRootView>
-        </Modal>
+        </View>
       ) : null}
 
       {activeWorkoutId ? (
@@ -2558,9 +2562,19 @@ function SortableActiveWorkoutExerciseRow({
 }
 
 const stylesheet = createStyleSheet(theme => ({
+  sheetOverlay: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    zIndex: 1000,
+    elevation: 1000,
+    backgroundColor: theme.colors.bg,
+  },
   gestureRoot: {
     flex: 1,
-    backgroundColor: 'transparent',
+    backgroundColor: theme.colors.bg,
   },
   root: {
     flex: 1,
@@ -2813,6 +2827,13 @@ const stylesheet = createStyleSheet(theme => ({
     color: theme.colors.accent,
     fontSize: theme.fontSize.sm,
     fontFamily: theme.fontFamily.semiBold,
+  },
+  restTimerCountdownText: {
+    minWidth: 42,
+    color: theme.colors.accent,
+    fontSize: theme.fontSize.sm,
+    fontFamily: theme.fontFamily.bold,
+    textAlign: 'right',
   },
   skipRestButton: {
     minHeight: 26,

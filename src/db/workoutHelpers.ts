@@ -178,6 +178,7 @@ export async function updateCompletedWorkout(params: {
   workoutId: string
   name: string
   startedAt: number
+  endedAt?: number
   sets: CompletedWorkoutSetUpdate[]
 }): Promise<void> {
   await ensureTable()
@@ -205,7 +206,12 @@ export async function updateCompletedWorkout(params: {
     ? Math.trunc(params.startedAt)
     : workout.startedAt
   const delta = startedAt - workout.startedAt
-  const endedAt = workout.endedAt + delta
+  const endedAt = typeof params.endedAt === 'number' && Number.isFinite(params.endedAt)
+    ? Math.trunc(params.endedAt)
+    : workout.endedAt + delta
+  if (endedAt <= startedAt) {
+    throw new Error('Workout duration must be greater than zero')
+  }
   const trimmedName = params.name.trim()
 
   await db
@@ -2085,6 +2091,27 @@ export async function addCompletedSetToWorkout(params: {
 export async function deleteCompletedSet(setId: string): Promise<void> {
   await ensureExerciseTables()
   await db.delete(setsTable).where(eq(setsTable.id, setId))
+}
+
+export async function updateCompletedSetInWorkout(params: {
+  setId: string
+  weightKg: number
+  reps: number
+  weightUnit?: string
+}): Promise<void> {
+  await ensureExerciseTables()
+  const weightKg = Number.isFinite(params.weightKg) ? params.weightKg : 0
+  const weightUnit = params.weightUnit === 'lb' ? 'lb' : 'kg'
+  const reps = Number.isFinite(params.reps) ? Math.max(0, Math.trunc(params.reps)) : 0
+  await db
+    .update(setsTable)
+    .set({
+      weight: weightKg,
+      weightUnit,
+      reps,
+      volume: weightKg * reps,
+    })
+    .where(eq(setsTable.id, params.setId))
 }
 
 export async function getLatestOpenWorkoutId(): Promise<string | null> {

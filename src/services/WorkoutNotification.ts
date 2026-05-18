@@ -11,6 +11,8 @@ export const WORKOUT_REST_DONE_CHANNEL_ID = 'workout_rest_done'
 const LEGACY_WORKOUT_REST_DONE_NOTIFICATION_ID = 'workout_rest_done_alert'
 const LEGACY_REST_DONE_NOTIFICATION_ID = 'rest_done'
 const REST_COUNTDOWN_DISPLAY_GRACE_MS = 900
+let legacyNotificationArtifactsCleared = false
+let lastWorkoutNotificationKey: string | null = null
 
 type WorkoutNotificationOptions = {
   restEndsAt?: number | null
@@ -103,31 +105,55 @@ export async function showWorkoutNotification(
   options: WorkoutNotificationOptions = {},
 ) {
   await setupWorkoutChannel()
-  await notifee.requestPermission().catch(() => {})
-  await notifee.cancelNotification(LEGACY_REST_DONE_NOTIFICATION_ID).catch(() => {})
-  await notifee.cancelNotification(LEGACY_WORKOUT_REST_DONE_NOTIFICATION_ID).catch(() => {})
-  await cancelRestDoneTrigger()
+  await clearLegacyNotificationArtifacts()
 
   const restEndsAt = options.restEndsAt ??
     (restSecondsRemaining > 0 ? Date.now() + restSecondsRemaining * 1000 : null)
 
-  await notifee.displayNotification(
-    buildWorkoutNotification(elapsedSeconds, restSecondsRemaining, startedAt, {
+  const notification = buildWorkoutNotification(
+    elapsedSeconds,
+    restSecondsRemaining,
+    startedAt,
+    {
       ...options,
       restEndsAt,
       asForegroundService: true,
-    }),
+    },
   )
+  const notificationKey = [
+    notification.data?.event,
+    notification.android?.channelId,
+    notification.android?.timestamp,
+  ].join('|')
+
+  if (notificationKey === lastWorkoutNotificationKey) return
+
+  await notifee.displayNotification(notification)
+    .then(() => {
+      lastWorkoutNotificationKey = notificationKey
+    })
+    .catch(() => {})
+}
+
+async function clearLegacyNotificationArtifacts() {
+  if (legacyNotificationArtifactsCleared) return
+  legacyNotificationArtifactsCleared = true
+  await Promise.all([
+    notifee.cancelNotification(LEGACY_REST_DONE_NOTIFICATION_ID).catch(() => {}),
+    notifee.cancelNotification(LEGACY_WORKOUT_REST_DONE_NOTIFICATION_ID).catch(() => {}),
+    cancelRestDoneTrigger(),
+  ])
 }
 
 export async function cancelRestDoneTrigger() {
   await Promise.all([
-    notifee.cancelTriggerNotification(WORKOUT_NOTIFICATION_ID).catch(() => {}),
     notifee.cancelTriggerNotification(LEGACY_WORKOUT_REST_DONE_NOTIFICATION_ID).catch(() => {}),
   ])
 }
 
 export async function cancelWorkoutNotification() {
+  legacyNotificationArtifactsCleared = false
+  lastWorkoutNotificationKey = null
   await cancelRestDoneTrigger()
   await Promise.all([
     notifee.stopForegroundService().catch(() => {}),

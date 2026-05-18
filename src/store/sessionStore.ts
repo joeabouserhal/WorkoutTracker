@@ -58,6 +58,11 @@ interface SessionState {
   reorderExercises: (workoutExerciseIds: string[]) => void
   updateExerciseWeightUnit: (workoutExerciseId: string, weightUnit: string) => void
   addSet: (workoutExerciseId: string, set: SetEntry) => void
+  updateSet: (
+    workoutExerciseId: string,
+    setId: string,
+    updates: Pick<SetEntry, 'weight' | 'weightUnit' | 'reps'>,
+  ) => void
   removeSet: (workoutExerciseId: string, setId: string) => void
   startRest: (seconds: number) => void
   tickRest: () => void
@@ -66,7 +71,7 @@ interface SessionState {
   adjustRest: (delta: number) => void
 }
 
-export const useSessionStore = create<SessionState>()((set) => ({
+export const useSessionStore = create<SessionState>()((set, get) => ({
   activeWorkoutId: null,
   startedAt: null,
   exercises: [],
@@ -201,6 +206,20 @@ export const useSessionStore = create<SessionState>()((set) => ({
       ),
     })),
 
+  updateSet: (workoutExerciseId, setId, updates) =>
+    set((state) => ({
+      exercises: state.exercises.map((ex) =>
+        ex.workoutExerciseId === workoutExerciseId
+          ? {
+              ...ex,
+              sets: ex.sets.map((setEntry) =>
+                setEntry.id === setId ? { ...setEntry, ...updates } : setEntry,
+              ),
+            }
+          : ex,
+      ),
+    })),
+
   removeSet: (workoutExerciseId, setId) =>
     set((state) => ({
       exercises: state.exercises.map((ex) =>
@@ -217,19 +236,27 @@ export const useSessionStore = create<SessionState>()((set) => ({
     set({ isResting: true, restSecondsRemaining: safeSeconds, restEndsAt })
   },
 
-  tickRest: () =>
-    set((state) => {
-      const restEndsAt = state.restEndsAt
-      const next = restEndsAt
-        ? Math.ceil((restEndsAt - Date.now()) / 1000)
-        : state.restSecondsRemaining - 1
+  tickRest: () => {
+    const state = get()
+    if (!state.isResting) return
+
+    if (state.restEndsAt) {
+      const next = Math.ceil((state.restEndsAt - Date.now()) / 1000)
       if (next <= 0) {
         removeKey(MMKV_REST_ENDS_AT)
+        set({ isResting: false, restSecondsRemaining: 0, restEndsAt: null })
       }
-      return next <= 0
-        ? { isResting: false, restSecondsRemaining: 0, restEndsAt: null }
-        : { restSecondsRemaining: next }
-    }),
+      return
+    }
+
+    const next = state.restSecondsRemaining - 1
+    if (next <= 0) {
+      removeKey(MMKV_REST_ENDS_AT)
+      set({ isResting: false, restSecondsRemaining: 0, restEndsAt: null })
+      return
+    }
+    set({ restSecondsRemaining: next })
+  },
 
   clearRest: () => {
     removeKey(MMKV_REST_ENDS_AT)
@@ -241,7 +268,10 @@ export const useSessionStore = create<SessionState>()((set) => ({
 
   adjustRest: (delta) =>
     set((state) => {
-      const restSecondsRemaining = Math.max(5, state.restSecondsRemaining + delta)
+      const currentRestSeconds = state.restEndsAt
+        ? Math.max(0, Math.ceil((state.restEndsAt - Date.now()) / 1000))
+        : state.restSecondsRemaining
+      const restSecondsRemaining = Math.max(5, currentRestSeconds + delta)
       const restEndsAt = Date.now() + restSecondsRemaining * 1000
       setString(MMKV_REST_ENDS_AT, restEndsAt.toString())
       return { restSecondsRemaining, restEndsAt }

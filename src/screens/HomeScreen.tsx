@@ -6,9 +6,13 @@ import React, {
   useState,
 } from 'react';
 import {
+  InteractionManager,
+  LayoutAnimation,
+  Platform,
   ScrollView,
   Text,
   TouchableOpacity,
+  UIManager,
   View,
 } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
@@ -22,7 +26,6 @@ import {
 import { Canvas, Group, Path } from '@shopify/react-native-skia';
 import Reanimated, {
   Easing as ReanimatedEasing,
-  runOnJS,
   useAnimatedStyle,
   useSharedValue,
   withTiming,
@@ -38,6 +41,7 @@ import {
 import { getProfile } from '@/db/profileHelpers';
 import {
   createWorkout,
+  createWorkoutId,
   getFavoriteWorkoutTemplates,
   getMuscleGroupFatigue,
   getRecentCompletedWorkouts,
@@ -205,10 +209,28 @@ const BACK_BODY_MUSCLES = BACK_MUSCLES.filter(muscle =>
   Object.prototype.hasOwnProperty.call(BODY_MUSCLE_GROUP_BY_ID, muscle.id),
 );
 
-const FATIGUE_COLLAPSED_HEIGHT = 48;
-const FATIGUE_EXPANDED_MAX_HEIGHT = 540;
-const FATIGUE_EXPAND_MS = 210;
-const FATIGUE_COLLAPSE_MS = 155;
+const BODY_CARD_ANIMATION_MS = 180;
+
+if (Platform.OS === 'android') {
+  UIManager.setLayoutAnimationEnabledExperimental?.(true);
+}
+
+function animateBodyCardLayout() {
+  LayoutAnimation.configureNext({
+    duration: BODY_CARD_ANIMATION_MS,
+    create: {
+      type: LayoutAnimation.Types.easeInEaseOut,
+      property: LayoutAnimation.Properties.opacity,
+    },
+    update: {
+      type: LayoutAnimation.Types.easeInEaseOut,
+    },
+    delete: {
+      type: LayoutAnimation.Types.easeInEaseOut,
+      property: LayoutAnimation.Properties.opacity,
+    },
+  });
+}
 
 export default function HomeScreen() {
   const { styles, theme } = useStyles(stylesheet);
@@ -242,10 +264,14 @@ export default function HomeScreen() {
   const [dialog, setDialog] = useState<DialogState | null>(null);
   const { showHeaderFade, handleHeaderScroll } = useHeaderFade();
   const startWorkout = useSessionStore(s => s.startWorkout);
+  const endWorkout = useSessionStore(s => s.endWorkout);
   const activeWorkoutId = useSessionStore(s => s.activeWorkoutId);
   const previousActiveWorkoutIdRef = useRef<string | null>(activeWorkoutId);
+  const homeLoadRequestRef = useRef(0);
 
   const loadHome = useCallback(async (showLoading = true) => {
+    const requestId = homeLoadRequestRef.current + 1;
+    homeLoadRequestRef.current = requestId;
     if (showLoading) setLoading(true);
     try {
       const recoveryHours = getDefaultMuscleRecoveryHours();
@@ -257,6 +283,7 @@ export default function HomeScreen() {
         getMuscleGroupFatigue(recoveryHours),
         getWorkoutTemplates(),
       ]);
+      if (homeLoadRequestRef.current !== requestId) return;
       setName(profile?.name ?? '');
       setRecentWorkouts(workouts);
       setFavoriteTemplates(templates);
@@ -270,26 +297,31 @@ export default function HomeScreen() {
       setWorkoutPreviews({});
       setPreviewLoading({});
     } catch (e) {
+      if (homeLoadRequestRef.current !== requestId) return;
       console.error('Failed to load home screen', e);
       setRecentWorkouts([]);
       setFavoriteTemplates([]);
       setMuscleFatigue([]);
       setTodayScheduledTemplate(null);
     } finally {
-      if (showLoading) setLoading(false);
+      if (showLoading && homeLoadRequestRef.current === requestId) {
+        setLoading(false);
+      }
     }
   }, []);
 
   useFocusEffect(
     useCallback(() => {
       let isActive = true;
-
-      loadHome().finally(() => {
+      const task = InteractionManager.runAfterInteractions(() => {
         if (!isActive) return;
+
+        loadHome().catch(console.error);
       });
 
       return () => {
         isActive = false;
+        task.cancel();
       };
     }, [loadHome]),
   );
@@ -303,20 +335,23 @@ export default function HomeScreen() {
     }
   }, [activeWorkoutId, loadHome]);
 
-  async function handleStartWorkout() {
+  function handleStartWorkout() {
     if (activeWorkoutId) return;
 
-    try {
-      const workoutId = await createWorkout();
-      startWorkout(workoutId);
-    } catch (e) {
+    const workoutId = createWorkoutId();
+    const startedAt = Date.now();
+    startWorkout(workoutId, startedAt);
+    createWorkout({ id: workoutId, startedAt }).catch(e => {
+      if (useSessionStore.getState().activeWorkoutId === workoutId) {
+        endWorkout();
+      }
       setDialog({
         title: 'Could Not Start Workout',
         message: 'Could not start workout.',
         actions: [{ label: 'OK', variant: 'primary', onPress: () => setDialog(null) }],
       });
       console.error(e);
-    }
+    });
   }
 
   function handleTemplatesPress() {
@@ -714,7 +749,6 @@ function MuscleRecoveryCard({
 }) {
   const { styles, theme } = useStyles(stylesheet);
   const [expanded, setExpanded] = useState(false);
-  const [renderExpandedCard, setRenderExpandedCard] = useState(false);
   const cardProgress = useSharedValue(0);
   const fatigueByName = useMemo(
     () => Object.fromEntries(fatigue.map(group => [group.name, group])),
@@ -742,12 +776,13 @@ function MuscleRecoveryCard({
     if (fatiguedGroups.length === 0) return 'fully recovered';
     return fatiguedGroups.map(group => group.name).join(', ');
   }, [fatiguedGroups, loading]);
-  const fatigueFrameStyle = useAnimatedStyle(() => ({
-    maxHeight:
-      FATIGUE_COLLAPSED_HEIGHT +
-      (FATIGUE_EXPANDED_MAX_HEIGHT - FATIGUE_COLLAPSED_HEIGHT) *
-        cardProgress.value,
-  }));
+  useEffect(() => {
+    cardProgress.value = withTiming(expanded ? 1 : 0, {
+      duration: BODY_CARD_ANIMATION_MS,
+      easing: ReanimatedEasing.out(ReanimatedEasing.cubic),
+    });
+  }, [cardProgress, expanded]);
+
   const fatigueContentStyle = useAnimatedStyle(() => ({
     opacity: cardProgress.value,
     transform: [
@@ -759,30 +794,22 @@ function MuscleRecoveryCard({
       },
     ],
   }));
+  const fatigueChevronStyle = useAnimatedStyle(() => ({
+    transform: [
+      {
+        rotate: `${cardProgress.value * 180}deg`,
+      },
+    ],
+  }));
 
   function expandCard() {
-    setRenderExpandedCard(true);
+    animateBodyCardLayout();
     setExpanded(true);
-    cardProgress.value = withTiming(1, {
-      duration: FATIGUE_EXPAND_MS,
-      easing: ReanimatedEasing.out(ReanimatedEasing.cubic),
-    });
   }
 
   function collapseCard() {
+    animateBodyCardLayout();
     setExpanded(false);
-    cardProgress.value = withTiming(
-      0,
-      {
-        duration: FATIGUE_COLLAPSE_MS,
-        easing: ReanimatedEasing.out(ReanimatedEasing.quad),
-      },
-      finished => {
-        if (finished) {
-          runOnJS(setRenderExpandedCard)(false);
-        }
-      },
-    );
   }
 
   function getMuscleColors(names: string | string[]) {
@@ -818,7 +845,7 @@ function MuscleRecoveryCard({
     };
   }
 
-  if (!renderExpandedCard) {
+  if (!expanded) {
     return (
       <View style={styles.fatigueAnimationFrame}>
         <TouchableOpacity
@@ -874,7 +901,7 @@ function MuscleRecoveryCard({
   }
 
   return (
-    <Reanimated.View style={[styles.fatigueAnimationFrame, fatigueFrameStyle]}>
+    <View style={styles.fatigueAnimationFrame}>
       <View style={[styles.fatigueCard, styles.fatigueCardExpanded]}>
         <TouchableOpacity
           style={styles.fatigueHeader}
@@ -909,11 +936,13 @@ function MuscleRecoveryCard({
             </View>
           ) : null}
           <View style={styles.fatigueChevronButton}>
-            <MaterialCommunityIcons
-              name={expanded ? 'chevron-up' : 'chevron-down'}
-              size={17}
-              color={theme.colors.textMuted}
-            />
+            <Reanimated.View style={fatigueChevronStyle}>
+              <MaterialCommunityIcons
+                name="chevron-down"
+                size={17}
+                color={theme.colors.textMuted}
+              />
+            </Reanimated.View>
           </View>
         </TouchableOpacity>
 
@@ -980,7 +1009,7 @@ function MuscleRecoveryCard({
           </View>
         </Reanimated.View>
       </View>
-    </Reanimated.View>
+    </View>
   );
 }
 

@@ -121,7 +121,16 @@ export default function TemplateDetailScreen({ navigation, route }: Props) {
 
   useFocusEffect(
     useCallback(() => {
-      loadTemplate().catch(console.error);
+      let isActive = true;
+      const task = InteractionManager.runAfterInteractions(() => {
+        if (!isActive) return;
+        loadTemplate().catch(console.error);
+      });
+
+      return () => {
+        isActive = false;
+        task.cancel();
+      };
     }, [loadTemplate]),
   );
 
@@ -148,15 +157,24 @@ export default function TemplateDetailScreen({ navigation, route }: Props) {
       setMessage('Template name is required.');
       return;
     }
+    const previousTemplate = template;
+    if (template) {
+      setTemplate({ ...template, name: trimmed });
+    }
+    setDraftName(trimmed);
+    setMessage('');
+    setEditMode(false);
+    setEditSnapshot(null);
+    navigation.setParams({ initialEdit: false });
     try {
       await updateWorkoutTemplateName(templateId, trimmed);
-      setMessage('');
-      await loadTemplate();
-      setEditMode(false);
-      setEditSnapshot(null);
-      navigation.setParams({ initialEdit: false });
     } catch (e) {
       console.error('Could not save template', e);
+      if (previousTemplate) {
+        setTemplate(previousTemplate);
+        setDraftName(previousTemplate.name);
+      }
+      setEditMode(true);
       setMessage('Could not save this template.');
     }
   }
@@ -194,12 +212,15 @@ export default function TemplateDetailScreen({ navigation, route }: Props) {
 
   async function toggleFavorite() {
     if (!template) return;
+    const previousTemplate = template;
+    const nextFavorite = template.isFavorite ? 0 : 1;
+    setTemplate({ ...template, isFavorite: nextFavorite });
+    setMessage('');
     try {
-      await setWorkoutTemplateFavorite(template.id, !template.isFavorite);
-      setMessage('');
-      await loadTemplate();
+      await setWorkoutTemplateFavorite(template.id, Boolean(nextFavorite));
     } catch (e) {
       console.error('Could not update favorite template', e);
+      setTemplate(previousTemplate);
       setMessage('You can favorite up to 6 templates.');
     }
   }

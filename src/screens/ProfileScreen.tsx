@@ -1,10 +1,12 @@
-import React, { useEffect, useState } from 'react'
+import React, { useCallback, useRef, useState } from 'react'
 import {
+  InteractionManager,
   ScrollView,
   Text,
   TouchableOpacity,
   View,
 } from 'react-native'
+import { useFocusEffect } from '@react-navigation/native'
 import type { NativeStackScreenProps } from '@react-navigation/native-stack'
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons'
 import { createStyleSheet, useStyles } from 'react-native-unistyles'
@@ -33,21 +35,14 @@ export default function ProfileScreen({ navigation }: Props) {
   } | null>(null)
   const [loading, setLoading] = useState(true)
   const [dialog, setDialog] = useState<DialogState | null>(null)
+  const loadRequestRef = useRef(0)
 
-  useEffect(() => {
-    loadProfile()
-  }, [])
-
-  useEffect(() => {
-    const unsubscribe = navigation.addListener('focus', () => {
-      loadProfile()
-    })
-    return unsubscribe
-  }, [navigation])
-
-  async function loadProfile() {
+  const loadProfile = useCallback(async () => {
+    const requestId = loadRequestRef.current + 1
+    loadRequestRef.current = requestId
     try {
       const p = await getProfile()
+      if (loadRequestRef.current !== requestId) return
       setProfile(p ? {
         name: p.name,
         height: p.height,
@@ -57,11 +52,30 @@ export default function ProfileScreen({ navigation }: Props) {
         avatarIcon: p.avatarIcon || null,
       } : null)
     } catch (e) {
+      if (loadRequestRef.current !== requestId) return
       console.error('Failed to load profile', e)
     } finally {
-      setLoading(false)
+      if (loadRequestRef.current === requestId) {
+        setLoading(false)
+      }
     }
-  }
+  }, [])
+
+  useFocusEffect(
+    useCallback(() => {
+      let isActive = true
+      const task = InteractionManager.runAfterInteractions(() => {
+        if (!isActive) return
+        loadProfile().catch(console.error)
+      })
+
+      return () => {
+        isActive = false
+        task.cancel()
+        loadRequestRef.current += 1
+      }
+    }, [loadProfile]),
+  )
 
   function getInitials(name: string | null | undefined) {
     if (!name) return '--'

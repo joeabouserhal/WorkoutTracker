@@ -45,7 +45,13 @@ function matchesQuery(name: string, query: string) {
 interface Props {
   visible: boolean
   onClose: () => void
-  onPick?: (params: { exerciseTypeId: string; methodId: string }) => void | Promise<void>
+  onPick?: (params: {
+    exerciseTypeId: string
+    exerciseTypeName: string
+    methodLocked?: number
+    methodId: string
+    methodName: string
+  }) => void | Promise<void>
 }
 
 export default function ExercisePickerModal({ visible, onClose, onPick }: Props) {
@@ -162,14 +168,13 @@ export default function ExercisePickerModal({ visible, onClose, onPick }: Props)
   async function handleSelectSection(section: SectionRow) {
     if (loading || adding) return
     setSelectedSection(section)
+    setStep('exerciseTypes')
     setLoading(true)
     try {
       const types = await getExerciseTypesBySection(section.id)
       setExerciseTypeList(types)
-      setStep('exerciseTypes')
     } catch {
       setExerciseTypeList([])
-      setStep('exerciseTypes')
     } finally {
       setLoading(false)
     }
@@ -189,13 +194,12 @@ export default function ExercisePickerModal({ visible, onClose, onPick }: Props)
       return
     }
     setLoading(true)
+    setStep('methods')
     try {
       const mList = await getMethodsForExerciseType(et.id)
       setMethodList(mList)
-      setStep('methods')
     } catch {
       setMethodList([])
-      setStep('methods')
     } finally {
       setLoading(false)
     }
@@ -300,21 +304,21 @@ export default function ExercisePickerModal({ visible, onClose, onPick }: Props)
         )
         return
       }
-      setAdding(true)
-      setLoading(true)
       try {
-        await onPick({
+        const result = onPick({
           exerciseTypeId: et.id,
+          exerciseTypeName: et.name,
+          methodLocked: et.methodLocked,
           methodId,
+          methodName,
         })
         resetStep()
         onClose()
+        Promise.resolve(result).catch((e) => {
+          console.error('Could not pick exercise', e)
+        })
       } catch (e) {
         console.error('Could not pick exercise', e)
-        showPickerDialog('Could Not Add Exercise', 'Could not add exercise.', handleClose)
-      } finally {
-        setAdding(false)
-        setLoading(false)
       }
       return
     }

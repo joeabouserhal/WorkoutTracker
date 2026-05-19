@@ -20,7 +20,38 @@ import {
   workouts as workoutsTable,
 } from './schema'
 
+let ensureTablePromise: Promise<void> | null = null
+let ensureExerciseTablesPromise: Promise<void> | null = null
+let ensureLibraryTablesPromise: Promise<void> | null = null
+let ensureTemplateTablesPromise: Promise<void> | null = null
+const pendingWorkoutCreates = new Map<string, Promise<string>>()
+const pendingWorkoutExerciseCreates = new Map<string, Promise<string>>()
+const pendingCompletedSetCreates = new Map<string, Promise<string>>()
+
+export function createWorkoutId() {
+  return `workout_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
+}
+
+export function createWorkoutExerciseId(index?: number) {
+  const indexPart = typeof index === 'number' ? `_${index}` : ''
+  return `we_${Date.now()}${indexPart}_${Math.random().toString(36).slice(2, 8)}`
+}
+
+export function createSetId() {
+  return `set_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
+}
+
 async function ensureTable() {
+  if (!ensureTablePromise) {
+    ensureTablePromise = ensureTableUncached().catch((error) => {
+      ensureTablePromise = null
+      throw error
+    })
+  }
+  return ensureTablePromise
+}
+
+async function ensureTableUncached() {
   await db.$client.execute(`
     CREATE TABLE IF NOT EXISTS workouts (
       id TEXT PRIMARY KEY,
@@ -38,9 +69,21 @@ async function ensureTable() {
   if (!hasNameColumn) {
     await db.$client.execute('ALTER TABLE workouts ADD COLUMN name TEXT')
   }
+  await db.$client.execute('CREATE INDEX IF NOT EXISTS idx_workouts_started_at ON workouts(started_at)')
+  await db.$client.execute('CREATE INDEX IF NOT EXISTS idx_workouts_ended_at ON workouts(ended_at)')
 }
 
 async function ensureExerciseTables() {
+  if (!ensureExerciseTablesPromise) {
+    ensureExerciseTablesPromise = ensureExerciseTablesUncached().catch((error) => {
+      ensureExerciseTablesPromise = null
+      throw error
+    })
+  }
+  return ensureExerciseTablesPromise
+}
+
+async function ensureExerciseTablesUncached() {
   await db.$client.execute(`CREATE TABLE IF NOT EXISTS exercises (
     id TEXT PRIMARY KEY, exercise_type_id TEXT NOT NULL, method_id TEXT NOT NULL,
     default_unit TEXT NOT NULL DEFAULT 'kg'
@@ -56,9 +99,24 @@ async function ensureExerciseTables() {
     est_one_rm REAL, volume REAL,
     completed_at INTEGER NOT NULL
   )`)
+  await db.$client.execute('CREATE INDEX IF NOT EXISTS idx_exercises_type_method ON exercises(exercise_type_id, method_id)')
+  await db.$client.execute('CREATE INDEX IF NOT EXISTS idx_workout_exercises_workout_id ON workout_exercises(workout_id)')
+  await db.$client.execute('CREATE INDEX IF NOT EXISTS idx_workout_exercises_exercise_id ON workout_exercises(exercise_id)')
+  await db.$client.execute('CREATE INDEX IF NOT EXISTS idx_sets_workout_exercise_id ON sets(workout_exercise_id)')
+  await db.$client.execute('CREATE INDEX IF NOT EXISTS idx_sets_completed_at ON sets(completed_at)')
 }
 
 async function ensureLibraryTables() {
+  if (!ensureLibraryTablesPromise) {
+    ensureLibraryTablesPromise = ensureLibraryTablesUncached().catch((error) => {
+      ensureLibraryTablesPromise = null
+      throw error
+    })
+  }
+  return ensureLibraryTablesPromise
+}
+
+async function ensureLibraryTablesUncached() {
   await db.$client.execute(`CREATE TABLE IF NOT EXISTS sections (
     id TEXT PRIMARY KEY, name TEXT NOT NULL, is_custom INTEGER NOT NULL DEFAULT 0
   )`)
@@ -142,17 +200,35 @@ async function ensureLibraryTables() {
   if (!hasSubMuscleIds) {
     await db.$client.execute("ALTER TABLE exercise_types ADD COLUMN sub_muscle_ids TEXT NOT NULL DEFAULT '[]'")
   }
+  await db.$client.execute('CREATE INDEX IF NOT EXISTS idx_exercise_types_section_id ON exercise_types(section_id)')
+  await db.$client.execute('CREATE INDEX IF NOT EXISTS idx_methods_owner_exercise_type_id ON methods(owner_exercise_type_id)')
+  await db.$client.execute('CREATE INDEX IF NOT EXISTS idx_exclusions_exercise_method ON exercise_type_method_exclusions(exercise_type_id, method_id)')
 }
 
-export async function createWorkout(): Promise<string> {
-  await ensureTable()
-  const id = `workout_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
-  await db.insert(workoutsTable).values({
-    id,
-    name: 'Workout',
-    startedAt: Date.now(),
-  })
-  return id
+export async function createWorkout(params: {
+  id?: string
+  startedAt?: number
+  name?: string
+} = {}): Promise<string> {
+  const id = params.id ?? createWorkoutId()
+  const startedAt = Number.isFinite(params.startedAt) ? Math.trunc(params.startedAt!) : Date.now()
+  const name = params.name ?? 'Workout'
+  const createPromise = (async () => {
+    await ensureTable()
+    await db.insert(workoutsTable).values({
+      id,
+      name,
+      startedAt,
+    })
+    return id
+  })()
+
+  pendingWorkoutCreates.set(id, createPromise)
+  try {
+    return await createPromise
+  } finally {
+    pendingWorkoutCreates.delete(id)
+  }
 }
 
 export async function getWorkoutName(workoutId: string): Promise<string> {
@@ -1958,6 +2034,10 @@ async function assertCanAddExerciseToWorkout(params: {
   exerciseTypeId: string
   methodId: string
 }) {
+  const pendingWorkoutCreate = pendingWorkoutCreates.get(params.workoutId)
+  if (pendingWorkoutCreate) {
+    await pendingWorkoutCreate
+  }
   await ensureTable()
   await ensureLibraryTables()
 
@@ -2039,18 +2119,28 @@ export async function addExerciseToWorkout(params: {
   methodId: string
   weightUnit: string
   orderIndex: number
+  workoutExerciseId?: string
 }): Promise<string> {
-  await ensureExerciseTables()
-  await assertCanAddExerciseToWorkout(params)
-  const exercise = await getOrCreateExercise(params.exerciseTypeId, params.methodId)
-  const id = `we_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
-  await db.insert(workoutExercisesTable).values({
-    id,
-    workoutId: params.workoutId,
-    exerciseId: exercise.id,
-    orderIndex: params.orderIndex,
-  })
-  return id
+  const id = params.workoutExerciseId ?? createWorkoutExerciseId(params.orderIndex)
+  const createPromise = (async () => {
+    await ensureExerciseTables()
+    await assertCanAddExerciseToWorkout(params)
+    const exercise = await getOrCreateExercise(params.exerciseTypeId, params.methodId)
+    await db.insert(workoutExercisesTable).values({
+      id,
+      workoutId: params.workoutId,
+      exerciseId: exercise.id,
+      orderIndex: params.orderIndex,
+    })
+    return id
+  })()
+
+  pendingWorkoutExerciseCreates.set(id, createPromise)
+  try {
+    return await createPromise
+  } finally {
+    pendingWorkoutExerciseCreates.delete(id)
+  }
 }
 
 export async function addCompletedSetToWorkout(params: {
@@ -2059,36 +2149,58 @@ export async function addCompletedSetToWorkout(params: {
   reps: number
   weightUnit?: string
   setType?: string
+  setId?: string
+  completedAt?: number
 }): Promise<string> {
-  await ensureExerciseTables()
-  const id = `set_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
-  const weightKg = Number.isFinite(params.weightKg) ? params.weightKg : 0
-  const weightUnit = params.weightUnit === 'lb' ? 'lb' : 'kg'
-  const reps = Number.isFinite(params.reps) ? Math.max(0, Math.trunc(params.reps)) : 0
-  const volume = weightKg * reps
-  const exercise = (await db
-    .select({ id: workoutExercisesTable.id })
-    .from(workoutExercisesTable)
-    .where(eq(workoutExercisesTable.id, params.workoutExerciseId))
-    .limit(1))[0]
-  if (!exercise) {
-    throw new Error(`Unknown workout exercise: ${params.workoutExerciseId}`)
-  }
+  const id = params.setId ?? createSetId()
+  const createPromise = (async () => {
+    const pendingWorkoutExerciseCreate = pendingWorkoutExerciseCreates.get(params.workoutExerciseId)
+    if (pendingWorkoutExerciseCreate) {
+      await pendingWorkoutExerciseCreate
+    }
+    await ensureExerciseTables()
+    const weightKg = Number.isFinite(params.weightKg) ? params.weightKg : 0
+    const weightUnit = params.weightUnit === 'lb' ? 'lb' : 'kg'
+    const reps = Number.isFinite(params.reps) ? Math.max(0, Math.trunc(params.reps)) : 0
+    const completedAt = Number.isFinite(params.completedAt)
+      ? Math.trunc(params.completedAt!)
+      : Date.now()
+    const volume = weightKg * reps
+    const exercise = (await db
+      .select({ id: workoutExercisesTable.id })
+      .from(workoutExercisesTable)
+      .where(eq(workoutExercisesTable.id, params.workoutExerciseId))
+      .limit(1))[0]
+    if (!exercise) {
+      throw new Error(`Unknown workout exercise: ${params.workoutExerciseId}`)
+    }
 
-  await db.insert(setsTable).values({
-    id,
-    workoutExerciseId: params.workoutExerciseId,
-    setType: params.setType ?? 'working',
-    weight: weightKg,
-    weightUnit,
-    reps,
-    volume,
-    completedAt: Date.now(),
-  })
-  return id
+    await db.insert(setsTable).values({
+      id,
+      workoutExerciseId: params.workoutExerciseId,
+      setType: params.setType ?? 'working',
+      weight: weightKg,
+      weightUnit,
+      reps,
+      volume,
+      completedAt,
+    })
+    return id
+  })()
+
+  pendingCompletedSetCreates.set(id, createPromise)
+  try {
+    return await createPromise
+  } finally {
+    pendingCompletedSetCreates.delete(id)
+  }
 }
 
 export async function deleteCompletedSet(setId: string): Promise<void> {
+  const pendingCompletedSetCreate = pendingCompletedSetCreates.get(setId)
+  if (pendingCompletedSetCreate) {
+    await pendingCompletedSetCreate
+  }
   await ensureExerciseTables()
   await db.delete(setsTable).where(eq(setsTable.id, setId))
 }
@@ -2099,6 +2211,10 @@ export async function updateCompletedSetInWorkout(params: {
   reps: number
   weightUnit?: string
 }): Promise<void> {
+  const pendingCompletedSetCreate = pendingCompletedSetCreates.get(params.setId)
+  if (pendingCompletedSetCreate) {
+    await pendingCompletedSetCreate
+  }
   await ensureExerciseTables()
   const weightKg = Number.isFinite(params.weightKg) ? params.weightKg : 0
   const weightUnit = params.weightUnit === 'lb' ? 'lb' : 'kg'
@@ -2236,6 +2352,16 @@ export async function getActiveWorkoutSession(
 }
 
 async function ensureTemplateTables() {
+  if (!ensureTemplateTablesPromise) {
+    ensureTemplateTablesPromise = ensureTemplateTablesUncached().catch((error) => {
+      ensureTemplateTablesPromise = null
+      throw error
+    })
+  }
+  return ensureTemplateTablesPromise
+}
+
+async function ensureTemplateTablesUncached() {
   await ensureLibraryTables()
   await ensureExerciseTables()
   await db.$client.execute(`CREATE TABLE IF NOT EXISTS workout_templates (
@@ -2253,6 +2379,9 @@ async function ensureTemplateTables() {
     set_count INTEGER NOT NULL DEFAULT 3,
     order_index INTEGER NOT NULL DEFAULT 0
   )`)
+  await db.$client.execute('CREATE INDEX IF NOT EXISTS idx_workout_templates_favorite_updated ON workout_templates(is_favorite, updated_at)')
+  await db.$client.execute('CREATE INDEX IF NOT EXISTS idx_template_exercises_template_id ON workout_template_exercises(template_id)')
+  await db.$client.execute('CREATE INDEX IF NOT EXISTS idx_template_exercises_type_method ON workout_template_exercises(exercise_type_id, method_id)')
 }
 
 export type WorkoutTemplateSummary = {

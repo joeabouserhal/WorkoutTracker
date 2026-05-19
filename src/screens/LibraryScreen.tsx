@@ -167,6 +167,7 @@ export default function LibraryScreen() {
     setSelectedExerciseType(null)
     setLockedMethodName('')
     setShowRestoreDefaults(false)
+    setStep('exerciseTypes')
     setLoading(true)
     try {
       const [exercises, prSummaries] = await Promise.all([
@@ -176,12 +177,10 @@ export default function LibraryScreen() {
       setExerciseTypeList(exercises)
       setExercisePrSummaries(prSummaries)
       setMethodPrSummaries({})
-      setStep('exerciseTypes')
     } catch (e) {
       console.error('Could not load exercises', e)
       setExerciseTypeList([])
       setExercisePrSummaries({})
-      setStep('exerciseTypes')
     } finally {
       setLoading(false)
     }
@@ -189,6 +188,7 @@ export default function LibraryScreen() {
 
   async function handleSelectExerciseType(exerciseType: ExerciseTypeRow) {
     setSelectedExerciseType(exerciseType)
+    setStep('methods')
     setLoading(true)
     try {
       setShowRestoreDefaults(
@@ -206,10 +206,8 @@ export default function LibraryScreen() {
         setLockedMethodName('')
         setMethodList(methods)
       }
-      setStep('methods')
     } catch (e) {
       console.error('Could not load exercise methods', e)
-      setStep('methods')
     } finally {
       setLoading(false)
     }

@@ -55,6 +55,9 @@ import {
 } from '@/store/sessionStore';
 import {
   addCompletedSetToWorkout,
+  addExerciseToWorkout,
+  createSetId,
+  createWorkoutExerciseId,
   deleteCompletedSet,
   deleteWorkout,
   deleteWorkoutExercise,
@@ -431,6 +434,7 @@ export default function ActiveWorkoutSheet() {
   const [pickerVisible, setPickerVisible] = useState(false);
   const [localSets, setLocalSets] = useState<Record<string, LocalSet[]>>({});
   const [restSetKey, setRestSetKey] = useState<string | null>(null);
+  const restSetKeyRef = useRef<string | null>(null);
   const [workoutName, setWorkoutName] = useState('');
   const [dialog, setDialog] = useState<{
     title: string;
@@ -476,6 +480,7 @@ export default function ActiveWorkoutSheet() {
   const closeWorkoutSheet = useSessionStore(state => state.closeWorkoutSheet);
   const endWorkout = useSessionStore(state => state.endWorkout);
   const openWorkoutSheet = useSessionStore(state => state.openWorkoutSheet);
+  const addExercise = useSessionStore(state => state.addExercise);
   const removeExercise = useSessionStore(state => state.removeExercise);
   const reorderExercises = useSessionStore(state => state.reorderExercises);
   const updateExerciseWeightUnit = useSessionStore(
@@ -529,6 +534,10 @@ export default function ActiveWorkoutSheet() {
     localSetsRef.current = localSets;
   }, [localSets]);
 
+  useEffect(() => {
+    restSetKeyRef.current = restSetKey;
+  }, [restSetKey]);
+
   const maybeRunAutoBackup = useCallback(async () => {
     if (!getAutoBackupAfterWorkoutEnabled()) return;
 
@@ -545,13 +554,13 @@ export default function ActiveWorkoutSheet() {
     const completedWorkoutId = activeWorkoutId;
     await updateWorkoutName(completedWorkoutId, workoutName);
     await finishWorkout(completedWorkoutId);
-    await maybeRunAutoBackup();
     endWorkout();
-    await cancelWorkoutNotification();
     navigation.navigate('HomeTab', {
       screen: 'PostWorkout',
       params: { workoutId: completedWorkoutId },
     });
+    cancelWorkoutNotification().catch(console.error);
+    maybeRunAutoBackup().catch(console.error);
   }, [
     activeWorkoutId,
     endWorkout,
@@ -1167,6 +1176,45 @@ export default function ActiveWorkoutSheet() {
     if (activeWorkoutId) openWorkoutSheet();
   }
 
+  function handleExercisePicked(params: {
+    exerciseTypeId: string;
+    exerciseTypeName: string;
+    methodLocked?: number;
+    methodId: string;
+    methodName: string;
+  }) {
+    const workoutId = activeWorkoutId;
+    if (!workoutId) {
+      showErrorDialog('Start a workout before adding exercises.');
+      return;
+    }
+
+    const orderIndex = exercisesRef.current.length;
+    const workoutExerciseId = createWorkoutExerciseId(orderIndex);
+    addExercise({
+      workoutExerciseId,
+      exerciseTypeId: params.exerciseTypeId,
+      exerciseTypeName: params.exerciseTypeName,
+      methodLocked: params.methodLocked,
+      methodId: params.methodId,
+      methodName: params.methodName,
+      weightUnit: 'kg',
+    });
+
+    addExerciseToWorkout({
+      workoutId,
+      exerciseTypeId: params.exerciseTypeId,
+      methodId: params.methodId,
+      weightUnit: 'kg',
+      orderIndex,
+      workoutExerciseId,
+    }).catch(e => {
+      console.error('Could not add exercise', e);
+      removeExercise(workoutExerciseId);
+      showErrorDialog('Could not add this exercise.');
+    });
+  }
+
   const scrollHandler = useAnimatedScrollHandler(event => {
     scrollOffsetY.value = Math.max(0, event.contentOffset.y);
   });
@@ -1439,20 +1487,13 @@ export default function ActiveWorkoutSheet() {
     return fromKgInput(s.weightKg, weightUnit);
   }
 
-  async function toggleSetCompleted(weId: string, setId: string) {
+  function toggleSetCompleted(weId: string, setId: string) {
     dismissSetKeyboard();
     const currentSet = localSets[weId]?.find(s => s.id === setId);
     if (!currentSet) return;
 
     if (currentSet.completed) {
-      if (currentSet.persistedSetId) {
-        try {
-          await deleteCompletedSet(currentSet.persistedSetId);
-          removeSet(weId, currentSet.persistedSetId);
-        } catch (e) {
-          console.error('Could not delete completed set', e);
-        }
-      }
+      const persistedSetId = currentSet.persistedSetId;
 
       setLocalSets(prev => ({
         ...prev,
@@ -1462,6 +1503,9 @@ export default function ActiveWorkoutSheet() {
             : s,
         ),
       }));
+      if (persistedSetId) {
+        removeSet(weId, persistedSetId);
+      }
 
       if (restSetKey === getRestSetKey(weId, setId)) {
         clearRest();
@@ -1471,6 +1515,28 @@ export default function ActiveWorkoutSheet() {
           0,
           startedAt,
         ).catch(console.error);
+      }
+      if (persistedSetId) {
+        deleteCompletedSet(persistedSetId).catch(e => {
+          console.error('Could not delete completed set', e);
+          setLocalSets(prev => ({
+            ...prev,
+            [weId]: (prev[weId] ?? []).map(s =>
+              s.id === setId
+                ? { ...s, completed: true, persistedSetId }
+                : s,
+            ),
+          }));
+          addSet(weId, {
+            id: persistedSetId,
+            setType: 'working',
+            weight: parseWeightInput(currentSet.weightKg) ?? 0,
+            weightUnit: currentSet.weightInputUnit,
+            reps: parseRepsInput(currentSet.reps),
+            completedAt: Date.now(),
+          });
+          showErrorDialog('Could not update this set.');
+        });
       }
       return;
     }
@@ -1484,37 +1550,61 @@ export default function ActiveWorkoutSheet() {
       return;
     }
 
-    try {
-      const persistedSetId = await addCompletedSetToWorkout({
-        workoutExerciseId: weId,
-        weightKg: parseWeightInput(currentSet.weightKg) ?? 0,
-        weightUnit: currentSet.weightInputUnit,
-        reps: parseRepsInput(currentSet.reps),
-      });
-      addSet(weId, {
-        id: persistedSetId,
-        setType: 'working',
-        weight: parseWeightInput(currentSet.weightKg) ?? 0,
-        weightUnit: currentSet.weightInputUnit,
-        reps: parseRepsInput(currentSet.reps),
-        completedAt: Date.now(),
-      });
+    const persistedSetId = createSetId();
+    const completedAt = Date.now();
+    const weightKg = parseWeightInput(currentSet.weightKg) ?? 0;
+    const reps = parseRepsInput(currentSet.reps);
+    const setRestKey = getRestSetKey(weId, setId);
 
+    addSet(weId, {
+      id: persistedSetId,
+      setType: 'working',
+      weight: weightKg,
+      weightUnit: currentSet.weightInputUnit,
+      reps,
+      completedAt,
+    });
+    setLocalSets(prev => ({
+      ...prev,
+      [weId]: (prev[weId] ?? []).map(s =>
+        s.id === setId ? { ...s, completed: true, persistedSetId } : s,
+      ),
+    }));
+
+    const restSeconds = getDefaultRestSeconds();
+    restDoneNotifiedRef.current = false;
+    setRestSetKey(setRestKey);
+    startRest(restSeconds);
+
+    addCompletedSetToWorkout({
+      workoutExerciseId: weId,
+      weightKg,
+      weightUnit: currentSet.weightInputUnit,
+      reps,
+      setId: persistedSetId,
+      completedAt,
+    }).catch(e => {
+      console.error('Could not complete set', e);
+      removeSet(weId, persistedSetId);
       setLocalSets(prev => ({
         ...prev,
         [weId]: (prev[weId] ?? []).map(s =>
-          s.id === setId ? { ...s, completed: true, persistedSetId } : s,
+          s.id === setId
+            ? { ...s, completed: false, persistedSetId: undefined }
+            : s,
         ),
       }));
-
-      const restSeconds = getDefaultRestSeconds();
-      restDoneNotifiedRef.current = false;
-      setRestSetKey(getRestSetKey(weId, setId));
-      startRest(restSeconds);
-    } catch (e) {
-      console.error('Could not complete set', e);
+      if (restSetKeyRef.current === setRestKey) {
+        clearRest();
+        setRestSetKey(null);
+        showWorkoutNotification(
+          getElapsedSeconds(startedAtRef.current),
+          0,
+          startedAtRef.current,
+        ).catch(console.error);
+      }
       showErrorDialog('Could not save this set.');
-    }
+    });
   }
 
   async function handleDeleteExercise(weId: string) {
@@ -2140,6 +2230,7 @@ export default function ActiveWorkoutSheet() {
         <ExercisePickerModal
           visible={pickerVisible}
           onClose={handlePickerClose}
+          onPick={handleExercisePicked}
         />
       ) : null}
     </>

@@ -1,9 +1,13 @@
-import React, { useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useState } from 'react'
 import { getFocusedRouteNameFromRoute } from '@react-navigation/native'
 import { type LayoutChangeEvent, Text, TouchableOpacity, View } from 'react-native'
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs'
-import type { BottomTabBarProps } from '@react-navigation/bottom-tabs'
+import type {
+  BottomTabBarProps,
+  BottomTabNavigationOptions,
+} from '@react-navigation/bottom-tabs'
 import { createNativeStackNavigator } from '@react-navigation/native-stack'
+import type { NativeStackNavigationOptions } from '@react-navigation/native-stack'
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons'
 import { Gesture, GestureDetector } from 'react-native-gesture-handler'
 import Animated, {
@@ -61,6 +65,23 @@ const TAB_ICON_ANIMATION_MS = 80
 const TAB_RESET_ANIMATION_MS = 85
 const STACK_TRANSITION_MS = 125
 const FULL_SCREEN_ROUTES = new Set(['PostWorkout'])
+const STACK_SCREEN_OPTIONS: NativeStackNavigationOptions = {
+  headerShown: false,
+  animationDuration: STACK_TRANSITION_MS,
+  freezeOnBlur: true,
+}
+const TAB_SCREEN_OPTIONS: BottomTabNavigationOptions = {
+  headerShown: false,
+  lazy: true,
+  freezeOnBlur: true,
+  animation: 'shift',
+  transitionSpec: {
+    animation: 'timing',
+    config: {
+      duration: TAB_TRANSITION_MS,
+    },
+  },
+}
 export type ProfileStackParamList = {
   Profile: undefined
   EditProfile: undefined
@@ -77,10 +98,7 @@ const ProfileStack = createNativeStackNavigator<ProfileStackParamList>()
 function HomeStackScreen() {
   return (
     <HomeStack.Navigator
-      screenOptions={{
-        headerShown: false,
-        animationDuration: STACK_TRANSITION_MS,
-      }}
+      screenOptions={STACK_SCREEN_OPTIONS}
     >
       <HomeStack.Screen name="Home" component={HomeScreen} />
       <HomeStack.Screen name="Templates" component={TemplatesScreen} />
@@ -93,10 +111,7 @@ function HomeStackScreen() {
 function CalendarStackScreen() {
   return (
     <CalendarStack.Navigator
-      screenOptions={{
-        headerShown: false,
-        animationDuration: STACK_TRANSITION_MS,
-      }}
+      screenOptions={STACK_SCREEN_OPTIONS}
     >
       <CalendarStack.Screen name="Calendar" component={CalendarScreen} />
     </CalendarStack.Navigator>
@@ -106,10 +121,7 @@ function CalendarStackScreen() {
 function ProgressStackScreen() {
   return (
     <ProgressStack.Navigator
-      screenOptions={{
-        headerShown: false,
-        animationDuration: STACK_TRANSITION_MS,
-      }}
+      screenOptions={STACK_SCREEN_OPTIONS}
     >
       <ProgressStack.Screen name="Progress" component={ProgressScreen} />
       <ProgressStack.Screen
@@ -123,10 +135,7 @@ function ProgressStackScreen() {
 function LibraryStackScreen() {
   return (
     <LibraryStack.Navigator
-      screenOptions={{
-        headerShown: false,
-        animationDuration: STACK_TRANSITION_MS,
-      }}
+      screenOptions={STACK_SCREEN_OPTIONS}
     >
       <LibraryStack.Screen name="Library" component={LibraryScreen} />
     </LibraryStack.Navigator>
@@ -138,8 +147,7 @@ function ProfileStackScreen() {
   return (
     <ProfileStack.Navigator
       screenOptions={{
-        headerShown: false,
-        animationDuration: STACK_TRANSITION_MS,
+        ...STACK_SCREEN_OPTIONS,
         contentStyle: { backgroundColor: theme.colors.bg },
       }}
     >
@@ -317,7 +325,7 @@ function WorkoutMiniBar() {
   )
 }
 
-function TabBarItem({
+const TabBarItem = React.memo(function TabBarItem({
   focused,
   label,
   iconName,
@@ -380,7 +388,7 @@ function TabBarItem({
       </Text>
     </TouchableOpacity>
   )
-}
+})
 
 function CustomTabBar(props: BottomTabBarProps) {
   const { state, descriptors, navigation } = props
@@ -400,9 +408,12 @@ function CustomTabBar(props: BottomTabBarProps) {
     })
   }, [activeIndex, state.index])
 
-  function handleTabBarLayout(event: LayoutChangeEvent) {
-    setTabBarWidth(event.nativeEvent.layout.width)
-  }
+  const handleTabBarLayout = useCallback((event: LayoutChangeEvent) => {
+    const nextWidth = event.nativeEvent.layout.width
+    setTabBarWidth((currentWidth) =>
+      currentWidth === nextWidth ? currentWidth : nextWidth,
+    )
+  }, [])
 
   const highlightAnimatedStyle = useAnimatedStyle(() => {
     const routeCount = Math.max(state.routes.length, 1)
@@ -504,18 +515,9 @@ export default function TabNavigator() {
   return (
     <View style={styles.navigatorRoot}>
       <Tab.Navigator
+        detachInactiveScreens
         tabBar={renderCustomTabBar}
-        screenOptions={{
-          headerShown: false,
-          lazy: false,
-          animation: 'shift',
-          transitionSpec: {
-            animation: 'timing',
-            config: {
-              duration: TAB_TRANSITION_MS,
-            },
-          },
-        }}
+        screenOptions={TAB_SCREEN_OPTIONS}
       >
         <Tab.Screen
           name="HomeTab"

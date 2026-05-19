@@ -5,7 +5,13 @@ import React, {
   useRef,
   useState,
 } from 'react';
-import { ScrollView, Text, TouchableOpacity, View } from 'react-native';
+import {
+  InteractionManager,
+  ScrollView,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import { createStyleSheet, useStyles } from 'react-native-unistyles';
@@ -242,12 +248,14 @@ export default function CalendarScreen() {
   useFocusEffect(
     useCallback(() => {
       let isActive = true;
-      setFirstDayOfWeek(getFirstDayOfWeek());
-      loadWorkouts().finally(() => {
+      const task = InteractionManager.runAfterInteractions(() => {
         if (!isActive) return;
+        setFirstDayOfWeek(getFirstDayOfWeek());
+        loadWorkouts().catch(console.error);
       });
       return () => {
         isActive = false;
+        task.cancel();
       };
     }, [loadWorkouts]),
   );

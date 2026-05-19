@@ -7,6 +7,7 @@ import React, {
 } from 'react';
 import {
   ActivityIndicator,
+  InteractionManager,
   Modal,
   Pressable,
   ScrollView,
@@ -457,20 +458,34 @@ export default function ProgressScreen() {
   const [inputWeight, setInputWeight] = useState('');
   const [dialog, setDialog] = useState<DialogState | null>(null);
   const [saving, setSaving] = useState(false);
+  const loadRequestRef = useRef(0);
 
   useFocusEffect(
     useCallback(() => {
-      loadData();
+      let isActive = true;
+      const task = InteractionManager.runAfterInteractions(() => {
+        if (!isActive) return;
+        loadData().catch(console.error);
+      });
+
+      return () => {
+        isActive = false;
+        task.cancel();
+        loadRequestRef.current += 1;
+      };
     }, []),
   );
 
   async function loadData() {
+    const requestId = loadRequestRef.current + 1;
+    loadRequestRef.current = requestId;
     try {
       const [profile, weightLogs, progressOverview] = await Promise.all([
         getProfile(),
         getBodyWeightLogs(),
         getProgressOverview(),
       ]);
+      if (loadRequestRef.current !== requestId) return;
       setWeightUnit(normalizeWeightUnit(profile?.defaultWeightUnit));
       setLogs(weightLogs);
       setProgressExercises(progressOverview.exercises);
@@ -484,9 +499,12 @@ export default function ProgressScreen() {
           : progressOverview.exercises[0]?.exerciseTypeId ?? null,
       );
     } catch (e) {
+      if (loadRequestRef.current !== requestId) return;
       console.error('Failed to load progress data', e);
     } finally {
-      setLoading(false);
+      if (loadRequestRef.current === requestId) {
+        setLoading(false);
+      }
     }
   }
 
@@ -512,14 +530,17 @@ export default function ProgressScreen() {
       return;
     }
 
+    const previousInputWeight = inputWeight;
+    const weightKg = weightUnit === 'lb' ? value / LB_PER_KG : value;
     setSaving(true);
+    setInputWeight('');
+    setShowModal(false);
     try {
-      const weightKg = weightUnit === 'lb' ? value / LB_PER_KG : value;
       await logBodyWeight(weightKg);
-      setInputWeight('');
-      setShowModal(false);
       await loadData();
     } catch (e) {
+      setInputWeight(previousInputWeight);
+      setShowModal(true);
       showProgressDialog('Something Went Wrong', 'Failed to log weight.');
       console.error(e);
     } finally {

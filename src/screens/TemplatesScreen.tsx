@@ -1,6 +1,7 @@
 import React, { useCallback, useState } from 'react'
 import {
   ActivityIndicator,
+  InteractionManager,
   Modal,
   ScrollView,
   Text,
@@ -51,7 +52,16 @@ export default function TemplatesScreen({ navigation }: Props) {
 
   useFocusEffect(
     useCallback(() => {
-      loadTemplates().catch(console.error)
+      let isActive = true
+      const task = InteractionManager.runAfterInteractions(() => {
+        if (!isActive) return
+        loadTemplates().catch(console.error)
+      })
+
+      return () => {
+        isActive = false
+        task.cancel()
+      }
     }, [loadTemplates]),
   )
 
@@ -74,12 +84,19 @@ export default function TemplatesScreen({ navigation }: Props) {
   }
 
   async function toggleFavorite(template: WorkoutTemplateSummary) {
+    const previousTemplates = templates
+    const nextFavorite = !template.isFavorite
+    setTemplates(current =>
+      current.map(item =>
+        item.id === template.id ? { ...item, isFavorite: nextFavorite ? 1 : 0 } : item,
+      ),
+    )
+    setMessage('')
     try {
-      await setWorkoutTemplateFavorite(template.id, !template.isFavorite)
-      setMessage('')
-      await loadTemplates()
+      await setWorkoutTemplateFavorite(template.id, nextFavorite)
     } catch (e) {
       console.error('Could not update favorite template', e)
+      setTemplates(previousTemplates)
       setMessage('You can favorite up to 6 templates.')
     }
   }
@@ -91,12 +108,15 @@ export default function TemplatesScreen({ navigation }: Props) {
   async function confirmDeleteTemplate() {
     const template = deleteTemplateTarget
     if (!template) return
+    const previousTemplates = templates
     setDeleteTemplateTarget(null)
+    setTemplates(current => current.filter(item => item.id !== template.id))
+    setMessage('')
     try {
       await deleteWorkoutTemplate(template.id)
-      await loadTemplates()
     } catch (e) {
       console.error('Could not delete template', e)
+      setTemplates(previousTemplates)
       setMessage('Could not delete this template.')
     }
   }

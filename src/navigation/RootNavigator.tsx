@@ -1,5 +1,5 @@
 import '../theme/unistyles'
-import React from 'react'
+import React, { useMemo } from 'react'
 import { NavigationContainer, DefaultTheme } from '@react-navigation/native'
 import { createStyleSheet, useStyles } from 'react-native-unistyles'
 import TabNavigator from './TabNavigator'
@@ -9,19 +9,28 @@ const stylesheet = createStyleSheet(() => ({}))
 export default function RootNavigator() {
   const { theme } = useStyles(stylesheet)
 
-  const navTheme: typeof DefaultTheme = {
-    ...DefaultTheme,
-    dark: true,
-    colors: {
-      ...DefaultTheme.colors,
-      background: theme.colors.bg,
-      card: theme.colors.surface,
-      text: theme.colors.text,
-      border: theme.colors.border,
-      notification: theme.colors.accent,
-      primary: theme.colors.accent,
-    },
-  }
+  const navTheme: typeof DefaultTheme = useMemo(
+    () => ({
+      ...DefaultTheme,
+      dark: true,
+      colors: {
+        ...DefaultTheme.colors,
+        background: theme.colors.bg,
+        card: theme.colors.surface,
+        text: theme.colors.text,
+        border: theme.colors.border,
+        notification: theme.colors.accent,
+        primary: theme.colors.accent,
+      },
+    }),
+    [
+      theme.colors.accent,
+      theme.colors.bg,
+      theme.colors.border,
+      theme.colors.surface,
+      theme.colors.text,
+    ],
+  )
 
   return (
     <NavigationContainer theme={navTheme}>

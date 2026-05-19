@@ -440,6 +440,7 @@ export default function BackupScreen({ navigation }: Props) {
                 disabled={isBusy || blockedByWorkout || !driveBackup}
                 busy={busyAction === 'delete'}
                 onPress={() => setDeleteVisible(true)}
+                tone="danger"
               />
               
             </View>
@@ -550,6 +551,7 @@ function BackupActionButton({
   disabled,
   busy,
   onPress,
+  tone = 'default',
 }: {
   iconName: string
   title: string
@@ -557,28 +559,46 @@ function BackupActionButton({
   disabled: boolean
   busy: boolean
   onPress: () => void
+  tone?: 'default' | 'danger'
 }) {
   const { styles, theme } = useStyles(stylesheet)
+  const isDanger = tone === 'danger'
 
   return (
     <TouchableOpacity
-      style={[styles.actionButton, disabled && styles.disabledButton]}
+      style={[
+        styles.actionButton,
+        disabled && styles.disabledButton,
+      ]}
       onPress={onPress}
       disabled={disabled}
       activeOpacity={0.78}
     >
       <View style={styles.actionIcon}>
         {busy ? (
-          <ActivityIndicator size="small" color={theme.colors.accent} />
+          <ActivityIndicator
+            size="small"
+            color={isDanger ? theme.colors.danger : theme.colors.accent}
+          />
         ) : (
-          <MaterialCommunityIcons name={iconName} size={19} color={theme.colors.accent} />
+          <MaterialCommunityIcons
+            name={iconName}
+            size={19}
+            color={isDanger ? theme.colors.danger : theme.colors.accent}
+          />
         )}
       </View>
       <View style={styles.actionTextBlock}>
-        <Text style={styles.actionTitle}>{title}</Text>
+        <Text style={[styles.actionTitle, isDanger && styles.actionTitleDanger]}>
+          {title}
+        </Text>
         <Text style={styles.actionDescription}>{description}</Text>
       </View>
-      <MaterialCommunityIcons name="chevron-right" size={18} color={theme.colors.textMuted} />
+      <MaterialCommunityIcons
+        name="chevron-right"
+        size={18}
+        color={isDanger ? theme.colors.danger : theme.colors.textMuted}
+      />
     </TouchableOpacity>
   )
 }
@@ -869,6 +889,9 @@ const stylesheet = createStyleSheet((theme) => ({
     color: theme.colors.text,
     fontSize: theme.fontSize.sm,
     fontFamily: theme.fontFamily.extraBold,
+  },
+  actionTitleDanger: {
+    color: theme.colors.danger,
   },
   actionDescription: {
     color: theme.colors.textMuted,

@@ -1,7 +1,9 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, {
+  useEffect,
+  useMemo,
+  useState,
+} from 'react';
 import {
-  Animated,
-  Easing,
   LayoutAnimation,
   Modal,
   Platform,
@@ -15,6 +17,12 @@ import {
 } from 'react-native';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import Reanimated, {
+  Easing as ReanimatedEasing,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from 'react-native-reanimated';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import { createStyleSheet, useStyles } from 'react-native-unistyles';
 import {
@@ -37,6 +45,7 @@ import {
 const LB_PER_KG = 2.20462;
 const PR_GOLD = '#D9A441';
 const TARGET_MAP_ANIMATION_MS = 180;
+const QUICK_PREVIEW_ANIMATION_MS = 180;
 
 if (Platform.OS === 'android') {
   UIManager.setLayoutAnimationEnabledExperimental?.(true);
@@ -274,6 +283,32 @@ export function WorkoutSummaryCard({
   const { styles, theme } = useStyles(stylesheet);
   const hasCurrentPr = (workout.currentWeightPrCount ?? 0) > 0;
   const prColor = hasCurrentPr ? PR_GOLD : theme.colors.accent;
+  const previewProgress = useSharedValue(expanded ? 1 : 0);
+
+  useEffect(() => {
+    animateTargetMapLayout();
+    previewProgress.value = withTiming(expanded ? 1 : 0, {
+      duration: QUICK_PREVIEW_ANIMATION_MS,
+      easing: ReanimatedEasing.out(ReanimatedEasing.cubic),
+    });
+  }, [expanded, previewProgress]);
+
+  const previewAnimatedStyle = useAnimatedStyle(() => ({
+    opacity: previewProgress.value,
+    transform: [
+      {
+        translateY: (1 - previewProgress.value) * -4,
+      },
+    ],
+  }));
+
+  const chevronAnimatedStyle = useAnimatedStyle(() => ({
+    transform: [
+      {
+        rotate: `${previewProgress.value * 180}deg`,
+      },
+    ],
+  }));
 
   return (
     <View style={styles.workoutCard}>
@@ -322,15 +357,21 @@ export function WorkoutSummaryCard({
           onPress={onToggle}
           activeOpacity={0.75}
         >
-          <MaterialCommunityIcons
-            name={expanded ? 'chevron-up' : 'chevron-down'}
-            size={22}
-            color={theme.colors.textMuted}
-          />
+          <Reanimated.View style={chevronAnimatedStyle}>
+            <MaterialCommunityIcons
+              name="chevron-down"
+              size={22}
+              color={theme.colors.textMuted}
+            />
+          </Reanimated.View>
         </TouchableOpacity>
       </View>
       {expanded ? (
-        <WorkoutQuickPreview workout={preview} loading={previewLoading} />
+        <Reanimated.View
+          style={[styles.quickPreviewAnimated, previewAnimatedStyle]}
+        >
+          <WorkoutQuickPreview workout={preview} loading={previewLoading} />
+        </Reanimated.View>
       ) : null}
     </View>
   );
@@ -1019,63 +1060,52 @@ function TargetedMusclesCard({
 }) {
   const { styles, theme } = useStyles(stylesheet);
   const [expanded, setExpanded] = useState(false);
-  const [renderExpandedCard, setRenderExpandedCard] = useState(false);
-  const expandProgress = useRef(new Animated.Value(0)).current;
-  const collapseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const expandProgress = useSharedValue(0);
   const collapsedSummary = useMemo(() => {
     if (targetStats.length === 0) return 'No targets saved';
     return targetStats.map(target => target.name).join(', ');
   }, [targetStats]);
 
   useEffect(() => {
-    Animated.timing(expandProgress, {
-      toValue: expanded ? 1 : 0,
+    expandProgress.value = withTiming(expanded ? 1 : 0, {
       duration: TARGET_MAP_ANIMATION_MS,
-      easing: Easing.out(Easing.cubic),
-      useNativeDriver: false,
-    }).start();
+      easing: ReanimatedEasing.out(ReanimatedEasing.cubic),
+    });
   }, [expanded, expandProgress]);
 
   useEffect(() => {
-    if (collapseTimerRef.current) {
-      clearTimeout(collapseTimerRef.current);
-      collapseTimerRef.current = null;
-    }
-    expandProgress.setValue(0);
+    expandProgress.value = 0;
     setExpanded(false);
-    setRenderExpandedCard(false);
   }, [expandProgress, workoutId]);
 
-  useEffect(
-    () => () => {
-      if (collapseTimerRef.current) {
-        clearTimeout(collapseTimerRef.current);
-      }
-    },
-    [],
-  );
+  const targetMapContentStyle = useAnimatedStyle(() => ({
+    opacity: expandProgress.value,
+    transform: [
+      {
+        translateY: (1 - expandProgress.value) * -4,
+      },
+    ],
+  }));
+
+  const targetMapChevronStyle = useAnimatedStyle(() => ({
+    transform: [
+      {
+        rotate: `${expandProgress.value * 180}deg`,
+      },
+    ],
+  }));
 
   function expandCard() {
-    if (collapseTimerRef.current) {
-      clearTimeout(collapseTimerRef.current);
-      collapseTimerRef.current = null;
-    }
     animateTargetMapLayout();
-    setRenderExpandedCard(true);
     setExpanded(true);
   }
 
   function collapseCard() {
     animateTargetMapLayout();
     setExpanded(false);
-    collapseTimerRef.current = setTimeout(() => {
-      animateTargetMapLayout();
-      setRenderExpandedCard(false);
-      collapseTimerRef.current = null;
-    }, TARGET_MAP_ANIMATION_MS);
   }
 
-  if (!renderExpandedCard) {
+  if (!expanded) {
     return (
       <TouchableOpacity
         style={styles.targetMapMiniCard}
@@ -1143,34 +1173,18 @@ function TargetedMusclesCard({
             : `${targetStats.length} areas`}
         </Text>
         <View style={styles.targetMapChevronButton}>
-          <MaterialCommunityIcons
-            name={expanded ? 'chevron-up' : 'chevron-down'}
-            size={17}
-            color={theme.colors.textMuted}
-          />
+          <Reanimated.View style={targetMapChevronStyle}>
+            <MaterialCommunityIcons
+              name="chevron-down"
+              size={17}
+              color={theme.colors.textMuted}
+            />
+          </Reanimated.View>
         </View>
       </TouchableOpacity>
 
-      <Animated.View
-        pointerEvents={expanded ? 'auto' : 'none'}
-        style={[
-          styles.targetMapExpandable,
-          {
-            maxHeight: expandProgress.interpolate({
-              inputRange: [0, 1],
-              outputRange: [0, 560],
-            }),
-            opacity: expandProgress,
-            transform: [
-              {
-                translateY: expandProgress.interpolate({
-                  inputRange: [0, 1],
-                  outputRange: [-4, 0],
-                }),
-              },
-            ],
-          },
-        ]}
+      <Reanimated.View
+        style={[styles.targetMapExpandable, targetMapContentStyle]}
       >
         <View style={styles.targetMapExpandedContent}>
           <View style={styles.targetMapVisualPanel}>
@@ -1199,7 +1213,7 @@ function TargetedMusclesCard({
             </View>
           )}
         </View>
-      </Animated.View>
+      </Reanimated.View>
     </View>
   );
 }
@@ -1293,6 +1307,9 @@ const stylesheet = createStyleSheet(theme => ({
     paddingHorizontal: theme.spacing.sm,
     paddingTop: 0,
     paddingBottom: 1,
+  },
+  quickPreviewAnimated: {
+    overflow: 'hidden',
   },
   quickPreviewText: {
     color: theme.colors.textMuted,

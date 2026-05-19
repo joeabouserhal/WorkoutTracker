@@ -1,6 +1,7 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  InteractionManager,
   Modal,
   Pressable,
   ScrollView,
@@ -77,26 +78,43 @@ export default function WeightHistoryScreen() {
     useState<WeightLog | null>(null);
   const [dialog, setDialog] = useState<DialogState | null>(null);
   const [saving, setSaving] = useState(false);
+  const loadRequestRef = useRef(0);
 
   const loadData = useCallback(async () => {
+    const requestId = loadRequestRef.current + 1;
+    loadRequestRef.current = requestId;
     try {
       const [profile, weightLogs] = await Promise.all([
         getProfile(),
         getBodyWeightLogs(),
       ]);
+      if (loadRequestRef.current !== requestId) return;
       setWeightUnit(normalizeWeightUnit(profile?.defaultWeightUnit));
       setLogs(weightLogs);
     } catch (e) {
+      if (loadRequestRef.current !== requestId) return;
       console.error('Failed to load weight history', e);
     } finally {
-      setLoading(false);
+      if (loadRequestRef.current === requestId) {
+        setLoading(false);
+      }
     }
   }, []);
 
   useFocusEffect(
     useCallback(() => {
-      setLoading(true);
-      loadData();
+      let isActive = true;
+      const task = InteractionManager.runAfterInteractions(() => {
+        if (!isActive) return;
+        setLoading(true);
+        loadData().catch(console.error);
+      });
+
+      return () => {
+        isActive = false;
+        task.cancel();
+        loadRequestRef.current += 1;
+      };
     }, [loadData]),
   );
 
@@ -136,13 +154,24 @@ export default function WeightHistoryScreen() {
       return;
     }
 
+    const previousLogs = logs;
+    const previousInputWeight = inputWeight;
+    const target = editingWeightLog;
+    const weightKg = weightUnit === 'lb' ? val / LB_PER_KG : val;
     setSaving(true);
+    setLogs(current =>
+      current.map(log =>
+        log.id === target.id ? { ...log, weight: weightKg } : log,
+      ),
+    );
+    closeWeightModal();
     try {
-      const weightKg = weightUnit === 'lb' ? val / LB_PER_KG : val;
-      await updateBodyWeightLog(editingWeightLog.id, weightKg);
-      closeWeightModal();
+      await updateBodyWeightLog(target.id, weightKg);
       await loadData();
     } catch (e) {
+      setLogs(previousLogs);
+      setEditingWeightLog(target);
+      setInputWeight(previousInputWeight);
       showWeightDialog('Something Went Wrong', 'Failed to update weight.');
       console.error(e);
     } finally {
@@ -155,11 +184,15 @@ export default function WeightHistoryScreen() {
     if (!target) return;
 
     setSaving(true);
+    const previousLogs = logs;
+    setDeleteWeightLogTarget(null);
+    setLogs(current => current.filter(log => log.id !== target.id));
     try {
       await deleteBodyWeightLog(target.id);
-      setDeleteWeightLogTarget(null);
       await loadData();
     } catch (e) {
+      setLogs(previousLogs);
+      setDeleteWeightLogTarget(target);
       showWeightDialog('Something Went Wrong', 'Failed to delete weight log.');
       console.error(e);
     } finally {

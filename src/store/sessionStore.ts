@@ -47,7 +47,7 @@ interface SessionState {
   isWorkoutSheetOpen: boolean
   endWorkoutRequestId: number
 
-  startWorkout: (workoutId: string) => void
+  startWorkout: (workoutId: string, startedAt?: number) => void
   restoreWorkoutSession: (params: RestoreWorkoutSessionParams) => void
   endWorkout: () => void
   openWorkoutSheet: () => void
@@ -82,8 +82,8 @@ export const useSessionStore = create<SessionState>()((set, get) => ({
   isWorkoutSheetOpen: false,
   endWorkoutRequestId: 0,
 
-  startWorkout: (workoutId) => {
-    const now = Date.now()
+  startWorkout: (workoutId, startedAt) => {
+    const now = Number.isFinite(startedAt) ? Math.trunc(startedAt!) : Date.now()
     setString(MMKV_WORKOUT_ID, workoutId)
     setString(MMKV_STARTED_AT, now.toString())
     removeKey(MMKV_REST_ENDS_AT)

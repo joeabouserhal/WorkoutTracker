@@ -50,7 +50,7 @@ import {
   type MuscleGroupFatigue,
   type WorkoutTemplateSummary,
   type WorkoutDetail,
-type WorkoutSummary,
+  type WorkoutSummary,
 } from '@/db/workoutHelpers';
 import { getDefaultMuscleRecoveryHours } from '@/services/muscleRecoverySettings';
 import { getScheduledTemplateForToday } from '@/services/workoutSchedule';
@@ -107,6 +107,10 @@ function formatDate(timestamp: number) {
 function getDayKey(timestamp: number) {
   const date = new Date(timestamp);
   return `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
+}
+
+function formatCount(count: number, singular: string) {
+  return `${count} ${count === 1 ? singular : `${singular}s`}`;
 }
 
 const BODY_MUSCLE_GROUP_BY_ID: Record<string, string[]> = {
@@ -261,13 +265,18 @@ export default function HomeScreen() {
     {},
   );
   const [loading, setLoading] = useState(true);
+  const [homeLoaded, setHomeLoaded] = useState(false);
   const [dialog, setDialog] = useState<DialogState | null>(null);
   const { showHeaderFade, handleHeaderScroll } = useHeaderFade();
   const startWorkout = useSessionStore(s => s.startWorkout);
   const endWorkout = useSessionStore(s => s.endWorkout);
+  const openWorkoutSheet = useSessionStore(s => s.openWorkoutSheet);
   const activeWorkoutId = useSessionStore(s => s.activeWorkoutId);
   const previousActiveWorkoutIdRef = useRef<string | null>(activeWorkoutId);
   const homeLoadRequestRef = useRef(0);
+  const homeLoadedRef = useRef(false);
+  const workoutDetailRequestRef = useRef(0);
+  const previewRequestRef = useRef<Record<string, number>>({});
 
   const loadHome = useCallback(async (showLoading = true) => {
     const requestId = homeLoadRequestRef.current + 1;
@@ -276,12 +285,15 @@ export default function HomeScreen() {
     try {
       const recoveryHours = getDefaultMuscleRecoveryHours();
       const todayScheduledTemplateId = getScheduledTemplateForToday();
+      const allTemplatesPromise = todayScheduledTemplateId
+        ? getWorkoutTemplates()
+        : Promise.resolve<WorkoutTemplateSummary[]>([]);
       const [profile, workouts, templates, fatigue, allTemplates] = await Promise.all([
         getProfile(),
         getRecentCompletedWorkouts(3),
         getFavoriteWorkoutTemplates(),
         getMuscleGroupFatigue(recoveryHours),
-        getWorkoutTemplates(),
+        allTemplatesPromise,
       ]);
       if (homeLoadRequestRef.current !== requestId) return;
       setName(profile?.name ?? '');
@@ -296,15 +308,20 @@ export default function HomeScreen() {
       setExpandedWorkoutIds({});
       setWorkoutPreviews({});
       setPreviewLoading({});
+      previewRequestRef.current = {};
+      homeLoadedRef.current = true;
+      setHomeLoaded(true);
     } catch (e) {
       if (homeLoadRequestRef.current !== requestId) return;
       console.error('Failed to load home screen', e);
-      setRecentWorkouts([]);
-      setFavoriteTemplates([]);
-      setMuscleFatigue([]);
-      setTodayScheduledTemplate(null);
+      if (!homeLoadedRef.current) {
+        setRecentWorkouts([]);
+        setFavoriteTemplates([]);
+        setMuscleFatigue([]);
+        setTodayScheduledTemplate(null);
+      }
     } finally {
-      if (showLoading && homeLoadRequestRef.current === requestId) {
+      if (homeLoadRequestRef.current === requestId) {
         setLoading(false);
       }
     }
@@ -316,12 +333,13 @@ export default function HomeScreen() {
       const task = InteractionManager.runAfterInteractions(() => {
         if (!isActive) return;
 
-        loadHome().catch(console.error);
+        loadHome(!homeLoadedRef.current).catch(console.error);
       });
 
       return () => {
         isActive = false;
         task.cancel();
+        homeLoadRequestRef.current += 1;
       };
     }, [loadHome]),
   );
@@ -336,7 +354,10 @@ export default function HomeScreen() {
   }, [activeWorkoutId, loadHome]);
 
   function handleStartWorkout() {
-    if (activeWorkoutId) return;
+    if (activeWorkoutId) {
+      openWorkoutSheet();
+      return;
+    }
 
     const workoutId = createWorkoutId();
     const startedAt = Date.now();
@@ -363,32 +384,49 @@ export default function HomeScreen() {
     if (workoutPreviews[workoutId] !== undefined || previewLoading[workoutId])
       return;
 
+    const requestId = (previewRequestRef.current[workoutId] ?? 0) + 1;
+    previewRequestRef.current[workoutId] = requestId;
     setPreviewLoading(prev => ({ ...prev, [workoutId]: true }));
     getWorkoutDetail(workoutId)
       .then(detail => {
+        if (previewRequestRef.current[workoutId] !== requestId) return;
         setWorkoutPreviews(prev => ({ ...prev, [workoutId]: detail }));
       })
       .catch(e => {
+        if (previewRequestRef.current[workoutId] !== requestId) return;
         console.error('Failed to load workout preview', e);
         setWorkoutPreviews(prev => ({ ...prev, [workoutId]: null }));
       })
       .finally(() => {
+        if (previewRequestRef.current[workoutId] !== requestId) return;
         setPreviewLoading(prev => ({ ...prev, [workoutId]: false }));
       });
   }
 
   function openWorkout(workoutId: string) {
+    const requestId = workoutDetailRequestRef.current + 1;
+    workoutDetailRequestRef.current = requestId;
     setSelectedWorkoutId(workoutId);
     setSelectedWorkout(null);
     setWorkoutDetailLoading(true);
 
     getWorkoutDetail(workoutId)
-      .then(detail => setSelectedWorkout(detail))
-      .catch(e => console.error('Failed to load workout detail', e))
-      .finally(() => setWorkoutDetailLoading(false));
+      .then(detail => {
+        if (workoutDetailRequestRef.current !== requestId) return;
+        setSelectedWorkout(detail);
+      })
+      .catch(e => {
+        if (workoutDetailRequestRef.current !== requestId) return;
+        console.error('Failed to load workout detail', e);
+      })
+      .finally(() => {
+        if (workoutDetailRequestRef.current !== requestId) return;
+        setWorkoutDetailLoading(false);
+      });
   }
 
   function closeWorkoutDetail() {
+    workoutDetailRequestRef.current += 1;
     setSelectedWorkoutId(null);
     setSelectedWorkout(null);
     setWorkoutDetailLoading(false);
@@ -416,6 +454,7 @@ export default function HomeScreen() {
   }
 
   function handleWorkoutDeleted(workoutId: string) {
+    workoutDetailRequestRef.current += 1;
     setSelectedWorkoutId(null);
     setSelectedWorkout(null);
     setWorkoutDetailLoading(false);
@@ -435,10 +474,12 @@ export default function HomeScreen() {
       delete next[workoutId];
       return next;
     });
+    delete previewRequestRef.current[workoutId];
     loadHome(false).catch(console.error);
   }
 
   const isWorkoutActive = Boolean(activeWorkoutId);
+  const isInitialLoading = loading && !homeLoaded;
   const recentWorkoutGroups = useMemo(
     () =>
       recentWorkouts.reduce<
@@ -481,7 +522,7 @@ export default function HomeScreen() {
   return (
     <View style={styles.container}>
       <ScreenHeader
-        title={loading ? 'Loading...' : name || 'Athlete'}
+        title={name || 'Athlete'}
         eyebrow="Welcome back"
         showFade={showHeaderFade}
         titleRight={
@@ -501,7 +542,7 @@ export default function HomeScreen() {
         onScroll={handleHeaderScroll}
         scrollEventThrottle={16}
       >
-        <MuscleRecoveryCard fatigue={muscleFatigue} loading={loading} />
+        <MuscleRecoveryCard fatigue={muscleFatigue} loading={isInitialLoading} />
 
         <View
           style={[
@@ -515,7 +556,10 @@ export default function HomeScreen() {
               isWorkoutActive && styles.startWorkoutButtonDisabled,
             ]}
             onPress={handleStartWorkout}
-            disabled={isWorkoutActive}
+            accessibilityRole="button"
+            accessibilityLabel={
+              isWorkoutActive ? 'Open active workout' : 'Start workout'
+            }
             activeOpacity={0.82}
           >
             <View
@@ -538,7 +582,7 @@ export default function HomeScreen() {
                 ]}
               >
                 {isWorkoutActive
-                  ? 'Workout Currently Ongoing'
+                  ? 'Workout in Progress'
                   : 'Start Workout'}
               </Text>
               <Text
@@ -548,7 +592,7 @@ export default function HomeScreen() {
                 ]}
               >
                 {isWorkoutActive
-                  ? 'Finish or cancel it before starting another.'
+                  ? 'Tap to open your current session.'
                   : 'Track sets and rest live.'}
               </Text>
             </View>
@@ -563,6 +607,8 @@ export default function HomeScreen() {
                 templateId: todayScheduledTemplate.id,
               })
             }
+            accessibilityRole="button"
+            accessibilityLabel={`Open ${todayScheduledTemplate.name}`}
             activeOpacity={0.82}
           >
             <View style={styles.scheduledTemplateIcon}>
@@ -587,8 +633,8 @@ export default function HomeScreen() {
                 {todayScheduledTemplate.name}
               </Text>
               <Text style={styles.scheduledTemplateMeta} numberOfLines={1}>
-                {todayScheduledTemplate.exerciseCount} exercises -{' '}
-                {todayScheduledTemplate.totalSetCount} sets
+                {formatCount(todayScheduledTemplate.exerciseCount, 'exercise')}{' '}
+                - {formatCount(todayScheduledTemplate.totalSetCount, 'set')}
               </Text>
             </View>
             <View style={styles.scheduledTemplateActionIcon}>
@@ -604,6 +650,8 @@ export default function HomeScreen() {
         <TouchableOpacity
           style={styles.templatesButton}
           onPress={handleTemplatesPress}
+          accessibilityRole="button"
+          accessibilityLabel="Open templates"
           activeOpacity={0.82}
         >
           <View style={styles.secondaryIcon}>
@@ -651,6 +699,8 @@ export default function HomeScreen() {
                           templateId: template.id,
                         })
                       }
+                      accessibilityRole="button"
+                      accessibilityLabel={`Open ${template.name}`}
                       activeOpacity={0.82}
                     >
                       <View style={styles.favoriteTemplateIcon}>
@@ -671,8 +721,8 @@ export default function HomeScreen() {
                           style={styles.favoriteTemplateMeta}
                           numberOfLines={1}
                         >
-                          {template.exerciseCount} exercises -{' '}
-                          {template.totalSetCount} sets
+                          {formatCount(template.exerciseCount, 'exercise')} -{' '}
+                          {formatCount(template.totalSetCount, 'set')}
                         </Text>
                       </View>
                     </TouchableOpacity>
@@ -691,7 +741,7 @@ export default function HomeScreen() {
           <Text style={styles.sectionHint}>Last 3</Text>
         </View>
 
-        {loading ? (
+        {isInitialLoading ? (
           <View style={styles.emptyCard}>
             <Text style={styles.emptyText}>Loading recent workouts...</Text>
           </View>
@@ -851,6 +901,8 @@ function MuscleRecoveryCard({
         <TouchableOpacity
           style={styles.fatigueMiniCard}
           onPress={expandCard}
+          accessibilityRole="button"
+          accessibilityLabel="Expand muscle fatigue"
           activeOpacity={0.82}
         >
           <View style={styles.fatigueMiniIcon}>
@@ -906,6 +958,8 @@ function MuscleRecoveryCard({
         <TouchableOpacity
           style={styles.fatigueHeader}
           onPress={expanded ? collapseCard : expandCard}
+          accessibilityRole="button"
+          accessibilityLabel="Collapse muscle fatigue"
           activeOpacity={0.82}
         >
           <View style={styles.fatigueHeaderIcon}>

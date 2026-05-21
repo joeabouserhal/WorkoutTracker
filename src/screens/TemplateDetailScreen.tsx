@@ -378,9 +378,9 @@ export default function TemplateDetailScreen({ navigation, route }: Props) {
     }
   }
 
-  const canStart = Boolean(
-    template?.exercises.length && !activeWorkoutId && !startingTemplate,
-  );
+  const hasTemplateExercises = Boolean(template?.exercises.length);
+  const showPrimaryStartAction = hasTemplateExercises && !activeWorkoutId;
+  const canStart = Boolean(showPrimaryStartAction && !startingTemplate);
   const hasUnsavedChanges = useMemo(() => {
     if (!editSnapshot || !template) return false;
     if (draftName.trim() !== editSnapshot.name.trim()) return true;
@@ -582,31 +582,39 @@ export default function TemplateDetailScreen({ navigation, route }: Props) {
           <TouchableOpacity
             style={[
               styles.startDockAction,
-              !canStart && styles.startDockActionDisabled,
+              showPrimaryStartAction && styles.startDockActionPrimary,
+              !showPrimaryStartAction && styles.startDockActionDisabled,
             ]}
             onPress={startTemplate}
             disabled={!canStart}
+            accessibilityRole="button"
+            accessibilityLabel="Start workout from template"
             activeOpacity={0.82}
           >
             <View
               style={[
                 styles.startActionIcon,
-                !canStart && styles.startActionIconDisabled,
+                showPrimaryStartAction && styles.startActionIconPrimary,
+                !showPrimaryStartAction && styles.startActionIconDisabled,
               ]}
             >
               {startingTemplate ? (
                 <ActivityIndicator
                   size="small"
-                  color={
-                    canStart ? theme.colors.accent : theme.colors.textMuted
-                  }
+                  color="#FFFFFF"
                 />
               ) : (
                 <MaterialCommunityIcons
-                  name={canStart ? 'play' : 'lock-outline'}
+                  name={
+                    activeWorkoutId
+                      ? 'timer-sand'
+                      : hasTemplateExercises
+                      ? 'play'
+                      : 'playlist-plus'
+                  }
                   size={18}
                   color={
-                    canStart ? theme.colors.accent : theme.colors.textMuted
+                    showPrimaryStartAction ? '#FFFFFF' : theme.colors.textMuted
                   }
                 />
               )}
@@ -615,7 +623,8 @@ export default function TemplateDetailScreen({ navigation, route }: Props) {
               <Text
                 style={[
                   styles.startButtonText,
-                  !canStart && styles.startButtonTextDisabled,
+                  showPrimaryStartAction && styles.startButtonTextPrimary,
+                  !showPrimaryStartAction && styles.startButtonTextDisabled,
                 ]}
               >
                 {startingTemplate
@@ -628,13 +637,16 @@ export default function TemplateDetailScreen({ navigation, route }: Props) {
             <View
               style={[
                 styles.startChevron,
-                !canStart && styles.startChevronDisabled,
+                showPrimaryStartAction && styles.startChevronPrimary,
+                !showPrimaryStartAction && styles.startChevronDisabled,
               ]}
             >
               <MaterialCommunityIcons
                 name="chevron-right"
                 size={18}
-                color={canStart ? theme.colors.accent : theme.colors.textMuted}
+                color={
+                  showPrimaryStartAction ? '#FFFFFF' : theme.colors.textMuted
+                }
               />
             </View>
           </TouchableOpacity>
@@ -1486,18 +1498,23 @@ const stylesheet = createStyleSheet(theme => ({
     gap: theme.spacing.sm,
     borderRadius: theme.radius.md,
     borderWidth: 1,
-    borderColor: theme.colors.borderStrong,
+    borderColor: theme.colors.border,
     backgroundColor: theme.colors.surface,
     paddingHorizontal: theme.spacing.sm,
     paddingVertical: theme.spacing.sm,
-    shadowColor: theme.colors.bg,
-    shadowOffset: { width: 0, height: 18 },
-    shadowOpacity: 0.34,
+    shadowColor: theme.colors.accent,
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0,
     shadowRadius: 24,
-    elevation: 12,
+    elevation: 0,
+  },
+  startDockActionPrimary: {
+    borderColor: 'rgba(255, 255, 255, 0.28)',
+    backgroundColor: theme.colors.accent,
+    shadowOpacity: 0.46,
+    elevation: 10,
   },
   startDockActionDisabled: {
-    opacity: 0.62,
     borderColor: theme.colors.border,
     backgroundColor: theme.colors.surface,
   },
@@ -1506,6 +1523,9 @@ const stylesheet = createStyleSheet(theme => ({
     fontSize: theme.fontSize.md,
     fontFamily: theme.fontFamily.extraBold,
   },
+  startButtonTextPrimary: {
+    color: '#FFFFFF',
+  },
   startButtonTextDisabled: {
     color: theme.colors.textMuted,
   },
@@ -1513,11 +1533,12 @@ const stylesheet = createStyleSheet(theme => ({
     width: 34,
     height: 34,
     borderRadius: theme.radius.full,
-    backgroundColor: theme.colors.accentMuted,
-    borderWidth: 1,
-    borderColor: theme.colors.accent,
+    backgroundColor: theme.colors.surface2,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  startActionIconPrimary: {
+    backgroundColor: 'rgba(255, 255, 255, 0.18)',
   },
   startActionIconDisabled: {
     backgroundColor: theme.colors.surface2,
@@ -1535,6 +1556,10 @@ const stylesheet = createStyleSheet(theme => ({
     borderColor: theme.colors.border,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  startChevronPrimary: {
+    backgroundColor: 'rgba(255, 255, 255, 0.14)',
+    borderColor: 'rgba(255, 255, 255, 0.28)',
   },
   startChevronDisabled: {
     backgroundColor: theme.colors.surface,

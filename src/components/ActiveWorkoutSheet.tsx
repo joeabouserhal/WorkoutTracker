@@ -11,6 +11,7 @@ import {
   InteractionManager,
   Keyboard,
   StatusBar,
+  type GestureResponderEvent,
   type LayoutChangeEvent,
   type StyleProp,
   StyleSheet,
@@ -109,8 +110,16 @@ const PULL_TO_CLOSE_ACTIVATE_DISTANCE = 10;
 const PULL_TO_CLOSE_TRIGGER_DISTANCE = 68;
 const PULL_TO_CLOSE_MAX_DISTANCE = 104;
 const PULL_TO_CLOSE_TRIGGER_VELOCITY = 850;
+const ActiveWorkoutGestureScrollView = React.forwardRef<
+  React.ElementRef<typeof GestureScrollView>,
+  React.ComponentProps<typeof GestureScrollView>
+>((props, ref) => (
+  <GestureScrollView {...props} ref={ref} disallowInterruption={false} />
+));
+ActiveWorkoutGestureScrollView.displayName = 'ActiveWorkoutGestureScrollView';
+
 const KeyboardAwareGestureScrollView = Reanimated.createAnimatedComponent(
-  GestureScrollView,
+  ActiveWorkoutGestureScrollView,
 ) as NonNullable<KeyboardAwareScrollViewProps['ScrollViewComponent']>;
 
 function buildWorkoutExercisePositions(
@@ -461,6 +470,14 @@ export default function ActiveWorkoutSheet() {
   const pullToCloseDistance = useSharedValue(0);
   const pullToCloseStartX = useSharedValue(0);
   const pullToCloseStartY = useSharedValue(0);
+  const scrollPullToCloseStartXRef = useRef(0);
+  const scrollPullToCloseStartYRef = useRef(0);
+  const scrollPullToCloseStartOffsetYRef = useRef(0);
+  const scrollPullToCloseLastYRef = useRef(0);
+  const scrollPullToCloseLastTimeRef = useRef(0);
+  const scrollPullToCloseVelocityYRef = useRef(0);
+  const scrollPullToCloseDistanceRef = useRef(0);
+  const scrollPullToCloseActiveRef = useRef(false);
   const restDoneNotifiedRef = useRef(false);
   const handledEndRequestRef = useRef(0);
   const localSetsDraftHydratedForWorkoutRef = useRef<string | null>(null);
@@ -1148,6 +1165,8 @@ export default function ActiveWorkoutSheet() {
     Keyboard.dismiss();
     closeDialog();
     pullToCloseDistance.value = 0;
+    scrollPullToCloseActiveRef.current = false;
+    scrollPullToCloseDistanceRef.current = 0;
     setDraggingExerciseId(null);
     closeWorkoutSheet();
   }, [
@@ -1156,6 +1175,109 @@ export default function ActiveWorkoutSheet() {
     pullToCloseDistance,
     setDraggingExerciseId,
   ]);
+
+  const resetScrollPullToClose = useCallback(() => {
+    scrollPullToCloseActiveRef.current = false;
+    scrollPullToCloseDistanceRef.current = 0;
+    scrollPullToCloseVelocityYRef.current = 0;
+    pullToCloseDistance.value = withSpring(0, {
+      damping: 18,
+      stiffness: 240,
+    });
+  }, [pullToCloseDistance]);
+
+  const handleScrollTouchStart = useCallback(
+    (event: GestureResponderEvent) => {
+      if (draggingExerciseId) return;
+
+      const { pageX, pageY } = event.nativeEvent;
+      const now = Date.now();
+      scrollPullToCloseStartXRef.current = pageX;
+      scrollPullToCloseStartYRef.current = pageY;
+      scrollPullToCloseStartOffsetYRef.current = scrollOffsetY.value;
+      scrollPullToCloseLastYRef.current = pageY;
+      scrollPullToCloseLastTimeRef.current = now;
+      scrollPullToCloseVelocityYRef.current = 0;
+      scrollPullToCloseDistanceRef.current = 0;
+      scrollPullToCloseActiveRef.current = false;
+    },
+    [draggingExerciseId, scrollOffsetY],
+  );
+
+  const handleScrollTouchMove = useCallback(
+    (event: GestureResponderEvent) => {
+      if (draggingExerciseId) return;
+      if (
+        scrollPullToCloseStartOffsetYRef.current >
+        PULL_TO_CLOSE_TOP_EPSILON
+      ) {
+        return;
+      }
+
+      const { pageX, pageY } = event.nativeEvent;
+      const deltaX = pageX - scrollPullToCloseStartXRef.current;
+      const deltaY = pageY - scrollPullToCloseStartYRef.current;
+      const absDeltaX = Math.abs(deltaX);
+      const isHorizontalSwipe = absDeltaX > 16 && absDeltaX > deltaY;
+
+      if (
+        scrollOffsetY.value > PULL_TO_CLOSE_TOP_EPSILON ||
+        deltaY < -2 ||
+        isHorizontalSwipe
+      ) {
+        if (scrollPullToCloseActiveRef.current) {
+          resetScrollPullToClose();
+        }
+        return;
+      }
+
+      if (
+        deltaY <= PULL_TO_CLOSE_ACTIVATE_DISTANCE ||
+        deltaY <= absDeltaX
+      ) {
+        return;
+      }
+
+      const now = Date.now();
+      const elapsedMs = Math.max(1, now - scrollPullToCloseLastTimeRef.current);
+      scrollPullToCloseVelocityYRef.current =
+        ((pageY - scrollPullToCloseLastYRef.current) / elapsedMs) * 1000;
+      scrollPullToCloseLastYRef.current = pageY;
+      scrollPullToCloseLastTimeRef.current = now;
+
+      const nextDistance = Math.max(
+        0,
+        Math.min(PULL_TO_CLOSE_MAX_DISTANCE, deltaY * 0.72),
+      );
+      scrollPullToCloseActiveRef.current = true;
+      scrollPullToCloseDistanceRef.current = nextDistance;
+      pullToCloseDistance.value = nextDistance;
+    },
+    [
+      draggingExerciseId,
+      pullToCloseDistance,
+      resetScrollPullToClose,
+      scrollOffsetY,
+    ],
+  );
+
+  const handleScrollTouchEnd = useCallback(() => {
+    if (!scrollPullToCloseActiveRef.current) {
+      return;
+    }
+
+    const shouldClose =
+      scrollPullToCloseDistanceRef.current >=
+        PULL_TO_CLOSE_TRIGGER_DISTANCE ||
+      scrollPullToCloseVelocityYRef.current >=
+        PULL_TO_CLOSE_TRIGGER_VELOCITY;
+
+    resetScrollPullToClose();
+
+    if (shouldClose) {
+      handleCloseSheet();
+    }
+  }, [handleCloseSheet, resetScrollPullToClose]);
 
   useEffect(() => {
     if (!isWorkoutSheetOpen) return;
@@ -1219,10 +1341,16 @@ export default function ActiveWorkoutSheet() {
     scrollOffsetY.value = Math.max(0, event.contentOffset.y);
   });
 
+  const scrollNativeGesture = useMemo(
+    () => Gesture.Native().enabled(!draggingExerciseId),
+    [draggingExerciseId],
+  );
+
   const pullToCloseGesture = useMemo(
     () =>
       Gesture.Pan()
         .enabled(!draggingExerciseId)
+        .simultaneousWithExternalGesture(scrollNativeGesture)
         .manualActivation(true)
         .failOffsetX([-24, 24])
         .onTouchesDown(event => {
@@ -1292,6 +1420,7 @@ export default function ActiveWorkoutSheet() {
       pullToCloseDistance,
       pullToCloseStartX,
       pullToCloseStartY,
+      scrollNativeGesture,
       scrollOffsetY,
     ],
   );
@@ -1776,292 +1905,317 @@ export default function ActiveWorkoutSheet() {
                       />
                     </View>
                   </Reanimated.View>
-                  <KeyboardAwareScrollView
-                    ScrollViewComponent={KeyboardAwareGestureScrollView}
-                    bottomOffset={theme.spacing.md}
-                    style={styles.scroll}
-                    contentContainerStyle={[
-                      styles.scrollContent,
-                      {
-                        paddingBottom: theme.spacing.lg,
-                      },
-                    ]}
-                    keyboardShouldPersistTaps="handled"
-                    keyboardDismissMode="interactive"
-                    alwaysBounceVertical
-                    overScrollMode="always"
-                    onScroll={scrollHandler}
-                    scrollEventThrottle={16}
-                    scrollEnabled={!draggingExerciseId}
-                  >
-                  <View style={styles.workoutNameCard}>
-                    <Text style={styles.workoutNameLabel}>Workout Name</Text>
-                    <TextInput
-                      style={styles.workoutNameInput}
-                      value={workoutName}
-                      onChangeText={setWorkoutName}
-                      onBlur={saveWorkoutName}
-                      placeholder="Workout"
-                      placeholderTextColor={theme.colors.textMuted}
-                      returnKeyType="done"
-                    />
-                  </View>
+                  <GestureDetector gesture={scrollNativeGesture}>
+                    <KeyboardAwareScrollView
+                      ScrollViewComponent={KeyboardAwareGestureScrollView}
+                      bottomOffset={theme.spacing.md}
+                      style={styles.scroll}
+                      contentContainerStyle={[
+                        styles.scrollContent,
+                        {
+                          paddingBottom: theme.spacing.lg,
+                        },
+                      ]}
+                      keyboardShouldPersistTaps="handled"
+                      keyboardDismissMode="interactive"
+                      alwaysBounceVertical={false}
+                      bounces={false}
+                      overScrollMode="never"
+                      onScroll={scrollHandler}
+                      onTouchStart={handleScrollTouchStart}
+                      onTouchMove={handleScrollTouchMove}
+                      onTouchEnd={handleScrollTouchEnd}
+                      onTouchCancel={resetScrollPullToClose}
+                      scrollEventThrottle={16}
+                      scrollEnabled={!draggingExerciseId}
+                    >
+                      <View style={styles.workoutNameCard}>
+                        <Text style={styles.workoutNameLabel}>
+                          Workout Name
+                        </Text>
+                        <TextInput
+                          style={styles.workoutNameInput}
+                          value={workoutName}
+                          onChangeText={setWorkoutName}
+                          onBlur={saveWorkoutName}
+                          placeholder="Workout"
+                          placeholderTextColor={theme.colors.textMuted}
+                          returnKeyType="done"
+                        />
+                      </View>
 
-                  {exercises.length === 0 && (
-                    <Text style={styles.emptyHint}>
-                      Add an exercise to get started
-                    </Text>
-                  )}
+                      {exercises.length === 0 && (
+                        <Text style={styles.emptyHint}>
+                          Add an exercise to get started
+                        </Text>
+                      )}
 
-                  {exercises.length > 0 ? (
-                    <SortableActiveWorkoutExerciseList
-                      exercises={exercises}
-                      draggingExerciseId={draggingExerciseId}
-                      methodLockedByExerciseType={methodLockedByExerciseType}
-                      onDeleteExercise={handleDeleteExercise}
-                      onDragStateChange={handleExerciseDragStateChange}
-                      onReorder={persistExerciseOrder}
-                      renderExerciseBody={ex => {
-                        const sets = localSets[ex.workoutExerciseId] ?? [];
-                        return (
-                          <>
-                            {/* Column labels */}
-                            <View style={styles.setLabelRow}>
-                              <Text style={[styles.setLabel, styles.setNumCol]}>
-                                SET
-                              </Text>
-                              <Text style={[styles.setLabel, styles.weightCol]}>
-                                WEIGHT
-                              </Text>
-                              <Text style={[styles.setLabel, styles.repsCol]}>
-                                REPS
-                              </Text>
-                              <View style={styles.checkCol} />
-                            </View>
+                      {exercises.length > 0 ? (
+                        <SortableActiveWorkoutExerciseList
+                          exercises={exercises}
+                          draggingExerciseId={draggingExerciseId}
+                          methodLockedByExerciseType={
+                            methodLockedByExerciseType
+                          }
+                          onDeleteExercise={handleDeleteExercise}
+                          onDragStateChange={handleExerciseDragStateChange}
+                          onReorder={persistExerciseOrder}
+                          renderExerciseBody={ex => {
+                            const sets = localSets[ex.workoutExerciseId] ?? [];
+                            return (
+                              <>
+                                {/* Column labels */}
+                                <View style={styles.setLabelRow}>
+                                  <Text
+                                    style={[styles.setLabel, styles.setNumCol]}
+                                  >
+                                    SET
+                                  </Text>
+                                  <Text
+                                    style={[styles.setLabel, styles.weightCol]}
+                                  >
+                                    WEIGHT
+                                  </Text>
+                                  <Text
+                                    style={[styles.setLabel, styles.repsCol]}
+                                  >
+                                    REPS
+                                  </Text>
+                                  <View style={styles.checkCol} />
+                                </View>
 
-                            {/* Set rows — swipe left to delete set */}
-                            {sets.map((s, i) => {
-                              const setRestKey = getRestSetKey(
-                                ex.workoutExerciseId,
-                                s.id,
-                              );
-                              return (
-                                <React.Fragment key={s.id}>
-                                  <View>
-                                    <ReanimatedSwipeable
-                                      renderRightActions={() =>
-                                        renderDeleteAction(() =>
-                                          removeLocalSet(
-                                            ex.workoutExerciseId,
-                                            s.id,
-                                          ),
-                                        )
-                                      }
-                                      childrenContainerStyle={
-                                        styles.swipeableSetContent
-                                      }
-                                      dragOffsetFromRightEdge={
-                                        DELETE_SWIPE_DRAG_OFFSET
-                                      }
-                                      overshootRight={false}
-                                    >
-                                      <View
-                                        style={[
-                                          styles.setRow,
-                                          s.completed && styles.setRowCompleted,
-                                        ]}
-                                      >
-                                        <Text
-                                          style={[
-                                            styles.setNum,
-                                            styles.setNumCol,
-                                          ]}
-                                        >
-                                          {i + 1}
-                                        </Text>
-
-                                        <View
-                                          style={[
-                                            styles.inputWrap,
-                                            styles.weightCol,
-                                            hasFieldError(
-                                              ex.workoutExerciseId,
-                                              s.id,
-                                              'weight',
-                                            ) && styles.inputWrapError,
-                                          ]}
-                                        >
-                                          <TextInput
-                                            style={styles.input}
-                                            value={getDisplayWeight(
-                                              s,
-                                              ex.weightUnit,
-                                            )}
-                                            onChangeText={v =>
-                                              updateSetField(
+                                {/* Set rows — swipe left to delete set */}
+                                {sets.map((s, i) => {
+                                  const setRestKey = getRestSetKey(
+                                    ex.workoutExerciseId,
+                                    s.id,
+                                  );
+                                  return (
+                                    <React.Fragment key={s.id}>
+                                      <View>
+                                        <ReanimatedSwipeable
+                                          renderRightActions={() =>
+                                            renderDeleteAction(() =>
+                                              removeLocalSet(
                                                 ex.workoutExerciseId,
                                                 s.id,
-                                                'weight',
-                                                v,
-                                              )
-                                            }
-                                            keyboardType="decimal-pad"
-                                            placeholder="0"
-                                            placeholderTextColor={
-                                              theme.colors.textMuted
-                                            }
-                                            returnKeyType="done"
-                                          />
-                                          <TouchableOpacity
-                                            style={styles.inputUnitButton}
-                                            onPress={() =>
-                                              showWeightUnitPicker(
-                                                ex.workoutExerciseId,
-                                                ex.weightUnit,
-                                              )
-                                            }
-                                            hitSlop={{
-                                              top: 8,
-                                              bottom: 8,
-                                              left: 8,
-                                              right: 8,
-                                            }}
-                                          >
-                                            <Text style={styles.inputUnit}>
-                                              {ex.weightUnit}
-                                            </Text>
-                                          </TouchableOpacity>
-                                        </View>
-
-                                        <View
-                                          style={[
-                                            styles.inputWrap,
-                                            styles.repsCol,
-                                            hasFieldError(
-                                              ex.workoutExerciseId,
-                                              s.id,
-                                              'reps',
-                                            ) && styles.inputWrapError,
-                                          ]}
-                                        >
-                                          <TextInput
-                                            style={styles.input}
-                                            value={s.reps}
-                                            onChangeText={v =>
-                                              updateSetField(
-                                                ex.workoutExerciseId,
-                                                s.id,
-                                                'reps',
-                                                v,
-                                              )
-                                            }
-                                            keyboardType="number-pad"
-                                            placeholder="0"
-                                            placeholderTextColor={
-                                              theme.colors.textMuted
-                                            }
-                                            returnKeyType="done"
-                                          />
-                                          <View style={styles.inputUnitButton}>
-                                            <Text style={styles.inputUnit}>
-                                              reps
-                                            </Text>
-                                          </View>
-                                        </View>
-
-                                        <TouchableOpacity
-                                          style={styles.checkCol}
-                                          onPress={() =>
-                                            toggleSetCompleted(
-                                              ex.workoutExerciseId,
-                                              s.id,
+                                              ),
                                             )
                                           }
-                                          hitSlop={{
-                                            top: 8,
-                                            bottom: 8,
-                                            left: 8,
-                                            right: 8,
-                                          }}
+                                          childrenContainerStyle={
+                                            styles.swipeableSetContent
+                                          }
+                                          dragOffsetFromRightEdge={
+                                            DELETE_SWIPE_DRAG_OFFSET
+                                          }
+                                          overshootRight={false}
                                         >
-                                          <MaterialCommunityIcons
-                                            name={
-                                              s.completed
-                                                ? 'check-circle'
-                                                : 'check-circle-outline'
-                                            }
-                                            size={22}
-                                            color={
-                                              s.completed
-                                                ? theme.colors.accent
-                                                : theme.colors.textMuted
-                                            }
-                                          />
-                                        </TouchableOpacity>
+                                          <View
+                                            style={[
+                                              styles.setRow,
+                                              s.completed &&
+                                                styles.setRowCompleted,
+                                            ]}
+                                          >
+                                            <Text
+                                              style={[
+                                                styles.setNum,
+                                                styles.setNumCol,
+                                              ]}
+                                            >
+                                              {i + 1}
+                                            </Text>
+
+                                            <View
+                                              style={[
+                                                styles.inputWrap,
+                                                styles.weightCol,
+                                                hasFieldError(
+                                                  ex.workoutExerciseId,
+                                                  s.id,
+                                                  'weight',
+                                                ) && styles.inputWrapError,
+                                              ]}
+                                            >
+                                              <TextInput
+                                                style={styles.input}
+                                                value={getDisplayWeight(
+                                                  s,
+                                                  ex.weightUnit,
+                                                )}
+                                                onChangeText={v =>
+                                                  updateSetField(
+                                                    ex.workoutExerciseId,
+                                                    s.id,
+                                                    'weight',
+                                                    v,
+                                                  )
+                                                }
+                                                keyboardType="decimal-pad"
+                                                placeholder="0"
+                                                placeholderTextColor={
+                                                  theme.colors.textMuted
+                                                }
+                                                returnKeyType="done"
+                                              />
+                                              <TouchableOpacity
+                                                style={styles.inputUnitButton}
+                                                onPress={() =>
+                                                  showWeightUnitPicker(
+                                                    ex.workoutExerciseId,
+                                                    ex.weightUnit,
+                                                  )
+                                                }
+                                                hitSlop={{
+                                                  top: 8,
+                                                  bottom: 8,
+                                                  left: 8,
+                                                  right: 8,
+                                                }}
+                                              >
+                                                <Text style={styles.inputUnit}>
+                                                  {ex.weightUnit}
+                                                </Text>
+                                              </TouchableOpacity>
+                                            </View>
+
+                                            <View
+                                              style={[
+                                                styles.inputWrap,
+                                                styles.repsCol,
+                                                hasFieldError(
+                                                  ex.workoutExerciseId,
+                                                  s.id,
+                                                  'reps',
+                                                ) && styles.inputWrapError,
+                                              ]}
+                                            >
+                                              <TextInput
+                                                style={styles.input}
+                                                value={s.reps}
+                                                onChangeText={v =>
+                                                  updateSetField(
+                                                    ex.workoutExerciseId,
+                                                    s.id,
+                                                    'reps',
+                                                    v,
+                                                  )
+                                                }
+                                                keyboardType="number-pad"
+                                                placeholder="0"
+                                                placeholderTextColor={
+                                                  theme.colors.textMuted
+                                                }
+                                                returnKeyType="done"
+                                              />
+                                              <View
+                                                style={styles.inputUnitButton}
+                                              >
+                                                <Text style={styles.inputUnit}>
+                                                  reps
+                                                </Text>
+                                              </View>
+                                            </View>
+
+                                            <TouchableOpacity
+                                              style={styles.checkCol}
+                                              onPress={() =>
+                                                toggleSetCompleted(
+                                                  ex.workoutExerciseId,
+                                                  s.id,
+                                                )
+                                              }
+                                              hitSlop={{
+                                                top: 8,
+                                                bottom: 8,
+                                                left: 8,
+                                                right: 8,
+                                              }}
+                                            >
+                                              <MaterialCommunityIcons
+                                                name={
+                                                  s.completed
+                                                    ? 'check-circle'
+                                                    : 'check-circle-outline'
+                                                }
+                                                size={22}
+                                                color={
+                                                  s.completed
+                                                    ? theme.colors.accent
+                                                    : theme.colors.textMuted
+                                                }
+                                              />
+                                            </TouchableOpacity>
+                                          </View>
+                                        </ReanimatedSwipeable>
                                       </View>
-                                    </ReanimatedSwipeable>
-                                  </View>
-                                  {isResting && restSetKey === setRestKey && (
-                                    <View style={styles.restTimerRow}>
-                                      <MaterialCommunityIcons
-                                        name="timer-sand"
-                                        size={14}
-                                        color={theme.colors.accent}
-                                      />
-                                      <Text style={styles.restTimerText}>
-                                        Rest timer started
-                                      </Text>
-                                      <RestTimerCountdownText
-                                        style={styles.restTimerCountdownText}
-                                      />
-                                      <TouchableOpacity
-                                        style={styles.skipRestButton}
-                                        onPress={skipRestTimer}
-                                      >
-                                        <Text style={styles.skipRestText}>
-                                          Skip
-                                        </Text>
-                                      </TouchableOpacity>
-                                    </View>
-                                  )}
-                                </React.Fragment>
-                              );
-                            })}
+                                      {isResting &&
+                                        restSetKey === setRestKey && (
+                                          <View style={styles.restTimerRow}>
+                                            <MaterialCommunityIcons
+                                              name="timer-sand"
+                                              size={14}
+                                              color={theme.colors.accent}
+                                            />
+                                            <Text style={styles.restTimerText}>
+                                              Rest timer started
+                                            </Text>
+                                            <RestTimerCountdownText
+                                              style={
+                                                styles.restTimerCountdownText
+                                              }
+                                            />
+                                            <TouchableOpacity
+                                              style={styles.skipRestButton}
+                                              onPress={skipRestTimer}
+                                            >
+                                              <Text style={styles.skipRestText}>
+                                                Skip
+                                              </Text>
+                                            </TouchableOpacity>
+                                          </View>
+                                        )}
+                                    </React.Fragment>
+                                  );
+                                })}
 
-                            {/* Add Set button */}
-                            <TouchableOpacity
-                              style={styles.addSetBtn}
-                              onPress={() => addLocalSet(ex.workoutExerciseId)}
-                            >
-                              <MaterialCommunityIcons
-                                name="plus"
-                                size={14}
-                                color={theme.colors.textMuted}
-                              />
-                              <Text style={styles.addSetText}>Add Set</Text>
-                            </TouchableOpacity>
-                          </>
-                        );
-                      }}
-                    />
-                  ) : null}
+                                {/* Add Set button */}
+                                <TouchableOpacity
+                                  style={styles.addSetBtn}
+                                  onPress={() =>
+                                    addLocalSet(ex.workoutExerciseId)
+                                  }
+                                >
+                                  <MaterialCommunityIcons
+                                    name="plus"
+                                    size={14}
+                                    color={theme.colors.textMuted}
+                                  />
+                                  <Text style={styles.addSetText}>Add Set</Text>
+                                </TouchableOpacity>
+                              </>
+                            );
+                          }}
+                        />
+                      ) : null}
 
-                  {/* Add Exercise button — below exercises */}
-                  <TouchableOpacity
-                    style={styles.addExerciseBtn}
-                    onPress={handlePickerOpen}
-                    activeOpacity={0.78}
-                  >
-                    <View style={styles.addExerciseIcon}>
-                      <MaterialCommunityIcons
-                        name="plus"
-                        size={18}
-                        color={theme.colors.accent}
-                      />
-                    </View>
-                    <Text style={styles.addExerciseText}>Add Exercise</Text>
-                  </TouchableOpacity>
-                  </KeyboardAwareScrollView>
+                      {/* Add Exercise button — below exercises */}
+                      <TouchableOpacity
+                        style={styles.addExerciseBtn}
+                        onPress={handlePickerOpen}
+                        activeOpacity={0.78}
+                      >
+                        <View style={styles.addExerciseIcon}>
+                          <MaterialCommunityIcons
+                            name="plus"
+                            size={18}
+                            color={theme.colors.accent}
+                          />
+                        </View>
+                        <Text style={styles.addExerciseText}>Add Exercise</Text>
+                      </TouchableOpacity>
+                    </KeyboardAwareScrollView>
+                  </GestureDetector>
                 </View>
               </GestureDetector>
 

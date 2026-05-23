@@ -582,7 +582,7 @@ export default function HomeScreen() {
                 ]}
               >
                 {isWorkoutActive
-                  ? 'Workout in Progress'
+                  ? 'Active Workout'
                   : 'Start Workout'}
               </Text>
               <Text

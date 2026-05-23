@@ -11,6 +11,7 @@ import notifee, { EventType } from '@notifee/react-native'
 import { storage, removeKey, setString } from './src/storage/mmkv'
 import {
   cancelRestDoneTrigger,
+  showRestDoneAlertNotification,
   showWorkoutNotification,
   WORKOUT_NOTIFICATION_ID,
   WORKOUT_REST_DONE_NOTIFICATION_ID,
@@ -23,6 +24,7 @@ import {
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 const SERVICE_IDLE_CHECK_MS = 5000
+const SERVICE_REST_CHECK_MS = 1000
 
 function parseStoredTimestamp(value) {
   if (!value) return null
@@ -36,7 +38,11 @@ async function showActiveWorkoutNotification(options = {}) {
 
   const storedRestEndsAt = parseStoredTimestamp(storage.getString(MMKV_REST_ENDS_AT))
 
-  if (!options.restDone && storedRestEndsAt && storedRestEndsAt <= Date.now()) {
+  if (
+    !options.restDone &&
+    storedRestEndsAt &&
+    storedRestEndsAt <= Date.now()
+  ) {
     await completeRestIfCurrent(storedRestEndsAt)
     return
   }
@@ -55,7 +61,7 @@ async function showActiveWorkoutNotification(options = {}) {
   )
 }
 
-async function completeRestIfCurrent(restEndsAt) {
+async function completeRestIfCurrent(restEndsAt, options = {}) {
   const storedRestEndsAt = parseStoredTimestamp(storage.getString(MMKV_REST_ENDS_AT))
   if (!storedRestEndsAt || storedRestEndsAt !== restEndsAt) return false
 
@@ -68,6 +74,10 @@ async function completeRestIfCurrent(restEndsAt) {
     startedAt,
     { restDone: true, restEndsAt },
   )
+
+  if (options.playAlert) {
+    await showRestDoneAlertNotification(startedAt, restEndsAt)
+  }
 
   const latestRestEndsAt = parseStoredTimestamp(storage.getString(MMKV_REST_ENDS_AT))
   if (latestRestEndsAt === restEndsAt) {
@@ -92,14 +102,18 @@ notifee.registerForegroundService(() => {
 
         const restEndsAt = parseStoredTimestamp(storage.getString(MMKV_REST_ENDS_AT))
 
-        if (restEndsAt && restEndsAt <= Date.now()) {
-          await completeRestIfCurrent(restEndsAt)
+        const now = Date.now()
+        if (restEndsAt && restEndsAt <= now) {
+          await completeRestIfCurrent(restEndsAt, { playAlert: true })
           await sleep(SERVICE_IDLE_CHECK_MS)
           continue
         }
 
         const nextDelay = restEndsAt
-          ? Math.min(SERVICE_IDLE_CHECK_MS, Math.max(250, restEndsAt - Date.now()))
+          ? Math.min(
+              SERVICE_REST_CHECK_MS,
+              Math.max(250, restEndsAt - now),
+            )
           : SERVICE_IDLE_CHECK_MS
         await sleep(nextDelay)
       }
@@ -152,6 +166,11 @@ notifee.onBackgroundEvent(async ({ type, detail }) => {
     type === EventType.DISMISSED &&
     detail.notification?.id === WORKOUT_NOTIFICATION_ID
   ) {
+    const dismissedEvent = detail.notification?.data?.event
+    const hasStoredRest = Boolean(storage.getString(MMKV_REST_ENDS_AT))
+    if (dismissedEvent !== 'active' || hasStoredRest) {
+      return
+    }
     await sleep(750)
     await showActiveWorkoutNotification()
   }

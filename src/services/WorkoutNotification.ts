@@ -19,6 +19,7 @@ const REST_DONE_TRIGGER_MIN_LEAD_MS = 1000
 let legacyNotificationArtifactsCleared = false
 let lastWorkoutNotificationKey: string | null = null
 let lastRestDoneTriggerKey: string | null = null
+let lastWorkoutNotificationEvent: string | null = null
 
 type WorkoutNotificationOptions = {
   restEndsAt?: number | null
@@ -39,7 +40,9 @@ export function buildWorkoutNotification(
   const hasRestTimer = !options.restDone && Boolean(restEndsAt && restEndsAt > Date.now())
   const isRestDone = Boolean(options.restDone)
   const event = isRestDone ? 'rest_done' : hasRestTimer ? 'resting' : 'active'
-  const timestamp = startedAt ?? Date.now() - elapsedSeconds * 1000
+  const timestamp = hasRestTimer && typeof restEndsAt === 'number'
+    ? restEndsAt
+    : startedAt ?? Date.now() - elapsedSeconds * 1000
   const actions = [
     ...(hasRestTimer
       ? [{
@@ -56,11 +59,11 @@ export function buildWorkoutNotification(
 
   return {
     id: WORKOUT_NOTIFICATION_ID,
-    title: isRestDone ? 'Rest Timer Done' : 'Workout in Progress',
+    title: 'Workout in Progress',
     body: isRestDone
       ? 'Rest timer done.'
       : hasRestTimer
-        ? getRestTimerBody(restEndsAt)
+        ? 'Rest in progress.'
         : 'Workout in progress.',
     data: {
       type: 'active_workout',
@@ -82,18 +85,11 @@ export function buildWorkoutNotification(
       actions,
       pressAction: { id: 'default', launchActivity: 'default' },
       timestamp,
-      showChronometer: !isRestDone,
-      chronometerDirection: 'up',
+      showChronometer: true,
+      showTimestamp: false,
+      chronometerDirection: hasRestTimer ? 'down' : 'up',
     },
   }
-}
-
-function getRestTimerBody(restEndsAt?: number | null) {
-  if (typeof restEndsAt !== 'number') return 'Rest timer active.'
-  return `Rest ends at ${new Date(restEndsAt).toLocaleTimeString([], {
-    hour: 'numeric',
-    minute: '2-digit',
-  })}.`
 }
 
 function buildRestDoneAlertNotification(
@@ -102,7 +98,7 @@ function buildRestDoneAlertNotification(
 ): Notification {
   return {
     id: WORKOUT_REST_DONE_NOTIFICATION_ID,
-    title: 'Rest Timer Done',
+    title: 'Workout in Progress',
     body: 'Rest timer done. Time for your next set.',
     data: {
       type: 'active_workout',
@@ -125,6 +121,16 @@ function buildRestDoneAlertNotification(
       pressAction: { id: 'default', launchActivity: 'default' },
     },
   }
+}
+
+export async function showRestDoneAlertNotification(
+  startedAt: number,
+  restEndsAt: number,
+) {
+  await setupWorkoutChannel()
+  await notifee.displayNotification(
+    buildRestDoneAlertNotification(startedAt, restEndsAt),
+  ).catch(() => {})
 }
 
 export async function setupWorkoutChannel() {
@@ -185,9 +191,19 @@ export async function showWorkoutNotification(
 
   if (notificationKey === lastWorkoutNotificationKey) return
 
+  const notificationEvent = String(notification.data?.event ?? 'active')
+  if (
+    lastWorkoutNotificationEvent &&
+    lastWorkoutNotificationEvent !== notificationEvent
+  ) {
+    await notifee.cancelNotification(WORKOUT_NOTIFICATION_ID).catch(() => {})
+    lastWorkoutNotificationKey = null
+  }
+
   await notifee.displayNotification(notification)
     .then(() => {
       lastWorkoutNotificationKey = notificationKey
+      lastWorkoutNotificationEvent = notificationEvent
     })
     .catch(() => {})
 }
@@ -239,7 +255,7 @@ async function scheduleRestDoneTrigger(
     }
   } else {
     trigger.alarmManager = {
-      type: AlarmType.SET_AND_ALLOW_WHILE_IDLE,
+      type: AlarmType.SET_ALARM_CLOCK,
     }
   }
 
@@ -266,6 +282,7 @@ export async function cancelRestDoneTrigger() {
 export async function cancelWorkoutNotification() {
   legacyNotificationArtifactsCleared = false
   lastWorkoutNotificationKey = null
+  lastWorkoutNotificationEvent = null
   await cancelRestDoneTrigger()
   await Promise.all([
     notifee.stopForegroundService().catch(() => {}),

@@ -230,80 +230,84 @@ function WorkoutMiniBar() {
   return (
     <GestureDetector gesture={swipeUpGesture}>
       <View style={styles.miniBarWrap}>
-        <View style={[styles.miniBar, isResting && styles.miniBarResting]}>
-          <View style={styles.miniBarTopRow}>
-            <TouchableOpacity
-              style={[styles.miniBarMain, isResting && styles.miniBarHeader]}
-              activeOpacity={0.82}
-              onPress={openWorkoutSheet}
-            >
-              <View style={styles.miniBarTitleRow}>
-                <View style={styles.miniBarDot} />
-                <Text
-                  style={styles.miniBarTitle}
-                >
-                  Workout in Progress
-                </Text>
-              </View>
-              <View style={styles.miniBarTimeRow}>
-                <Text
-                  style={styles.miniBarTime}
-                >
-                  {formatElapsed(elapsed)}
-                </Text>
-                <MaterialCommunityIcons
-                  name="chevron-up"
-                  size={isResting ? 18 : 20}
-                  color={theme.colors.textMuted}
-                />
-              </View>
-            </TouchableOpacity>
-
-            {!isResting ? (
-              <TouchableOpacity
-                style={styles.miniEndButton}
-                onPress={requestEndWorkout}
-                activeOpacity={0.82}
-              >
-                <Text style={styles.miniEndButtonText}>
-                  End
-                </Text>
-              </TouchableOpacity>
-            ) : null}
-          </View>
-
+        <View
+          style={[
+            styles.miniBar,
+            !isResting && styles.miniBarCompact,
+            isResting && styles.miniBarResting,
+          ]}
+        >
           {isResting ? (
             <>
               <TouchableOpacity
-                style={styles.miniTimerGrid}
-                activeOpacity={0.82}
+                style={styles.miniBarHeader}
+                activeOpacity={0.86}
                 onPress={openWorkoutSheet}
               >
-                <View style={styles.miniTimerChip}>
-                  <Text style={styles.miniTimerLabel}>
-                    Workout
+                <View style={styles.miniBarTitleGroup}>
+                  <View style={[styles.miniStatusIcon, styles.miniStatusIconResting]}>
+                    <MaterialCommunityIcons
+                      name="timer-sand"
+                      size={19}
+                      color={theme.colors.accent}
+                    />
+                  </View>
+                  <Text style={styles.miniBarTitle} numberOfLines={1}>
+                    Rest Timer
                   </Text>
-                  <Text style={styles.miniTimerValue}>
+                </View>
+                <View style={styles.miniOpenPill}>
+                  <MaterialCommunityIcons
+                    name="chevron-up"
+                    size={20}
+                    color={theme.colors.textMuted}
+                  />
+                </View>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.miniStatsRow}
+                activeOpacity={0.86}
+                onPress={openWorkoutSheet}
+              >
+                <View style={styles.miniStatBlock}>
+                  <Text style={styles.miniStatLabel}>Elapsed</Text>
+                  <Text
+                    style={styles.miniStatValue}
+                    numberOfLines={1}
+                    adjustsFontSizeToFit
+                  >
                     {formatElapsed(elapsed)}
                   </Text>
                 </View>
-                <View style={[styles.miniTimerChip, styles.miniRestTimerChip]}>
-                  <Text style={styles.miniTimerLabel}>
-                    Rest
-                  </Text>
-                  <Text style={styles.miniRestTime}>
+                <View style={styles.miniStatBlock}>
+                  <Text style={styles.miniStatLabel}>Rest</Text>
+                  <Text
+                    style={[styles.miniStatValue, styles.miniRestValue]}
+                    numberOfLines={1}
+                    adjustsFontSizeToFit
+                  >
                     {formatRestTimer(restSecondsRemaining)}
                   </Text>
                 </View>
               </TouchableOpacity>
 
-              <View style={styles.miniRestRow}>
+              <View style={styles.miniActionsRow}>
                 <TouchableOpacity
-                  style={[styles.miniActionButton, styles.miniEndRestButton]}
+                  style={[styles.miniActionButton, styles.miniEndButton]}
                   onPress={requestEndWorkout}
                   activeOpacity={0.82}
                 >
-                  <Text style={styles.miniEndButtonText}>
+                  <MaterialCommunityIcons
+                    name="stop-circle-outline"
+                    size={18}
+                    color={theme.colors.danger}
+                  />
+                  <Text
+                    style={styles.miniEndButtonText}
+                    numberOfLines={1}
+                    adjustsFontSizeToFit
+                  >
                     End Workout
                   </Text>
                 </TouchableOpacity>
@@ -312,13 +316,83 @@ function WorkoutMiniBar() {
                   onPress={skipRest}
                   activeOpacity={0.82}
                 >
-                  <Text style={styles.miniSkipButtonText}>
+                  <MaterialCommunityIcons
+                    name="skip-next"
+                    size={18}
+                    color={theme.colors.accent}
+                  />
+                  <Text
+                    style={styles.miniSkipButtonText}
+                    numberOfLines={1}
+                    adjustsFontSizeToFit
+                  >
                     Skip Rest
                   </Text>
                 </TouchableOpacity>
               </View>
             </>
-          ) : null}
+          ) : (
+            <View style={styles.miniClassicRow}>
+              <TouchableOpacity
+                style={styles.miniClassicMain}
+                activeOpacity={0.86}
+                onPress={openWorkoutSheet}
+              >
+                <View style={styles.miniStatusIcon}>
+                  <MaterialCommunityIcons
+                    name="dumbbell"
+                    size={18}
+                    color={theme.colors.accent}
+                  />
+                </View>
+                <View style={styles.miniClassicTextBlock}>
+                  <Text style={styles.miniClassicTitle} numberOfLines={1}>
+                    Active Workout
+                  </Text>
+                  <Text
+                    style={styles.miniClassicTime}
+                    numberOfLines={1}
+                    adjustsFontSizeToFit
+                  >
+                    {formatElapsed(elapsed)}
+                  </Text>
+                </View>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.miniActionButton,
+                  styles.miniEndButton,
+                  styles.miniClassicEndButton,
+                ]}
+                onPress={requestEndWorkout}
+                activeOpacity={0.82}
+              >
+                <MaterialCommunityIcons
+                  name="stop-circle-outline"
+                  size={18}
+                  color={theme.colors.danger}
+                />
+                <Text
+                  style={styles.miniEndButtonText}
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                >
+                  End Workout
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.miniOpenPill}
+                activeOpacity={0.82}
+                onPress={openWorkoutSheet}
+              >
+                <MaterialCommunityIcons
+                  name="chevron-up"
+                  size={20}
+                  color={theme.colors.textMuted}
+                />
+              </TouchableOpacity>
+            </View>
+          )}
         </View>
       </View>
     </GestureDetector>
@@ -631,132 +705,159 @@ const stylesheet = createStyleSheet((theme) => ({
     borderWidth: 1,
     borderColor: theme.colors.border,
     borderBottomWidth: 1,
-    paddingHorizontal: 18,
-    paddingVertical: 14,
-    minHeight: 72,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    minHeight: 108,
     overflow: 'hidden',
+    marginHorizontal: -0.5,
     marginBottom: -1,
+    gap: 8,
+  },
+  miniBarCompact: {
+    minHeight: 58,
+    paddingVertical: 8,
+    gap: 0,
   },
   miniBarResting: {
-    gap: 9,
-    paddingVertical: 12,
+    borderColor: theme.colors.accentMuted,
   },
-  miniBarTopRow: {
+  miniClassicRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
     gap: 12,
   },
-  miniBarMain: {
+  miniClassicMain: {
     flex: 1,
     minWidth: 0,
-    gap: 4,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    minHeight: 40,
+  },
+  miniClassicTextBlock: {
+    flex: 1,
+    minWidth: 0,
+    gap: 2,
+  },
+  miniClassicTitle: {
+    color: theme.colors.text,
+    fontSize: 14,
+    fontFamily: theme.fontFamily.semiBold,
+  },
+  miniClassicTime: {
+    color: theme.colors.accent,
+    fontSize: 18,
+    fontFamily: theme.fontFamily.extraBold,
+  },
+  miniClassicEndButton: {
+    flex: 0,
+    minWidth: 128,
+    minHeight: 38,
   },
   miniBarHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    gap: 12,
+    minHeight: 34,
   },
-  miniBarTitleRow: {
+  miniBarTitleGroup: {
+    flex: 1,
+    minWidth: 0,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 10,
   },
-  miniBarDot: {
-    width: 8,
-    height: 8,
-    borderRadius: theme.radius.full,
-    backgroundColor: theme.colors.accent,
+  miniStatusIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: theme.radius.sm,
+    backgroundColor: theme.colors.surface2,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  miniStatusIconResting: {
+    backgroundColor: theme.colors.accentMuted,
+    borderColor: theme.colors.accentMuted,
   },
   miniBarTitle: {
     color: theme.colors.text,
     fontSize: 14,
-    fontFamily: theme.fontFamily.semiBold,
+    fontFamily: theme.fontFamily.bold,
   },
-  miniBarTimeRow: {
-    flexDirection: 'row',
+  miniOpenPill: {
+    width: 30,
+    height: 30,
+    borderRadius: theme.radius.full,
+    backgroundColor: theme.colors.surface2,
     alignItems: 'center',
-    gap: 6,
+    justifyContent: 'center',
   },
-  miniBarTime: {
-    color: theme.colors.accent,
-    fontSize: 18,
-    fontFamily: theme.fontFamily.extraBold,
-  },
-  miniRestRow: {
+  miniStatsRow: {
     flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 10,
+    gap: 8,
   },
-  miniTimerGrid: {
-    flexDirection: 'row',
-    gap: 10,
-  },
-  miniTimerChip: {
+  miniStatBlock: {
     flex: 1,
-    minHeight: 44,
+    minWidth: 0,
+    minHeight: 46,
     borderRadius: theme.radius.sm,
     borderWidth: 1,
     borderColor: theme.colors.border,
     backgroundColor: theme.colors.surface2,
     justifyContent: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 7,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
     gap: 2,
   },
-  miniRestTimerChip: {
-    backgroundColor: theme.colors.accentMuted,
-  },
-  miniTimerLabel: {
+  miniStatLabel: {
     color: theme.colors.textMuted,
-    fontSize: 11,
+    fontSize: 9,
     fontFamily: theme.fontFamily.extraBold,
     textTransform: 'uppercase',
   },
-  miniTimerValue: {
+  miniStatValue: {
     color: theme.colors.accent,
     fontSize: 16,
     fontFamily: theme.fontFamily.black,
   },
-  miniRestTime: {
-    color: theme.colors.accent,
-    fontSize: 16,
-    fontFamily: theme.fontFamily.black,
+  miniRestValue: {
+    color: theme.colors.text,
+  },
+  miniActionsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
   },
   miniActionButton: {
     flex: 1,
-    minHeight: 38,
-    borderRadius: theme.radius.full,
+    minWidth: 0,
+    minHeight: 34,
+    borderRadius: theme.radius.sm,
     borderWidth: 1,
-    borderColor: theme.colors.border,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 14,
+    flexDirection: 'row',
+    gap: 6,
+    paddingHorizontal: 10,
+  },
+  miniEndButton: {
+    borderColor: theme.colors.dangerMuted,
+    backgroundColor: theme.colors.dangerMuted,
+  },
+  miniEndButtonText: {
+    color: theme.colors.danger,
+    fontSize: 13,
+    fontFamily: theme.fontFamily.extraBold,
   },
   miniSkipButton: {
+    borderColor: theme.colors.accentMuted,
     backgroundColor: theme.colors.accentMuted,
   },
   miniSkipButtonText: {
     color: theme.colors.accent,
-    fontSize: 13,
-    fontFamily: theme.fontFamily.extraBold,
-  },
-  miniEndRestButton: {
-    backgroundColor: theme.colors.surface2,
-  },
-  miniEndButton: {
-    minHeight: 38,
-    borderRadius: theme.radius.full,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    backgroundColor: theme.colors.surface2,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 14,
-  },
-  miniEndButtonText: {
-    color: theme.colors.textMuted,
     fontSize: 13,
     fontFamily: theme.fontFamily.extraBold,
   },

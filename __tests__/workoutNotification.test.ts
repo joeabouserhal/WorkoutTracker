@@ -14,6 +14,7 @@ jest.mock('@notifee/react-native', () => ({
   AlarmType: {
     SET_AND_ALLOW_WHILE_IDLE: 1,
     SET_EXACT_AND_ALLOW_WHILE_IDLE: 3,
+    SET_ALARM_CLOCK: 4,
   },
   AndroidFlags: {
     FLAG_NO_CLEAR: 32,
@@ -42,7 +43,20 @@ import {
 } from '../src/services/WorkoutNotification';
 
 describe('workout notifications', () => {
-  it('keeps the foreground workout notification from counting rest below zero', () => {
+  it('uses an upward workout chronometer outside rest', () => {
+    const startedAt = Date.now() - 60_000;
+
+    const notification = buildWorkoutNotification(60, 0, startedAt);
+
+    expect(notification.title).toBe('Workout in Progress');
+    expect(notification.body).toBe('Workout in progress.');
+    expect(notification.data?.event).toBe('active');
+    expect(notification.android?.timestamp).toBe(startedAt);
+    expect(notification.android?.showChronometer).toBe(true);
+    expect(notification.android?.chronometerDirection).toBe('up');
+  });
+
+  it('uses the native countdown chronometer for active rest', () => {
     const startedAt = Date.now() - 60_000;
     const restEndsAt = Date.now() + 90_000;
 
@@ -52,10 +66,12 @@ describe('workout notifications', () => {
 
     expect(notification.data?.event).toBe('resting');
     expect(notification.data?.restEndsAt).toBe(restEndsAt);
+    expect(notification.body).toBe('Rest in progress.');
     expect(notification.android?.channelId).toBe(WORKOUT_CHANNEL_ID);
-    expect(notification.android?.timestamp).toBe(startedAt);
+    expect(notification.android?.timestamp).toBe(restEndsAt);
     expect(notification.android?.showChronometer).toBe(true);
-    expect(notification.android?.chronometerDirection).toBe('up');
+    expect(notification.android?.showTimestamp).toBe(false);
+    expect(notification.android?.chronometerDirection).toBe('down');
     expect(notification.android?.actions?.map(action => action.title)).toEqual([
       'Skip Rest',
       'End Workout',
@@ -71,12 +87,13 @@ describe('workout notifications', () => {
       restEndsAt,
     });
 
-    expect(notification.title).toBe('Rest Timer Done');
+    expect(notification.title).toBe('Workout in Progress');
+    expect(notification.body).toBe('Rest timer done.');
     expect(notification.data?.event).toBe('rest_done');
     expect(notification.data?.restEndsAt).toBe(restEndsAt);
     expect(notification.android?.channelId).toBe(WORKOUT_REST_DONE_CHANNEL_ID);
     expect(notification.android?.timestamp).toBe(startedAt);
-    expect(notification.android?.showChronometer).toBe(false);
+    expect(notification.android?.showChronometer).toBe(true);
     expect(notification.android?.chronometerDirection).toBe('up');
     expect(notification.android?.actions?.map(action => action.title)).toEqual([
       'End Workout',

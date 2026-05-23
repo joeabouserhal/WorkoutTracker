@@ -71,6 +71,7 @@ import {
 } from '@/db/workoutHelpers';
 import {
   cancelWorkoutNotification,
+  showRestDoneAlertNotification,
   showWorkoutNotification,
 } from '@/services/WorkoutNotification';
 import {
@@ -1127,6 +1128,16 @@ export default function ActiveWorkoutSheet() {
         setRestSetKey(null);
 
         if (appStateRef.current !== 'active') return;
+
+        if (
+          typeof startedAtRef.current === 'number' &&
+          typeof restEndsAtBeforeTick === 'number'
+        ) {
+          showRestDoneAlertNotification(
+            startedAtRef.current,
+            restEndsAtBeforeTick,
+          ).catch(console.error);
+        }
 
         showWorkoutNotification(
           getElapsedSeconds(startedAtRef.current),

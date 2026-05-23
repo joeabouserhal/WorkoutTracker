@@ -245,7 +245,9 @@ export const useSessionStore = create<SessionState>()((set, get) => ({
       if (next <= 0) {
         removeKey(MMKV_REST_ENDS_AT)
         set({ isResting: false, restSecondsRemaining: 0, restEndsAt: null })
+        return
       }
+      set({ restSecondsRemaining: next })
       return
     }
 
@@ -274,6 +276,6 @@ export const useSessionStore = create<SessionState>()((set, get) => ({
       const restSecondsRemaining = Math.max(5, currentRestSeconds + delta)
       const restEndsAt = Date.now() + restSecondsRemaining * 1000
       setString(MMKV_REST_ENDS_AT, restEndsAt.toString())
-      return { restSecondsRemaining, restEndsAt }
+      return { isResting: true, restSecondsRemaining, restEndsAt }
     }),
 }))

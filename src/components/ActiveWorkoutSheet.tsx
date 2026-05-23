@@ -462,9 +462,6 @@ export default function ActiveWorkoutSheet() {
     null,
   );
   const appStateRef = useRef(AppState.currentState);
-  const activeSinceRef = useRef<number | null>(
-    AppState.currentState === 'active' ? Date.now() : null,
-  );
   const startedAtRef = useRef<number | null>(null);
   const scrollOffsetY = useSharedValue(0);
   const pullToCloseDistance = useSharedValue(0);
@@ -1051,7 +1048,6 @@ export default function ActiveWorkoutSheet() {
     const appStateSub = AppState.addEventListener('change', state => {
       appStateRef.current = state;
       if (state !== 'active') {
-        activeSinceRef.current = null;
         dismissSetKeyboard();
         writeActiveWorkoutDraft(
           activeWorkoutId,
@@ -1061,7 +1057,6 @@ export default function ActiveWorkoutSheet() {
         return;
       }
       if (state === 'active') {
-        activeSinceRef.current = Date.now();
         dismissSetKeyboard();
         handleNotificationAction(getString(MMKV_PENDING_WORKOUT_ACTION));
         const session = useSessionStore.getState();
@@ -1070,6 +1065,7 @@ export default function ActiveWorkoutSheet() {
           session.restEndsAt &&
           session.restEndsAt <= Date.now()
         ) {
+          const expiredRestEndsAt = session.restEndsAt;
           useSessionStore.getState().clearRest();
           restDoneNotifiedRef.current = true;
           setRestSetKey(null);
@@ -1077,6 +1073,7 @@ export default function ActiveWorkoutSheet() {
             Math.floor((Date.now() - session.startedAt) / 1000),
             0,
             session.startedAt,
+            { restDone: true, restEndsAt: expiredRestEndsAt },
           ).catch(console.error);
           return;
         }
@@ -1128,27 +1125,14 @@ export default function ActiveWorkoutSheet() {
       if (wasResting && !stillResting && !restDoneNotifiedRef.current) {
         restDoneNotifiedRef.current = true;
         setRestSetKey(null);
-        const completedBeforeCurrentForeground =
-          typeof restEndsAtBeforeTick === 'number' &&
-          typeof activeSinceRef.current === 'number' &&
-          restEndsAtBeforeTick <= activeSinceRef.current;
 
         if (appStateRef.current !== 'active') return;
-
-        if (completedBeforeCurrentForeground) {
-          showWorkoutNotification(
-            getElapsedSeconds(startedAtRef.current),
-            0,
-            startedAtRef.current,
-          ).catch(console.error);
-          return;
-        }
 
         showWorkoutNotification(
           getElapsedSeconds(startedAtRef.current),
           0,
           startedAtRef.current,
-          { restDone: true },
+          { restDone: true, restEndsAt: restEndsAtBeforeTick },
         ).catch(console.error);
       }
     }, 1000);

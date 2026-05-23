@@ -1,18 +1,24 @@
 import notifee, {
+  AlarmType,
   AndroidFlags,
   AndroidForegroundServiceType,
   AndroidImportance,
+  AndroidNotificationSetting,
+  TriggerType,
   type Notification,
+  type TimestampTrigger,
 } from '@notifee/react-native'
 
 export const WORKOUT_CHANNEL_ID = 'workout'
 export const WORKOUT_NOTIFICATION_ID = 'workout_active'
 export const WORKOUT_REST_DONE_CHANNEL_ID = 'workout_rest_done'
+export const WORKOUT_REST_DONE_NOTIFICATION_ID = 'workout_rest_done_alert_v2'
 const LEGACY_WORKOUT_REST_DONE_NOTIFICATION_ID = 'workout_rest_done_alert'
 const LEGACY_REST_DONE_NOTIFICATION_ID = 'rest_done'
-const REST_COUNTDOWN_DISPLAY_GRACE_MS = 900
+const REST_DONE_TRIGGER_MIN_LEAD_MS = 1000
 let legacyNotificationArtifactsCleared = false
 let lastWorkoutNotificationKey: string | null = null
+let lastRestDoneTriggerKey: string | null = null
 
 type WorkoutNotificationOptions = {
   restEndsAt?: number | null
@@ -32,6 +38,8 @@ export function buildWorkoutNotification(
   const restEndsAt = options.restEndsAt ?? fallbackRestEndsAt
   const hasRestTimer = !options.restDone && Boolean(restEndsAt && restEndsAt > Date.now())
   const isRestDone = Boolean(options.restDone)
+  const event = isRestDone ? 'rest_done' : hasRestTimer ? 'resting' : 'active'
+  const timestamp = startedAt ?? Date.now() - elapsedSeconds * 1000
   const actions = [
     ...(hasRestTimer
       ? [{
@@ -44,22 +52,21 @@ export function buildWorkoutNotification(
       pressAction: { id: 'end_workout', launchActivity: 'default' },
     },
   ]
-  const timestamp = hasRestTimer
-    ? (restEndsAt ?? Date.now()) + REST_COUNTDOWN_DISPLAY_GRACE_MS
-    : startedAt ?? Date.now() - elapsedSeconds * 1000
   const asForegroundService = options.asForegroundService ?? true
 
   return {
     id: WORKOUT_NOTIFICATION_ID,
-    title: 'Workout in Progress',
+    title: isRestDone ? 'Rest Timer Done' : 'Workout in Progress',
     body: isRestDone
       ? 'Rest timer done.'
       : hasRestTimer
-        ? 'Rest in progress.'
+        ? getRestTimerBody(restEndsAt)
         : 'Workout in progress.',
     data: {
       type: 'active_workout',
-      event: isRestDone ? 'rest_done' : hasRestTimer ? 'resting' : 'active',
+      event,
+      ...(typeof restEndsAt === 'number' ? { restEndsAt } : {}),
+      ...(typeof startedAt === 'number' ? { startedAt } : {}),
     },
     android: {
       channelId: isRestDone ? WORKOUT_REST_DONE_CHANNEL_ID : WORKOUT_CHANNEL_ID,
@@ -75,8 +82,47 @@ export function buildWorkoutNotification(
       actions,
       pressAction: { id: 'default', launchActivity: 'default' },
       timestamp,
-      showChronometer: true,
-      chronometerDirection: hasRestTimer ? 'down' : 'up',
+      showChronometer: !isRestDone,
+      chronometerDirection: 'up',
+    },
+  }
+}
+
+function getRestTimerBody(restEndsAt?: number | null) {
+  if (typeof restEndsAt !== 'number') return 'Rest timer active.'
+  return `Rest ends at ${new Date(restEndsAt).toLocaleTimeString([], {
+    hour: 'numeric',
+    minute: '2-digit',
+  })}.`
+}
+
+function buildRestDoneAlertNotification(
+  startedAt: number,
+  restEndsAt: number,
+): Notification {
+  return {
+    id: WORKOUT_REST_DONE_NOTIFICATION_ID,
+    title: 'Rest Timer Done',
+    body: 'Rest timer done. Time for your next set.',
+    data: {
+      type: 'active_workout',
+      event: 'rest_done',
+      restEndsAt,
+      startedAt,
+    },
+    android: {
+      channelId: WORKOUT_REST_DONE_CHANNEL_ID,
+      autoCancel: true,
+      ongoing: false,
+      onlyAlertOnce: false,
+      smallIcon: 'ic_stat_notification',
+      actions: [
+        {
+          title: 'End Workout',
+          pressAction: { id: 'end_workout', launchActivity: 'default' },
+        },
+      ],
+      pressAction: { id: 'default', launchActivity: 'default' },
     },
   }
 }
@@ -122,9 +168,20 @@ export async function showWorkoutNotification(
   )
   const notificationKey = [
     notification.data?.event,
+    notification.data?.restEndsAt,
     notification.android?.channelId,
     notification.android?.timestamp,
   ].join('|')
+
+  if (notification.data?.event === 'resting' && typeof restEndsAt === 'number') {
+    await notifee.cancelNotification(WORKOUT_REST_DONE_NOTIFICATION_ID).catch(() => {})
+    await scheduleRestDoneTrigger(startedAt, restEndsAt)
+  } else {
+    await cancelRestDoneTrigger()
+    if (notification.data?.event === 'active') {
+      await notifee.cancelNotification(WORKOUT_REST_DONE_NOTIFICATION_ID).catch(() => {})
+    }
+  }
 
   if (notificationKey === lastWorkoutNotificationKey) return
 
@@ -145,8 +202,63 @@ async function clearLegacyNotificationArtifacts() {
   ])
 }
 
+async function scheduleRestDoneTrigger(
+  startedAt?: number | null,
+  restEndsAt?: number | null,
+) {
+  if (
+    typeof startedAt !== 'number' ||
+    !Number.isFinite(startedAt) ||
+    typeof restEndsAt !== 'number' ||
+    !Number.isFinite(restEndsAt) ||
+    restEndsAt <= Date.now() + REST_DONE_TRIGGER_MIN_LEAD_MS
+  ) {
+    await cancelRestDoneTrigger()
+    return
+  }
+
+  const triggerKey = `${startedAt}|${restEndsAt}`
+  if (triggerKey === lastRestDoneTriggerKey) return
+
+  await cancelRestDoneTrigger()
+
+  const settings = await notifee.getNotificationSettings().catch(() => null)
+  const alarmSetting = settings?.android?.alarm
+  const trigger: TimestampTrigger = {
+    type: TriggerType.TIMESTAMP,
+    timestamp: restEndsAt,
+  }
+
+  if (
+    alarmSetting === undefined ||
+    alarmSetting === AndroidNotificationSetting.ENABLED ||
+    alarmSetting === AndroidNotificationSetting.NOT_SUPPORTED
+  ) {
+    trigger.alarmManager = {
+      type: AlarmType.SET_EXACT_AND_ALLOW_WHILE_IDLE,
+    }
+  } else {
+    trigger.alarmManager = {
+      type: AlarmType.SET_AND_ALLOW_WHILE_IDLE,
+    }
+  }
+
+  const notification = buildRestDoneAlertNotification(startedAt, restEndsAt)
+
+  await notifee.createTriggerNotification(notification, trigger)
+    .then(() => {
+      lastRestDoneTriggerKey = triggerKey
+    })
+    .catch(() => {
+      lastRestDoneTriggerKey = null
+    })
+}
+
 export async function cancelRestDoneTrigger() {
+  lastRestDoneTriggerKey = null
   await Promise.all([
+    notifee.cancelTriggerNotification(WORKOUT_REST_DONE_NOTIFICATION_ID).catch(() => {}),
+    notifee.cancelTriggerNotification(WORKOUT_NOTIFICATION_ID).catch(() => {}),
     notifee.cancelTriggerNotification(LEGACY_WORKOUT_REST_DONE_NOTIFICATION_ID).catch(() => {}),
   ])
 }
@@ -158,6 +270,7 @@ export async function cancelWorkoutNotification() {
   await Promise.all([
     notifee.stopForegroundService().catch(() => {}),
     notifee.cancelNotification(WORKOUT_NOTIFICATION_ID).catch(() => {}),
+    notifee.cancelNotification(WORKOUT_REST_DONE_NOTIFICATION_ID).catch(() => {}),
     notifee.cancelNotification(LEGACY_WORKOUT_REST_DONE_NOTIFICATION_ID).catch(() => {}),
     notifee.cancelNotification(LEGACY_REST_DONE_NOTIFICATION_ID).catch(() => {}),
   ])

@@ -11,6 +11,7 @@ import notifee, { EventType } from '@notifee/react-native'
 import { storage, removeKey, setString } from './src/storage/mmkv'
 import {
   cancelRestDoneTrigger,
+  ensureRestDoneTrigger,
   showRestDoneAlertNotification,
   showWorkoutNotification,
   WORKOUT_NOTIFICATION_ID,
@@ -107,6 +108,11 @@ notifee.registerForegroundService(() => {
           await completeRestIfCurrent(restEndsAt, { playAlert: true })
           await sleep(SERVICE_IDLE_CHECK_MS)
           continue
+        }
+
+        const startedAt = parseStoredTimestamp(startedAtStr)
+        if (startedAt && restEndsAt && restEndsAt > now) {
+          await ensureRestDoneTrigger(startedAt, restEndsAt)
         }
 
         const nextDelay = restEndsAt

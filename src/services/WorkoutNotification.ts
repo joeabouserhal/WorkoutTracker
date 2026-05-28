@@ -16,9 +16,14 @@ export const WORKOUT_REST_DONE_NOTIFICATION_ID = 'workout_rest_done_alert_v2'
 const LEGACY_WORKOUT_REST_DONE_NOTIFICATION_ID = 'workout_rest_done_alert'
 const LEGACY_REST_DONE_NOTIFICATION_ID = 'rest_done'
 const REST_DONE_TRIGGER_MIN_LEAD_MS = 1000
+const REST_DONE_TRIGGER_VERIFY_INTERVAL_MS = 15_000
+const REST_DONE_TRIGGER_FAILURE_RETRY_MS = 15_000
 let legacyNotificationArtifactsCleared = false
 let lastWorkoutNotificationKey: string | null = null
 let lastRestDoneTriggerKey: string | null = null
+let lastRestDoneTriggerVerifiedAt = 0
+let lastRestDoneTriggerFailureKey: string | null = null
+let lastRestDoneTriggerFailedAt = 0
 let lastWorkoutNotificationEvent: string | null = null
 
 type WorkoutNotificationOptions = {
@@ -181,7 +186,7 @@ export async function showWorkoutNotification(
 
   if (notification.data?.event === 'resting' && typeof restEndsAt === 'number') {
     await notifee.cancelNotification(WORKOUT_REST_DONE_NOTIFICATION_ID).catch(() => {})
-    await scheduleRestDoneTrigger(startedAt, restEndsAt)
+    await ensureRestDoneTrigger(startedAt, restEndsAt)
   } else {
     await cancelRestDoneTrigger()
     if (notification.data?.event === 'active') {
@@ -218,7 +223,67 @@ async function clearLegacyNotificationArtifacts() {
   ])
 }
 
-async function scheduleRestDoneTrigger(
+type RestDoneAlarmManager = TimestampTrigger['alarmManager']
+
+function getRestDoneAlarmManagers(
+  alarmSetting?: AndroidNotificationSetting,
+): RestDoneAlarmManager[] {
+  const exactAlarmAllowed =
+    alarmSetting === undefined ||
+    alarmSetting === AndroidNotificationSetting.ENABLED ||
+    alarmSetting === AndroidNotificationSetting.NOT_SUPPORTED
+
+  return exactAlarmAllowed
+    ? [
+        { type: AlarmType.SET_EXACT_AND_ALLOW_WHILE_IDLE },
+        { type: AlarmType.SET_AND_ALLOW_WHILE_IDLE },
+        undefined,
+      ]
+    : [
+        { type: AlarmType.SET_ALARM_CLOCK },
+        { type: AlarmType.SET_AND_ALLOW_WHILE_IDLE },
+        undefined,
+      ]
+}
+
+function buildRestDoneTrigger(
+  restEndsAt: number,
+  alarmManager: RestDoneAlarmManager,
+): TimestampTrigger {
+  return {
+    type: TriggerType.TIMESTAMP,
+    timestamp: restEndsAt,
+    ...(alarmManager ? { alarmManager } : {}),
+  }
+}
+
+async function isRestDoneTriggerPending(): Promise<boolean | null> {
+  return notifee.getTriggerNotificationIds()
+    .then((ids) => ids.includes(WORKOUT_REST_DONE_NOTIFICATION_ID))
+    .catch(() => null)
+}
+
+async function createRestDoneTrigger(
+  notification: Notification,
+  restEndsAt: number,
+  alarmManagers: RestDoneAlarmManager[],
+): Promise<boolean> {
+  for (const alarmManager of alarmManagers) {
+    const trigger = buildRestDoneTrigger(restEndsAt, alarmManager)
+    const created = await notifee.createTriggerNotification(notification, trigger)
+      .then(() => true)
+      .catch(() => false)
+
+    if (!created) continue
+
+    const pending = await isRestDoneTriggerPending()
+    if (pending !== false) return true
+  }
+
+  return false
+}
+
+export async function ensureRestDoneTrigger(
   startedAt?: number | null,
   restEndsAt?: number | null,
 ) {
@@ -234,44 +299,45 @@ async function scheduleRestDoneTrigger(
   }
 
   const triggerKey = `${startedAt}|${restEndsAt}`
-  if (triggerKey === lastRestDoneTriggerKey) return
+  if (triggerKey === lastRestDoneTriggerKey) {
+    const shouldVerify =
+      Date.now() - lastRestDoneTriggerVerifiedAt >= REST_DONE_TRIGGER_VERIFY_INTERVAL_MS
+    if (!shouldVerify) return
+
+    lastRestDoneTriggerVerifiedAt = Date.now()
+    const pending = await isRestDoneTriggerPending()
+    if (pending !== false) return
+  }
+
+  if (
+    triggerKey === lastRestDoneTriggerFailureKey &&
+    Date.now() - lastRestDoneTriggerFailedAt < REST_DONE_TRIGGER_FAILURE_RETRY_MS
+  ) {
+    return
+  }
 
   await cancelRestDoneTrigger()
 
   const settings = await notifee.getNotificationSettings().catch(() => null)
-  const alarmSetting = settings?.android?.alarm
-  const trigger: TimestampTrigger = {
-    type: TriggerType.TIMESTAMP,
-    timestamp: restEndsAt,
-  }
-
-  if (
-    alarmSetting === undefined ||
-    alarmSetting === AndroidNotificationSetting.ENABLED ||
-    alarmSetting === AndroidNotificationSetting.NOT_SUPPORTED
-  ) {
-    trigger.alarmManager = {
-      type: AlarmType.SET_EXACT_AND_ALLOW_WHILE_IDLE,
-    }
-  } else {
-    trigger.alarmManager = {
-      type: AlarmType.SET_ALARM_CLOCK,
-    }
-  }
-
+  const alarmManagers = getRestDoneAlarmManagers(settings?.android?.alarm)
   const notification = buildRestDoneAlertNotification(startedAt, restEndsAt)
+  const scheduled = await createRestDoneTrigger(
+    notification,
+    restEndsAt,
+    alarmManagers,
+  )
 
-  await notifee.createTriggerNotification(notification, trigger)
-    .then(() => {
-      lastRestDoneTriggerKey = triggerKey
-    })
-    .catch(() => {
-      lastRestDoneTriggerKey = null
-    })
+  lastRestDoneTriggerKey = scheduled ? triggerKey : null
+  lastRestDoneTriggerVerifiedAt = scheduled ? Date.now() : 0
+  lastRestDoneTriggerFailureKey = scheduled ? null : triggerKey
+  lastRestDoneTriggerFailedAt = scheduled ? 0 : Date.now()
 }
 
 export async function cancelRestDoneTrigger() {
   lastRestDoneTriggerKey = null
+  lastRestDoneTriggerVerifiedAt = 0
+  lastRestDoneTriggerFailureKey = null
+  lastRestDoneTriggerFailedAt = 0
   await Promise.all([
     notifee.cancelTriggerNotification(WORKOUT_REST_DONE_NOTIFICATION_ID).catch(() => {}),
     notifee.cancelTriggerNotification(WORKOUT_NOTIFICATION_ID).catch(() => {}),

@@ -6,6 +6,9 @@ jest.mock('@notifee/react-native', () => ({
     createChannel: jest.fn(() => Promise.resolve()),
     createTriggerNotification: jest.fn(() => Promise.resolve()),
     displayNotification: jest.fn(() => Promise.resolve()),
+    getTriggerNotificationIds: jest.fn(() =>
+      Promise.resolve(['workout_rest_done_alert_v2']),
+    ),
     getNotificationSettings: jest.fn(() =>
       Promise.resolve({ android: { alarm: 1 } }),
     ),
@@ -38,11 +41,25 @@ jest.mock('@notifee/react-native', () => ({
 
 import {
   buildWorkoutNotification,
+  cancelWorkoutNotification,
+  showWorkoutNotification,
   WORKOUT_CHANNEL_ID,
+  WORKOUT_REST_DONE_NOTIFICATION_ID,
   WORKOUT_REST_DONE_CHANNEL_ID,
 } from '../src/services/WorkoutNotification';
+import notifee, {
+  AlarmType,
+  AndroidNotificationSetting,
+  TriggerType,
+} from '@notifee/react-native';
 
 describe('workout notifications', () => {
+  beforeEach(async () => {
+    jest.clearAllMocks();
+    await cancelWorkoutNotification();
+    jest.clearAllMocks();
+  });
+
   it('uses an upward workout chronometer outside rest', () => {
     const startedAt = Date.now() - 60_000;
 
@@ -98,5 +115,65 @@ describe('workout notifications', () => {
     expect(notification.android?.actions?.map(action => action.title)).toEqual([
       'End Workout',
     ]);
+  });
+
+  it('schedules a rest-done fallback trigger for active rest', async () => {
+    const startedAt = Date.now() - 60_000;
+    const restEndsAt = Date.now() + 90_000;
+
+    await showWorkoutNotification(60, 90, startedAt, { restEndsAt });
+
+    expect(notifee.createTriggerNotification).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: WORKOUT_REST_DONE_NOTIFICATION_ID,
+        title: 'Workout in Progress',
+        body: 'Rest timer done. Time for your next set.',
+      }),
+      expect.objectContaining({
+        type: TriggerType.TIMESTAMP,
+        timestamp: restEndsAt,
+        alarmManager: { type: AlarmType.SET_EXACT_AND_ALLOW_WHILE_IDLE },
+      }),
+    );
+  });
+
+  it('falls back to a less exact rest-done trigger when exact scheduling fails', async () => {
+    const startedAt = Date.now() - 120_000;
+    const restEndsAt = Date.now() + 180_000;
+
+    (notifee.getNotificationSettings as jest.Mock).mockResolvedValueOnce({
+      android: { alarm: AndroidNotificationSetting.ENABLED },
+    });
+    (notifee.createTriggerNotification as jest.Mock)
+      .mockRejectedValueOnce(new Error('exact alarm failed'))
+      .mockResolvedValueOnce(WORKOUT_REST_DONE_NOTIFICATION_ID);
+
+    await showWorkoutNotification(120, 180, startedAt, { restEndsAt });
+
+    expect(notifee.createTriggerNotification).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        id: WORKOUT_REST_DONE_NOTIFICATION_ID,
+      }),
+      expect.objectContaining({
+        type: TriggerType.TIMESTAMP,
+        timestamp: restEndsAt,
+        alarmManager: { type: AlarmType.SET_AND_ALLOW_WHILE_IDLE },
+      }),
+    );
+  });
+
+  it('does not retry failed rest-done trigger scheduling every tick', async () => {
+    const startedAt = Date.now() - 120_000;
+    const restEndsAt = Date.now() + 180_000;
+
+    (notifee.createTriggerNotification as jest.Mock).mockRejectedValue(
+      new Error('scheduler unavailable'),
+    );
+
+    await showWorkoutNotification(120, 180, startedAt, { restEndsAt });
+    await showWorkoutNotification(120, 180, startedAt, { restEndsAt });
+
+    expect(notifee.createTriggerNotification).toHaveBeenCalledTimes(3);
   });
 });

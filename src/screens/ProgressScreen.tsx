@@ -17,8 +17,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { useFocusEffect, useNavigation } from '@react-navigation/native';
-import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { useFocusEffect } from '@react-navigation/native';
 import {
   Canvas,
   Circle,
@@ -36,8 +35,10 @@ import ThemedDialog, {
 } from '@/components/ui/ThemedDialog';
 import ScreenHeader, { useHeaderFade } from '@/components/ui/ScreenHeader';
 import {
+  deleteBodyWeightLog,
   getBodyWeightLogs,
   logBodyWeight,
+  updateBodyWeightLog,
   type WeightLog,
 } from '@/db/bodyWeightHelpers';
 import { getProfile } from '@/db/profileHelpers';
@@ -49,7 +50,6 @@ import {
   type ProgressOverviewSummary,
   type ProgressPoint,
 } from '@/db/progressHelpers';
-import type { ProgressStackParamList } from '@/navigation/TabNavigator';
 import {
   getPinnedProgressExerciseIds,
   MAX_PINNED_PROGRESS_EXERCISES,
@@ -57,12 +57,13 @@ import {
 } from '@/services/progressPins';
 
 const CHART_HEIGHT = 116;
-const SPARKLINE_HEIGHT = 46;
 const CHART_PAD = { top: 14, right: 12, bottom: 22, left: 12 };
 const LB_PER_KG = 2.20462;
 const DEFAULT_VISIBLE_LIFT_COUNT = 8;
+const WEIGHT_HISTORY_PAGE_SIZE = 10;
 
 type WeightUnit = 'kg' | 'lb';
+type ProgressSegment = 'overview' | 'lifts' | 'weight';
 
 type DialogState = {
   title: string;
@@ -74,6 +75,15 @@ type ChartPoint = {
   timestamp: number;
   value: number;
 };
+
+const progressSegments: Array<{
+  key: ProgressSegment;
+  label: string;
+}> = [
+  { key: 'overview', label: 'Overview' },
+  { key: 'lifts', label: 'Lifts' },
+  { key: 'weight', label: 'Weight' },
+];
 
 const emptySheet = createStyleSheet(() => ({}));
 
@@ -109,6 +119,14 @@ function formatDateLabel(ts: number): string {
   return new Date(ts).toLocaleDateString(undefined, {
     month: 'short',
     day: 'numeric',
+  });
+}
+
+function formatWeightLogDate(ts: number): string {
+  return new Date(ts).toLocaleDateString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
   });
 }
 
@@ -196,54 +214,6 @@ function makeChartData(
     first: points[0],
     last: points[points.length - 1],
   };
-}
-
-function CompactSparkline({ points }: { points: ChartPoint[] }) {
-  const { theme } = useStyles(emptySheet);
-  const [containerWidth, setContainerWidth] = useState(0);
-  const chartData = useMemo(
-    () => makeChartData(points, containerWidth, SPARKLINE_HEIGHT, {
-      top: 6,
-      right: 4,
-      bottom: 6,
-      left: 4,
-    }),
-    [containerWidth, points],
-  );
-  const canvasStyle = useMemo(
-    () => [
-      chartStyles.canvas,
-      { width: containerWidth, height: SPARKLINE_HEIGHT },
-    ],
-    [containerWidth],
-  );
-
-  return (
-    <View
-      style={chartStyles.sparkline}
-      onLayout={event => setContainerWidth(getLayoutWidth(event))}
-    >
-      {chartData && containerWidth > 0 ? (
-        <Canvas style={canvasStyle}>
-          <Path path={chartData.fillPath} style="fill">
-            <LinearGradient
-              start={vec(0, 0)}
-              end={vec(0, SPARKLINE_HEIGHT)}
-              colors={[theme.colors.accent + '44', theme.colors.accent + '00']}
-            />
-          </Path>
-          <Path
-            path={chartData.linePath}
-            style="stroke"
-            strokeWidth={2}
-            color={theme.colors.accent}
-            strokeJoin="round"
-            strokeCap="round"
-          />
-        </Canvas>
-      ) : null}
-    </View>
-  );
 }
 
 function TrendLineChart({
@@ -351,10 +321,9 @@ function EmptyStrengthCard() {
           color={theme.colors.accent}
         />
       </View>
-      <RNText style={styles.emptyStrengthTitle}>No strength history yet</RNText>
+      <RNText style={styles.emptyStrengthTitle}>No lift trends yet</RNText>
       <RNText style={styles.emptyStrengthText}>
-        Finish workouts with weighted sets to unlock PRs, trends, and pinned
-        lift tracking.
+        Finish weighted sets to unlock lift trends.
       </RNText>
     </View>
   );
@@ -423,12 +392,8 @@ function HighlightRow({
 
 export default function ProgressScreen() {
   const { styles, theme } = useStyles(stylesheet);
-  const navigation =
-    useNavigation<NativeStackNavigationProp<ProgressStackParamList>>();
   const { showHeaderFade, handleHeaderScroll } = useHeaderFade();
   const scrollViewRef = useRef<ScrollView>(null);
-  const detailYRef = useRef(0);
-  const pendingDetailScrollRef = useRef(false);
   const [logs, setLogs] = useState<WeightLog[]>([]);
   const [weightUnit, setWeightUnit] = useState<WeightUnit>('kg');
   const [progressExercises, setProgressExercises] = useState<
@@ -451,11 +416,22 @@ export default function ProgressScreen() {
   >(null);
   const [pinnedExerciseIds, setPinnedExerciseIdsState] = useState<string[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
+  const [activeSegment, setActiveSegment] =
+    useState<ProgressSegment>('overview');
+  const [showLiftDetail, setShowLiftDetail] = useState(false);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [showOneRmInfo, setShowOneRmInfo] = useState(false);
   const [showAllPrHistory, setShowAllPrHistory] = useState(false);
+  const [visibleWeightHistoryCount, setVisibleWeightHistoryCount] = useState(
+    WEIGHT_HISTORY_PAGE_SIZE,
+  );
   const [inputWeight, setInputWeight] = useState('');
+  const [editingWeightLog, setEditingWeightLog] = useState<WeightLog | null>(
+    null,
+  );
+  const [deleteWeightLogTarget, setDeleteWeightLogTarget] =
+    useState<WeightLog | null>(null);
   const [dialog, setDialog] = useState<DialogState | null>(null);
   const [saving, setSaving] = useState(false);
   const loadRequestRef = useRef(0);
@@ -532,16 +508,29 @@ export default function ProgressScreen() {
 
     const previousInputWeight = inputWeight;
     const weightKg = weightUnit === 'lb' ? value / LB_PER_KG : value;
+    const targetLog = editingWeightLog;
     setSaving(true);
     setInputWeight('');
     setShowModal(false);
+    setEditingWeightLog(null);
     try {
-      await logBodyWeight(weightKg);
+      if (targetLog) {
+        await updateBodyWeightLog(targetLog.id, weightKg);
+      } else {
+        await logBodyWeight(weightKg);
+      }
       await loadData();
     } catch (e) {
       setInputWeight(previousInputWeight);
-      setShowModal(true);
-      showProgressDialog('Something Went Wrong', 'Failed to log weight.');
+      if (targetLog) {
+        setEditingWeightLog(targetLog);
+      } else {
+        setShowModal(true);
+      }
+      showProgressDialog(
+        'Something Went Wrong',
+        targetLog ? 'Failed to update weight.' : 'Failed to log weight.',
+      );
       console.error(e);
     } finally {
       setSaving(false);
@@ -549,6 +538,7 @@ export default function ProgressScreen() {
   }
 
   function openModal() {
+    setEditingWeightLog(null);
     const sourceLog = logs[logs.length - 1];
     if (sourceLog) {
       setInputWeight(formatWeightValue(sourceLog.weight, weightUnit));
@@ -558,9 +548,34 @@ export default function ProgressScreen() {
     setShowModal(true);
   }
 
+  function openEditWeightModal(log: WeightLog) {
+    setShowModal(false);
+    setEditingWeightLog(log);
+    setInputWeight(formatWeightValue(log.weight, weightUnit));
+  }
+
   function closeWeightModal() {
     setShowModal(false);
+    setEditingWeightLog(null);
     setInputWeight('');
+  }
+
+  async function confirmDeleteWeightLog() {
+    const target = deleteWeightLogTarget;
+    if (!target) return;
+
+    setSaving(true);
+    setDeleteWeightLogTarget(null);
+    try {
+      await deleteBodyWeightLog(target.id);
+      await loadData();
+    } catch (e) {
+      setDeleteWeightLogTarget(target);
+      showProgressDialog('Something Went Wrong', 'Failed to delete weight.');
+      console.error(e);
+    } finally {
+      setSaving(false);
+    }
   }
 
   function persistPinnedExerciseIds(nextIds: string[]) {
@@ -587,42 +602,52 @@ export default function ProgressScreen() {
     persistPinnedExerciseIds([...pinnedExerciseIds, exerciseTypeId]);
   }
 
+  function scrollToTop() {
+    requestAnimationFrame(() => {
+      scrollViewRef.current?.scrollTo({ y: 0, animated: true });
+    });
+  }
+
+  function switchSegment(segment: ProgressSegment) {
+    setActiveSegment(segment);
+    setShowLiftDetail(false);
+    if (segment === 'weight') {
+      setVisibleWeightHistoryCount(WEIGHT_HISTORY_PAGE_SIZE);
+    }
+    scrollToTop();
+  }
+
   function selectExercise(exerciseTypeId: string, methodId?: string | null) {
     setSelectedProgressExerciseId(exerciseTypeId);
     setSelectedProgressMethodId(methodId ?? null);
     setShowAllPrHistory(false);
+    setShowLiftDetail(true);
+    setActiveSegment('lifts');
+    scrollToTop();
   }
 
   function selectHighlight(highlight: ProgressHighlight | null) {
     if (!highlight) return;
     selectExercise(highlight.exerciseTypeId, highlight.methodId);
-    pendingDetailScrollRef.current = true;
-    scrollToProgressDetail();
   }
 
-  function scrollToProgressDetail() {
-    if (detailYRef.current <= 0) return;
-    pendingDetailScrollRef.current = false;
-    requestAnimationFrame(() => {
-      scrollViewRef.current?.scrollTo({
-        y: Math.max(0, detailYRef.current - theme.spacing.sm),
-        animated: true,
-      });
-    });
-  }
-
-  function handleDetailLayout(event: {
-    nativeEvent?: { layout?: { y?: number } | null };
-  }) {
-    detailYRef.current = event.nativeEvent?.layout?.y ?? 0;
-    if (pendingDetailScrollRef.current) {
-      scrollToProgressDetail();
-    }
+  function showLiftList() {
+    setShowLiftDetail(false);
+    scrollToTop();
   }
 
   const latestLog = logs[logs.length - 1];
   const currentWeight = latestLog ? formatWeight(latestLog.weight, weightUnit) : null;
   const weightDelta = getWeightDelta(logs);
+  const weightMeta =
+    weightDelta === null
+      ? logs.length === 0
+        ? 'Log to start tracking.'
+        : 'Add one more log for change.'
+      : `${formatSignedWeight(weightDelta, weightUnit)} since last log`;
+  const weightDateMeta = latestLog
+    ? `Logged ${formatDateLabel(latestLog.loggedAt)}`
+    : 'No logs yet';
   const bodyWeightChartPoints = useMemo(
     () =>
       logs.map(log => ({
@@ -631,6 +656,15 @@ export default function ProgressScreen() {
       })),
     [logs, weightUnit],
   );
+  const weightHistory = useMemo(() => logs.slice().reverse(), [logs]);
+  const visibleWeightHistory = weightHistory.slice(
+    0,
+    visibleWeightHistoryCount,
+  );
+  const hasMoreWeightHistory =
+    visibleWeightHistory.length < weightHistory.length;
+  const remainingWeightHistoryCount =
+    weightHistory.length - visibleWeightHistory.length;
   const pinnedIdSet = useMemo(
     () => new Set(pinnedExerciseIds),
     [pinnedExerciseIds],
@@ -676,6 +710,12 @@ export default function ProgressScreen() {
   const hasHiddenLifts =
     !normalizedSearchQuery &&
     matchingProgressExercises.length > visibleProgressExercises.length;
+  const featuredProgressExercise = orderedProgressExercises[0] ?? null;
+  const featuredProgressMethod = featuredProgressExercise?.methods[0] ?? null;
+  const featuredProgressUnit = getMethodDisplayUnit(
+    featuredProgressMethod ?? null,
+    weightUnit,
+  );
   const selectedProgressExercise = useMemo(
     () =>
       progressExercises.find(
@@ -694,12 +734,6 @@ export default function ProgressScreen() {
       null,
     [selectedProgressExercise, selectedProgressMethodId],
   );
-  const selectedExerciseRank = selectedProgressExercise
-    ? orderedProgressExercises.findIndex(
-        exercise =>
-          exercise.exerciseTypeId === selectedProgressExercise.exerciseTypeId,
-      ) + 1
-    : 0;
   const selectedExercisePinned = selectedProgressExercise
     ? pinnedIdSet.has(selectedProgressExercise.exerciseTypeId)
     : false;
@@ -773,7 +807,38 @@ export default function ProgressScreen() {
 
   return (
     <View style={styles.container}>
-      <ScreenHeader title="Progress" showFade={showHeaderFade} />
+      <ScreenHeader
+        title="Progress"
+        showFade={showHeaderFade}
+        afterTitle={
+          <View style={styles.segmentedControl}>
+            {progressSegments.map(segment => {
+              const selected = activeSegment === segment.key;
+              return (
+                <TouchableOpacity
+                  key={segment.key}
+                  style={[
+                    styles.segmentButton,
+                    selected && styles.segmentButtonSelected,
+                  ]}
+                  onPress={() => switchSegment(segment.key)}
+                  activeOpacity={0.82}
+                >
+                  <RNText
+                    style={[
+                      styles.segmentButtonText,
+                      selected && styles.segmentButtonTextSelected,
+                    ]}
+                    numberOfLines={1}
+                  >
+                    {segment.label}
+                  </RNText>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        }
+      />
       <ScrollView
         ref={scrollViewRef}
         style={styles.scroll}
@@ -781,124 +846,376 @@ export default function ProgressScreen() {
         onScroll={handleHeaderScroll}
         scrollEventThrottle={16}
       >
-        <View style={styles.sectionHeader}>
-          <View>
-            <RNText style={styles.sectionEyebrow}>STRENGTH</RNText>
-            <RNText style={styles.sectionTitle}>Recent progress</RNText>
-          </View>
-        </View>
+        {activeSegment === 'overview' ? (
+          <View style={styles.overviewStack}>
+            {progressExercises.length === 0 ? (
+              <EmptyStrengthCard />
+            ) : (
+              <>
+                <View style={styles.strengthProgressCard}>
+                  <View style={styles.strengthProgressHeader}>
+                    <View style={styles.strengthProgressIcon}>
+                      <MaterialCommunityIcons
+                        name="trending-up"
+                        size={20}
+                        color={theme.colors.accent}
+                      />
+                    </View>
+                    <View style={styles.strengthProgressText}>
+                      <RNText style={styles.strengthProgressLabel}>
+                        Recent Strength
+                      </RNText>
+                      <RNText
+                        style={styles.strengthProgressValue}
+                        numberOfLines={1}
+                        adjustsFontSizeToFit
+                      >
+                        {recentImprovedLiftCount > 0
+                          ? `${formatCountLabel(recentImprovedLiftCount, 'lift')} improved`
+                          : 'No recent PRs yet'}
+                      </RNText>
+                      <RNText
+                        style={styles.strengthProgressMeta}
+                        numberOfLines={1}
+                      >
+                        {recentPrCount > 0
+                          ? `${formatCountLabel(
+                              recentPrCount,
+                              'PR',
+                              'PRs',
+                            )} in ${progressSummary.recentWindowDays} days`
+                          : 'Repeat a tracked lift to surface PRs.'}
+                      </RNText>
+                    </View>
+                  </View>
+                </View>
 
-        {progressExercises.length === 0 ? (
-          <EmptyStrengthCard />
-        ) : (
-          <View style={styles.strengthProgressCard}>
-            <View style={styles.strengthProgressHeader}>
-              <View style={styles.strengthProgressIcon}>
-                <MaterialCommunityIcons
-                  name="trending-up"
-                  size={20}
-                  color={theme.colors.accent}
-                />
-              </View>
-              <View style={styles.strengthProgressText}>
-                <RNText style={styles.strengthProgressLabel}>
-                  Strength progress
-                </RNText>
-                <RNText style={styles.strengthProgressValue} numberOfLines={1}>
-                  {recentImprovedLiftCount > 0
-                    ? `${formatCountLabel(recentImprovedLiftCount, 'lift')} improved`
-                    : 'No recent PRs yet'}
-                </RNText>
-                <RNText style={styles.strengthProgressMeta} numberOfLines={2}>
-                  {recentPrCount > 0
-                    ? `${formatCountLabel(
-                        recentPrCount,
-                        'PR',
-                        'PRs',
-                      )} in the last ${progressSummary.recentWindowDays} days`
-                    : `Finish a tracked lift again to build momentum over ${progressSummary.recentWindowDays} days.`}
-                </RNText>
-              </View>
-            </View>
+                <View style={styles.highlightRows}>
+                  <HighlightRow
+                    label={latestHighlightLabel}
+                    title={latestHighlight?.exerciseName ?? 'No PR yet'}
+                    meta={latestHighlightMeta}
+                    iconName="medal-outline"
+                    onPress={
+                      latestHighlight
+                        ? () => selectHighlight(latestHighlight)
+                        : undefined
+                    }
+                  />
+                  <HighlightRow
+                    label="Biggest Jump"
+                    title={
+                      bestRecentImprovement?.exerciseName ?? 'No recent jump yet'
+                    }
+                    meta={bestRecentImprovementMeta}
+                    iconName="arrow-up-bold-circle-outline"
+                    onPress={
+                      bestRecentImprovement
+                        ? () => selectHighlight(bestRecentImprovement)
+                        : undefined
+                    }
+                  />
+                </View>
+              </>
+            )}
 
-            <View style={styles.highlightRows}>
-              <HighlightRow
-                label={latestHighlightLabel}
-                title={latestHighlight?.exerciseName ?? 'No PR yet'}
-                meta={latestHighlightMeta}
-                iconName="medal-outline"
-                onPress={
-                  latestHighlight ? () => selectHighlight(latestHighlight) : undefined
-                }
-              />
-              <HighlightRow
-                label="Biggest jump"
-                title={
-                  bestRecentImprovement?.exerciseName ?? 'No recent jump yet'
-                }
-                meta={bestRecentImprovementMeta}
-                iconName="arrow-up-bold-circle-outline"
-                onPress={
-                  bestRecentImprovement
-                    ? () => selectHighlight(bestRecentImprovement)
-                    : undefined
-                }
-              />
-            </View>
-          </View>
-        )}
-
-        <View style={styles.bodyWeightCard}>
-          <View style={styles.bodyWeightHeader}>
-            <View>
-              <RNText style={styles.sectionEyebrow}>BODY WEIGHT</RNText>
-              <RNText style={styles.cardTitle}>Quick log</RNText>
-            </View>
-            <View style={styles.bodyWeightActions}>
+            <View style={styles.overviewMetricGrid}>
               <TouchableOpacity
-                style={styles.secondaryActionButton}
-                onPress={() => navigation.navigate('WeightHistory')}
-                activeOpacity={0.78}
-              >
-                <RNText style={styles.secondaryActionText}>History</RNText>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.primaryActionButton}
-                onPress={openModal}
+                style={styles.overviewMetricCard}
+                onPress={() => switchSegment('lifts')}
                 activeOpacity={0.82}
               >
-                <RNText style={styles.primaryActionText}>Log</RNText>
+                <View style={styles.overviewMetricIcon}>
+                  <MaterialCommunityIcons
+                    name="dumbbell"
+                    size={18}
+                    color={theme.colors.accent}
+                  />
+                </View>
+                <RNText style={styles.overviewMetricLabel}>Tracked Lifts</RNText>
+                <RNText style={styles.overviewMetricValue} numberOfLines={1}>
+                  {progressExercises.length}
+                </RNText>
+                <RNText style={styles.overviewMetricMeta} numberOfLines={1}>
+                  {progressExercises.length === 0
+                    ? 'Add weighted sets'
+                    : pinnedExerciseIds.length > 0
+                      ? `${pinnedExerciseIds.length} pinned`
+                      : 'Pin favorites'}
+                </RNText>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.overviewMetricCard}
+                onPress={() => switchSegment('weight')}
+                activeOpacity={0.82}
+              >
+                <View style={styles.overviewMetricIcon}>
+                  <MaterialCommunityIcons
+                    name="scale-bathroom"
+                    size={18}
+                    color={theme.colors.accent}
+                  />
+                </View>
+                <RNText style={styles.overviewMetricLabel}>Current Weight</RNText>
+                <RNText
+                  style={styles.overviewMetricValue}
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                >
+                  {currentWeight ?? 'No weight'}
+                </RNText>
+                <RNText style={styles.overviewMetricMeta} numberOfLines={1}>
+                  {weightDelta === null ? weightDateMeta : weightMeta}
+                </RNText>
               </TouchableOpacity>
             </View>
-          </View>
 
-          <View style={styles.bodyWeightMain}>
-            <View style={styles.bodyWeightValueBlock}>
-              <RNText style={styles.bodyWeightValue}>
-                {currentWeight ?? 'No weight yet'}
-              </RNText>
-              <RNText style={styles.bodyWeightMeta}>
-                {weightDelta === null
-                  ? logs.length === 0
-                    ? 'Tap Log to add your first entry.'
-                    : 'Add another entry to see change.'
-                  : `${formatSignedWeight(weightDelta, weightUnit)} since last log`}
-              </RNText>
-            </View>
-            {bodyWeightChartPoints.length >= 2 ? (
-              <View style={styles.bodyWeightSparkline}>
-                <CompactSparkline points={bodyWeightChartPoints} />
-              </View>
+            {featuredProgressExercise && featuredProgressMethod ? (
+              <TouchableOpacity
+                style={styles.overviewLiftCard}
+                onPress={() =>
+                  selectExercise(
+                    featuredProgressExercise.exerciseTypeId,
+                    featuredProgressMethod.methodId,
+                  )
+                }
+                activeOpacity={0.84}
+              >
+                <View style={styles.overviewLiftText}>
+                  <RNText style={styles.overviewMetricLabel}>
+                    Most Tracked Lift
+                  </RNText>
+                  <RNText style={styles.overviewLiftTitle} numberOfLines={1}>
+                    {featuredProgressExercise.exerciseName}
+                  </RNText>
+                  <RNText style={styles.overviewMetricMeta} numberOfLines={1}>
+                    {featuredProgressExercise.workoutCount} workouts
+                  </RNText>
+                </View>
+                <View style={styles.overviewLiftValueBlock}>
+                  <RNText style={styles.overviewLiftValue} numberOfLines={1}>
+                    {formatWeight(
+                      featuredProgressMethod.currentPrKg,
+                      featuredProgressUnit,
+                    )}
+                  </RNText>
+                  <RNText style={styles.overviewLiftValueLabel}>PR</RNText>
+                </View>
+                <MaterialCommunityIcons
+                  name="chevron-right"
+                  size={19}
+                  color={theme.colors.textMuted}
+                />
+              </TouchableOpacity>
             ) : null}
           </View>
-        </View>
+        ) : null}
 
-        {progressExercises.length > 0 ? (
-          <>
+        {activeSegment === 'lifts' ? (
+          progressExercises.length === 0 ? (
+            <EmptyStrengthCard />
+          ) : showLiftDetail && selectedProgressExercise && selectedProgressMethod ? (
+            <View style={styles.progressCard}>
+              <View style={styles.detailTopRow}>
+                <TouchableOpacity
+                  style={styles.backToListButton}
+                  onPress={showLiftList}
+                  activeOpacity={0.78}
+                >
+                  <MaterialCommunityIcons
+                    name="chevron-left"
+                    size={19}
+                    color={theme.colors.text}
+                  />
+                  <RNText style={styles.backToListText}>Lifts</RNText>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.headerPinButton}
+                  onPress={() =>
+                    togglePinnedExercise(selectedProgressExercise.exerciseTypeId)
+                  }
+                  activeOpacity={0.78}
+                >
+                  <MaterialCommunityIcons
+                    name={selectedExercisePinned ? 'star' : 'star-outline'}
+                    size={19}
+                    color={
+                      selectedExercisePinned
+                        ? theme.colors.accent
+                        : theme.colors.textMuted
+                    }
+                  />
+                </TouchableOpacity>
+              </View>
+
+              <View style={styles.progressHeader}>
+                <View style={styles.progressHeaderText}>
+                  <RNText style={styles.progressTitle} numberOfLines={1}>
+                    {selectedProgressExercise.exerciseName}
+                  </RNText>
+                  <RNText style={styles.progressSubtitle} numberOfLines={1}>
+                    {selectedProgressMethod.workoutCount} workouts,{' '}
+                    {selectedProgressMethod.setCount} sets
+                  </RNText>
+                </View>
+              </View>
+
+              {selectedProgressExercise.methods.length > 1 ? (
+                <View style={styles.methodWrap}>
+                  {selectedProgressExercise.methods.map(method => {
+                    const selected =
+                      selectedProgressMethod.methodId === method.methodId;
+                    return (
+                      <TouchableOpacity
+                        key={method.methodId}
+                        style={[
+                          styles.methodChip,
+                          selected && styles.methodChipSelected,
+                        ]}
+                        onPress={() => {
+                          setSelectedProgressMethodId(method.methodId);
+                          setShowAllPrHistory(false);
+                        }}
+                        activeOpacity={0.84}
+                      >
+                        <RNText
+                          style={[
+                            styles.methodChipText,
+                            selected && styles.methodChipTextSelected,
+                          ]}
+                          numberOfLines={1}
+                        >
+                          {method.methodName}
+                        </RNText>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              ) : (
+                <View style={styles.singleMethodPill}>
+                  <RNText style={styles.singleMethodText}>
+                    {selectedProgressMethod.methodName}
+                  </RNText>
+                </View>
+              )}
+
+              <View style={styles.currentPrCard}>
+                <RNText style={styles.currentPrLabel}>Current PR</RNText>
+                <RNText
+                  style={styles.currentPrValue}
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                >
+                  {formatWeight(
+                    selectedProgressMethod.currentPrKg,
+                    progressDisplayUnit,
+                  )}
+                </RNText>
+                <RNText style={styles.currentPrMeta}>
+                  {selectedProgressMethod.currentPrReps} reps
+                </RNText>
+              </View>
+
+              <View style={styles.progressStats}>
+                <View style={styles.progressStat}>
+                  <View style={styles.progressStatLabelRow}>
+                    <RNText style={styles.progressStatLabel}>Est. 1RM</RNText>
+                    <TouchableOpacity
+                      style={styles.infoButton}
+                      onPress={() => setShowOneRmInfo(true)}
+                      activeOpacity={0.8}
+                    >
+                      <RNText style={styles.infoButtonText}>i</RNText>
+                    </TouchableOpacity>
+                  </View>
+                  <RNText style={styles.progressStatValue} numberOfLines={1}>
+                    {formatWeight(
+                      selectedProgressMethod.estimatedOneRmKg,
+                      progressDisplayUnit,
+                    )}
+                  </RNText>
+                  <RNText style={styles.progressStatNote}>
+                    from {selectedProgressMethod.estimatedOneRmReps} reps
+                  </RNText>
+                </View>
+                <View style={styles.progressStat}>
+                  <RNText style={styles.progressStatLabel}>Change</RNText>
+                  <RNText style={styles.progressStatValue} numberOfLines={1}>
+                    {formatSignedWeight(
+                      selectedProgressMethod.weightDeltaKg,
+                      progressDisplayUnit,
+                    )}
+                  </RNText>
+                  <RNText style={styles.progressStatNote}>
+                    since {formatDateLabel(selectedProgressMethod.firstSetAt)}
+                  </RNText>
+                </View>
+              </View>
+
+              <View style={styles.trendCard}>
+                <View style={styles.trendHeader}>
+                  <RNText style={styles.trendTitle}>Best Set Trend</RNText>
+                  <RNText style={styles.trendUnit}>{progressDisplayUnit}</RNText>
+                </View>
+                {selectedTrendPoints.length >= 2 ? (
+                  <TrendLineChart
+                    points={selectedTrendPoints}
+                    unit={progressDisplayUnit}
+                  />
+                ) : (
+                  <View style={styles.emptyTrend}>
+                    <RNText style={styles.emptyChartText}>
+                      One more workout starts the trend.
+                    </RNText>
+                  </View>
+                )}
+              </View>
+
+              <View style={styles.prHistoryHeader}>
+                <View>
+                  <RNText style={styles.prHistoryTitle}>PR history</RNText>
+                  <RNText style={styles.prHistoryHint}>Latest milestones</RNText>
+                </View>
+                {prHistory.length > 3 ? (
+                  <TouchableOpacity
+                    style={styles.viewAllButton}
+                    onPress={() => setShowAllPrHistory(current => !current)}
+                    activeOpacity={0.78}
+                  >
+                    <RNText style={styles.viewAllButtonText}>
+                      {showAllPrHistory ? 'Show less' : 'View all'}
+                    </RNText>
+                  </TouchableOpacity>
+                ) : null}
+              </View>
+              <View style={styles.prHistoryList}>
+                {visiblePrHistory.map(pr => (
+                  <View
+                    key={`${pr.timestamp}-${pr.weightKg}-${pr.reps}`}
+                    style={styles.prHistoryRow}
+                  >
+                    <View style={styles.prDot} />
+                    <View style={styles.prHistoryText}>
+                      <RNText style={styles.prHistoryValue}>
+                        {formatWeight(pr.weightKg, progressDisplayUnit)}
+                      </RNText>
+                      <RNText style={styles.prHistoryMeta}>
+                        {pr.reps} reps - {pr.methodName}
+                      </RNText>
+                    </View>
+                    <RNText style={styles.prHistoryDate}>
+                      {formatDateLabel(pr.timestamp)}
+                    </RNText>
+                  </View>
+                ))}
+              </View>
+            </View>
+          ) : (
             <View style={styles.liftPickerCard}>
               <View style={styles.liftPickerHeader}>
                 <View>
-                  <RNText style={styles.cardTitle}>Tracked lifts</RNText>
+                  <RNText style={styles.cardTitle}>Lifts</RNText>
                   <RNText style={styles.cardMeta}>
                     {pinnedExerciseIds.length}/{MAX_PINNED_PROGRESS_EXERCISES}{' '}
                     pinned
@@ -916,7 +1233,7 @@ export default function ProgressScreen() {
                   style={styles.searchInput}
                   value={searchQuery}
                   onChangeText={setSearchQuery}
-                  placeholder="Search exercise"
+                  placeholder="Search lifts"
                   placeholderTextColor={theme.colors.textMuted}
                   returnKeyType="search"
                 />
@@ -939,14 +1256,11 @@ export default function ProgressScreen() {
                 {visibleProgressExercises.length === 0 ? (
                   <View style={styles.emptySearchCard}>
                     <RNText style={styles.emptyChartText}>
-                      No lift matches that search.
+                      No matching lift.
                     </RNText>
                   </View>
                 ) : (
                   visibleProgressExercises.map(exercise => {
-                    const selected =
-                      selectedProgressExercise?.exerciseTypeId ===
-                      exercise.exerciseTypeId;
                     const pinned = pinnedIdSet.has(exercise.exerciseTypeId);
                     const primaryMethod = exercise.methods[0];
                     const displayUnit = getMethodDisplayUnit(
@@ -956,10 +1270,7 @@ export default function ProgressScreen() {
                     return (
                       <TouchableOpacity
                         key={exercise.exerciseTypeId}
-                        style={[
-                          styles.liftRow,
-                          selected && styles.liftRowSelected,
-                        ]}
+                        style={styles.liftRow}
                         onPress={() =>
                           selectExercise(
                             exercise.exerciseTypeId,
@@ -988,12 +1299,11 @@ export default function ProgressScreen() {
                             {exercise.exerciseName}
                           </RNText>
                           <RNText style={styles.liftRowMeta} numberOfLines={1}>
-                            {exercise.workoutCount} workouts - {exercise.setCount}{' '}
-                            sets
+                            {exercise.workoutCount} workouts
                           </RNText>
                         </View>
                         <View style={styles.liftRowValueBlock}>
-                          <RNText style={styles.liftRowValue}>
+                          <RNText style={styles.liftRowValue} numberOfLines={1}>
                             {primaryMethod
                               ? formatWeight(
                                   primaryMethod.currentPrKg,
@@ -1003,6 +1313,11 @@ export default function ProgressScreen() {
                           </RNText>
                           <RNText style={styles.liftRowValueLabel}>PR</RNText>
                         </View>
+                        <MaterialCommunityIcons
+                          name="chevron-right"
+                          size={18}
+                          color={theme.colors.textMuted}
+                        />
                       </TouchableOpacity>
                     );
                   })
@@ -1011,203 +1326,181 @@ export default function ProgressScreen() {
 
               {hasHiddenLifts ? (
                 <RNText style={styles.liftPickerHint}>
-                  Showing top lifts. Search to find the rest.
+                  Search to find more lifts.
                 </RNText>
               ) : null}
             </View>
+          )
+        ) : null}
 
-            {selectedProgressExercise && selectedProgressMethod ? (
-              <View style={styles.progressCard} onLayout={handleDetailLayout}>
-                <View style={styles.progressHeader}>
-                  <View style={styles.progressHeaderText}>
-                    <RNText style={styles.progressTitle} numberOfLines={1}>
-                      {selectedProgressExercise.exerciseName}
-                    </RNText>
-                    <RNText style={styles.progressSubtitle}>
-                      #{selectedExerciseRank} - {selectedProgressMethod.setCount}{' '}
-                      sets - {selectedProgressMethod.workoutCount} workouts
-                    </RNText>
-                  </View>
-                  <TouchableOpacity
-                    style={styles.headerPinButton}
-                    onPress={() =>
-                      togglePinnedExercise(selectedProgressExercise.exerciseTypeId)
-                    }
-                    activeOpacity={0.78}
+        {activeSegment === 'weight' ? (
+          <View style={styles.weightStack}>
+            <View style={styles.weightHeroCard}>
+              <View style={styles.weightHeroHeader}>
+                <View style={styles.weightHeroIcon}>
+                  <MaterialCommunityIcons
+                    name="scale-bathroom"
+                    size={21}
+                    color={theme.colors.accent}
+                  />
+                </View>
+                <View style={styles.weightHeroText}>
+                  <RNText style={styles.strengthProgressLabel}>
+                    Current Weight
+                  </RNText>
+                  <RNText
+                    style={styles.weightHeroValue}
+                    numberOfLines={1}
+                    adjustsFontSizeToFit
                   >
-                    <MaterialCommunityIcons
-                      name={selectedExercisePinned ? 'star' : 'star-outline'}
-                      size={19}
-                      color={
-                        selectedExercisePinned
-                          ? theme.colors.accent
-                          : theme.colors.textMuted
-                      }
-                    />
-                  </TouchableOpacity>
+                    {currentWeight ?? 'No weight yet'}
+                  </RNText>
+                  <RNText style={styles.bodyWeightMeta} numberOfLines={1}>
+                    {weightMeta}
+                  </RNText>
                 </View>
+              </View>
 
-                {selectedProgressExercise.methods.length > 1 ? (
-                  <View style={styles.methodWrap}>
-                    {selectedProgressExercise.methods.map(method => {
-                      const selected =
-                        selectedProgressMethod.methodId === method.methodId;
-                      return (
-                        <TouchableOpacity
-                          key={method.methodId}
-                          style={[
-                            styles.methodChip,
-                            selected && styles.methodChipSelected,
-                          ]}
-                          onPress={() => {
-                            setSelectedProgressMethodId(method.methodId);
-                            setShowAllPrHistory(false);
-                          }}
-                          activeOpacity={0.84}
-                        >
-                          <RNText
-                            style={[
-                              styles.methodChipText,
-                              selected && styles.methodChipTextSelected,
-                            ]}
-                            numberOfLines={1}
-                          >
-                            {method.methodName}
-                          </RNText>
-                        </TouchableOpacity>
-                      );
-                    })}
-                  </View>
-                ) : (
-                  <View style={styles.singleMethodPill}>
-                    <RNText style={styles.singleMethodText}>
-                      {selectedProgressMethod.methodName}
-                    </RNText>
-                  </View>
-                )}
+              <View style={styles.weightActions}>
+                <TouchableOpacity
+                  style={styles.primaryActionButton}
+                  onPress={openModal}
+                  activeOpacity={0.82}
+                >
+                  <RNText style={styles.primaryActionText}>Log Weight</RNText>
+                </TouchableOpacity>
+              </View>
+            </View>
 
-                <View style={styles.progressStats}>
-                  <View style={styles.progressStat}>
-                    <RNText style={styles.progressStatLabel}>Current PR</RNText>
-                    <RNText style={styles.progressStatValue}>
-                      {formatWeight(
-                        selectedProgressMethod.currentPrKg,
-                        progressDisplayUnit,
-                      )}
-                    </RNText>
-                    <RNText style={styles.progressStatNote}>
-                      {selectedProgressMethod.currentPrReps} reps
-                    </RNText>
-                  </View>
-                  <View style={styles.progressStat}>
-                    <View style={styles.progressStatLabelRow}>
-                      <RNText style={styles.progressStatLabel}>Est. 1RM</RNText>
-                      <TouchableOpacity
-                        style={styles.infoButton}
-                        onPress={() => setShowOneRmInfo(true)}
-                        activeOpacity={0.8}
-                      >
-                        <RNText style={styles.infoButtonText}>i</RNText>
-                      </TouchableOpacity>
-                    </View>
-                    <RNText style={styles.progressStatValue}>
-                      {formatWeight(
-                        selectedProgressMethod.estimatedOneRmKg,
-                        progressDisplayUnit,
-                      )}
-                    </RNText>
-                    <RNText style={styles.progressStatNote}>
-                      from {selectedProgressMethod.estimatedOneRmReps} reps
-                    </RNText>
-                  </View>
-                  <View style={styles.progressStat}>
-                    <RNText style={styles.progressStatLabel}>Change</RNText>
-                    <RNText style={styles.progressStatValue}>
-                      {formatSignedWeight(
-                        selectedProgressMethod.weightDeltaKg,
-                        progressDisplayUnit,
-                      )}
-                    </RNText>
-                    <RNText style={styles.progressStatNote}>
-                      since {formatDateLabel(selectedProgressMethod.firstSetAt)}
-                    </RNText>
-                  </View>
+            <View style={styles.trendCard}>
+              <View style={styles.trendHeader}>
+                <RNText style={styles.trendTitle}>Weight Trend</RNText>
+                <RNText style={styles.trendUnit}>{weightUnit}</RNText>
+              </View>
+              {bodyWeightChartPoints.length >= 2 ? (
+                <TrendLineChart
+                  points={bodyWeightChartPoints}
+                  unit={weightUnit}
+                />
+              ) : (
+                <View style={styles.emptyTrend}>
+                  <RNText style={styles.emptyChartText}>
+                    Log two weights to see a trend.
+                  </RNText>
                 </View>
+              )}
+            </View>
 
-                <View style={styles.trendCard}>
-                  <View style={styles.trendHeader}>
-                    <RNText style={styles.trendTitle}>Best set over time</RNText>
-                    <RNText style={styles.trendUnit}>{progressDisplayUnit}</RNText>
-                  </View>
-                  {selectedTrendPoints.length >= 2 ? (
-                    <TrendLineChart
-                      points={selectedTrendPoints}
-                      unit={progressDisplayUnit}
-                    />
-                  ) : (
-                    <View style={styles.emptyTrend}>
-                      <RNText style={styles.emptyChartText}>
-                        Finish this lift in another workout to start the trend.
-                      </RNText>
-                    </View>
-                  )}
+            <View style={styles.weightHistoryCard}>
+              <View style={styles.weightHistoryHeader}>
+                <View style={styles.weightHistoryHeaderIcon}>
+                  <MaterialCommunityIcons
+                    name="history"
+                    size={18}
+                    color={theme.colors.accent}
+                  />
                 </View>
+                <View style={styles.weightHistoryHeaderText}>
+                  <RNText style={styles.weightHistoryTitle}>History</RNText>
+                  <RNText style={styles.weightHistoryMeta}>
+                    {weightHistory.length === 0
+                      ? 'No entries yet'
+                      : `${weightHistory.length} ${weightHistory.length === 1 ? 'entry' : 'entries'}`}
+                  </RNText>
+                </View>
+              </View>
 
-                <View style={styles.prHistoryHeader}>
-                  <View>
-                    <RNText style={styles.prHistoryTitle}>PR history</RNText>
-                    <RNText style={styles.prHistoryHint}>
-                      Latest weight milestones
-                    </RNText>
-                  </View>
-                  {prHistory.length > 3 ? (
-                    <TouchableOpacity
-                      style={styles.viewAllButton}
-                      onPress={() => setShowAllPrHistory(current => !current)}
-                      activeOpacity={0.78}
-                    >
-                      <RNText style={styles.viewAllButtonText}>
-                        {showAllPrHistory ? 'Show less' : 'View all'}
-                      </RNText>
-                    </TouchableOpacity>
-                  ) : null}
-                </View>
-                <View style={styles.prHistoryList}>
-                  {visiblePrHistory.map(pr => (
-                    <View
-                      key={`${pr.timestamp}-${pr.weightKg}-${pr.reps}`}
-                      style={styles.prHistoryRow}
-                    >
-                      <View style={styles.prDot} />
-                      <View style={styles.prHistoryText}>
-                        <RNText style={styles.prHistoryValue}>
-                          {formatWeight(pr.weightKg, progressDisplayUnit)}
+              {visibleWeightHistory.length > 0 ? (
+                <View style={styles.weightHistoryList}>
+                  {visibleWeightHistory.map(log => (
+                    <View key={log.id} style={styles.weightHistoryRow}>
+                      <View style={styles.weightHistoryText}>
+                        <RNText style={styles.weightHistoryValue}>
+                          {formatWeight(log.weight, weightUnit)}
                         </RNText>
-                        <RNText style={styles.prHistoryMeta}>
-                          {pr.reps} reps - {pr.methodName}
+                        <RNText style={styles.weightHistoryDate}>
+                          {formatWeightLogDate(log.loggedAt)}
                         </RNText>
                       </View>
-                      <RNText style={styles.prHistoryDate}>
-                        {formatDateLabel(pr.timestamp)}
-                      </RNText>
+                      <View style={styles.weightHistoryActions}>
+                        <TouchableOpacity
+                          style={styles.weightHistoryIconButton}
+                          onPress={() => openEditWeightModal(log)}
+                          activeOpacity={0.78}
+                          accessibilityLabel="Edit weight log"
+                        >
+                          <MaterialCommunityIcons
+                            name="pencil"
+                            size={16}
+                            color={theme.colors.text}
+                          />
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          style={[
+                            styles.weightHistoryIconButton,
+                            styles.deleteWeightButton,
+                          ]}
+                          onPress={() => setDeleteWeightLogTarget(log)}
+                          activeOpacity={0.78}
+                          accessibilityLabel="Delete weight log"
+                        >
+                          <MaterialCommunityIcons
+                            name="delete-outline"
+                            size={16}
+                            color={theme.colors.danger}
+                          />
+                        </TouchableOpacity>
+                      </View>
                     </View>
                   ))}
                 </View>
-              </View>
-            ) : null}
-          </>
+              ) : (
+                <View style={styles.emptyWeightHistory}>
+                  <RNText style={styles.emptyChartText}>
+                    Logged weights will show here.
+                  </RNText>
+                </View>
+              )}
+
+              {hasMoreWeightHistory ? (
+                <TouchableOpacity
+                  style={styles.showMoreWeightButton}
+                  onPress={() =>
+                    setVisibleWeightHistoryCount(current =>
+                      Math.min(
+                        current + WEIGHT_HISTORY_PAGE_SIZE,
+                        weightHistory.length,
+                      ),
+                    )
+                  }
+                  activeOpacity={0.82}
+                >
+                  <RNText style={styles.showMoreWeightText}>
+                    Show{' '}
+                    {Math.min(
+                      WEIGHT_HISTORY_PAGE_SIZE,
+                      remainingWeightHistoryCount,
+                    )}{' '}
+                    more
+                  </RNText>
+                </TouchableOpacity>
+              ) : null}
+            </View>
+          </View>
         ) : null}
       </ScrollView>
 
       <Modal
-        visible={showModal}
+        visible={showModal || Boolean(editingWeightLog)}
         transparent
         animationType="fade"
         onRequestClose={closeWeightModal}
       >
         <Pressable style={styles.overlay} onPress={closeWeightModal}>
           <Pressable style={styles.modalCard} onPress={() => {}}>
-            <RNText style={styles.modalTitle}>Log Weight</RNText>
+            <RNText style={styles.modalTitle}>
+              {editingWeightLog ? 'Edit Weight' : 'Log Weight'}
+            </RNText>
             <View style={styles.inputRow}>
               <TextInput
                 style={styles.weightInput}
@@ -1236,13 +1529,31 @@ export default function ProgressScreen() {
                 disabled={saving}
               >
                 <RNText style={styles.saveModalText}>
-                  {saving ? 'Saving...' : 'Save'}
+                  {saving ? 'Saving...' : editingWeightLog ? 'Update' : 'Save'}
                 </RNText>
               </TouchableOpacity>
             </View>
           </Pressable>
         </Pressable>
       </Modal>
+
+      <ThemedDialog
+        visible={Boolean(deleteWeightLogTarget)}
+        title="Delete Weight Log"
+        message={
+          deleteWeightLogTarget
+            ? `Delete ${formatWeight(deleteWeightLogTarget.weight, weightUnit)} from ${formatWeightLogDate(deleteWeightLogTarget.loggedAt)}?`
+            : undefined
+        }
+        actions={[
+          { label: 'Cancel', onPress: () => setDeleteWeightLogTarget(null) },
+          {
+            label: saving ? 'Deleting...' : 'Delete',
+            variant: 'danger',
+            onPress: confirmDeleteWeightLog,
+          },
+        ]}
+      />
 
       <ThemedDialog
         visible={showOneRmInfo}
@@ -1270,10 +1581,6 @@ const chartStyles = StyleSheet.create({
   chart: {
     height: CHART_HEIGHT,
     position: 'relative',
-  },
-  sparkline: {
-    height: SPARKLINE_HEIGHT,
-    minWidth: 96,
   },
   canvas: {
     position: 'absolute',
@@ -1316,7 +1623,7 @@ const stylesheet = createStyleSheet(theme => ({
   },
   content: {
     paddingHorizontal: theme.spacing.md,
-    paddingTop: theme.spacing.xs,
+    paddingTop: theme.spacing.md,
     paddingBottom: theme.spacing.lg,
     gap: theme.spacing.sm,
   },
@@ -1326,21 +1633,36 @@ const stylesheet = createStyleSheet(theme => ({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  sectionHeader: {
+  segmentedControl: {
     flexDirection: 'row',
+    backgroundColor: theme.colors.surface,
+    borderRadius: theme.radius.full,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    padding: 3,
+  },
+  segmentButton: {
+    flex: 1,
+    minWidth: 0,
+    minHeight: 34,
+    borderRadius: theme.radius.full,
     alignItems: 'center',
-    justifyContent: 'space-between',
+    justifyContent: 'center',
+    paddingHorizontal: theme.spacing.sm,
   },
-  sectionEyebrow: {
+  segmentButtonSelected: {
+    backgroundColor: theme.colors.accent,
+  },
+  segmentButtonText: {
     color: theme.colors.textMuted,
-    fontSize: theme.fontSize.xs,
-    fontFamily: theme.fontFamily.semiBold,
-    letterSpacing: 1,
+    fontSize: theme.fontSize.sm,
+    fontFamily: theme.fontFamily.bold,
   },
-  sectionTitle: {
-    color: theme.colors.text,
-    fontSize: theme.fontSize.lg,
-    fontFamily: theme.fontFamily.extraBold,
+  segmentButtonTextSelected: {
+    color: '#FFFFFF',
+  },
+  overviewStack: {
+    gap: theme.spacing.md,
   },
   strengthProgressCard: {
     backgroundColor: theme.colors.surface,
@@ -1348,7 +1670,7 @@ const stylesheet = createStyleSheet(theme => ({
     borderWidth: 0.5,
     borderColor: theme.colors.border,
     paddingHorizontal: theme.spacing.md,
-    paddingVertical: theme.spacing.sm,
+    paddingVertical: theme.spacing.md,
     gap: theme.spacing.sm,
   },
   strengthProgressHeader: {
@@ -1367,7 +1689,7 @@ const stylesheet = createStyleSheet(theme => ({
   strengthProgressText: {
     flex: 1,
     minWidth: 0,
-    gap: 3,
+    gap: 5,
   },
   strengthProgressLabel: {
     color: theme.colors.textMuted,
@@ -1386,14 +1708,14 @@ const stylesheet = createStyleSheet(theme => ({
     color: theme.colors.textMuted,
     fontSize: theme.fontSize.xs,
     fontFamily: theme.fontFamily.medium,
-    lineHeight: 16,
+    lineHeight: 18,
     includeFontPadding: false,
   },
   highlightRows: {
-    gap: theme.spacing.xs,
+    gap: theme.spacing.sm,
   },
   highlightRow: {
-    minHeight: 52,
+    minHeight: 62,
     flexDirection: 'row',
     alignItems: 'center',
     gap: theme.spacing.xs,
@@ -1402,7 +1724,7 @@ const stylesheet = createStyleSheet(theme => ({
     borderWidth: 0.5,
     borderColor: theme.colors.border,
     paddingHorizontal: theme.spacing.md,
-    paddingVertical: theme.spacing.xs,
+    paddingVertical: theme.spacing.sm,
   },
   highlightRowIcon: {
     width: 30,
@@ -1415,7 +1737,7 @@ const stylesheet = createStyleSheet(theme => ({
   highlightRowText: {
     flex: 1,
     minWidth: 0,
-    gap: 2,
+    gap: 4,
   },
   highlightRowLabel: {
     color: theme.colors.textMuted,
@@ -1434,6 +1756,89 @@ const stylesheet = createStyleSheet(theme => ({
     color: theme.colors.textMuted,
     fontSize: theme.fontSize.xs,
     fontFamily: theme.fontFamily.medium,
+    lineHeight: 16,
+    includeFontPadding: false,
+  },
+  overviewMetricGrid: {
+    flexDirection: 'row',
+    gap: theme.spacing.sm,
+  },
+  overviewMetricCard: {
+    flex: 1,
+    minWidth: 0,
+    minHeight: 132,
+    backgroundColor: theme.colors.surface,
+    borderRadius: theme.radius.lg,
+    borderWidth: 0.5,
+    borderColor: theme.colors.border,
+    padding: theme.spacing.md,
+    justifyContent: 'space-between',
+  },
+  overviewMetricIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: theme.radius.full,
+    backgroundColor: theme.colors.accentMuted,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  overviewMetricLabel: {
+    color: theme.colors.textMuted,
+    fontSize: theme.fontSize.xxs,
+    fontFamily: theme.fontFamily.extraBold,
+    textTransform: 'uppercase',
+    includeFontPadding: false,
+  },
+  overviewMetricValue: {
+    color: theme.colors.text,
+    fontSize: theme.fontSize.xl,
+    fontFamily: theme.fontFamily.black,
+    includeFontPadding: false,
+  },
+  overviewMetricMeta: {
+    color: theme.colors.textMuted,
+    fontSize: theme.fontSize.xs,
+    fontFamily: theme.fontFamily.medium,
+    lineHeight: 16,
+    includeFontPadding: false,
+  },
+  overviewLiftCard: {
+    minHeight: 68,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: theme.spacing.sm,
+    backgroundColor: theme.colors.surface,
+    borderRadius: theme.radius.lg,
+    borderWidth: 0.5,
+    borderColor: theme.colors.border,
+    paddingHorizontal: theme.spacing.md,
+    paddingVertical: theme.spacing.sm,
+  },
+  overviewLiftText: {
+    flex: 1,
+    minWidth: 0,
+    gap: 4,
+  },
+  overviewLiftTitle: {
+    color: theme.colors.text,
+    fontSize: theme.fontSize.md,
+    fontFamily: theme.fontFamily.extraBold,
+    includeFontPadding: false,
+  },
+  overviewLiftValueBlock: {
+    alignItems: 'flex-end',
+    maxWidth: 112,
+  },
+  overviewLiftValue: {
+    color: theme.colors.text,
+    fontSize: theme.fontSize.md,
+    fontFamily: theme.fontFamily.extraBold,
+    includeFontPadding: false,
+  },
+  overviewLiftValueLabel: {
+    color: theme.colors.textMuted,
+    fontSize: theme.fontSize.xxs,
+    fontFamily: theme.fontFamily.extraBold,
     includeFontPadding: false,
   },
   emptyStrengthCard: {
@@ -1529,10 +1934,6 @@ const stylesheet = createStyleSheet(theme => ({
     paddingHorizontal: theme.spacing.md,
     paddingVertical: theme.spacing.xs,
   },
-  liftRowSelected: {
-    borderColor: theme.colors.accent,
-    backgroundColor: theme.colors.accentMuted,
-  },
   pinButton: {
     width: 30,
     height: 30,
@@ -1591,6 +1992,29 @@ const stylesheet = createStyleSheet(theme => ({
     paddingHorizontal: theme.spacing.md,
     paddingVertical: theme.spacing.sm,
     gap: theme.spacing.sm,
+  },
+  detailTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: theme.spacing.sm,
+  },
+  backToListButton: {
+    minHeight: 32,
+    borderRadius: theme.radius.full,
+    backgroundColor: theme.colors.surface2,
+    borderWidth: 0.5,
+    borderColor: theme.colors.border,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+    paddingLeft: theme.spacing.xs,
+    paddingRight: theme.spacing.sm,
+  },
+  backToListText: {
+    color: theme.colors.text,
+    fontSize: theme.fontSize.xs,
+    fontFamily: theme.fontFamily.bold,
   },
   progressHeader: {
     flexDirection: 'row',
@@ -1668,6 +2092,32 @@ const stylesheet = createStyleSheet(theme => ({
   progressStats: {
     flexDirection: 'row',
     gap: theme.spacing.xs,
+  },
+  currentPrCard: {
+    backgroundColor: theme.colors.accentMuted,
+    borderRadius: theme.radius.lg,
+    borderWidth: 0.5,
+    borderColor: theme.colors.accentMuted,
+    paddingHorizontal: theme.spacing.md,
+    paddingVertical: theme.spacing.md,
+    gap: 4,
+  },
+  currentPrLabel: {
+    color: theme.colors.accent,
+    fontSize: theme.fontSize.xxs,
+    fontFamily: theme.fontFamily.extraBold,
+    textTransform: 'uppercase',
+  },
+  currentPrValue: {
+    color: theme.colors.text,
+    fontSize: 30,
+    fontFamily: theme.fontFamily.black,
+    includeFontPadding: false,
+  },
+  currentPrMeta: {
+    color: theme.colors.textMuted,
+    fontSize: theme.fontSize.sm,
+    fontFamily: theme.fontFamily.bold,
   },
   progressStat: {
     flex: 1,
@@ -1827,46 +2277,55 @@ const stylesheet = createStyleSheet(theme => ({
     fontSize: theme.fontSize.xs,
     fontFamily: theme.fontFamily.semiBold,
   },
-  bodyWeightCard: {
-    backgroundColor: theme.colors.surface,
-    borderRadius: theme.radius.lg,
-    borderWidth: 0.5,
-    borderColor: theme.colors.border,
-    paddingHorizontal: theme.spacing.md,
-    paddingVertical: theme.spacing.sm,
+  weightStack: {
     gap: theme.spacing.sm,
   },
-  bodyWeightHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: theme.spacing.xs,
-  },
-  bodyWeightActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: theme.spacing.xs,
-  },
-  secondaryActionButton: {
-    minHeight: 32,
-    borderRadius: theme.radius.full,
-    backgroundColor: theme.colors.surface2,
-    borderWidth: 0.5,
+  weightHeroCard: {
+    backgroundColor: theme.colors.surface,
+    borderRadius: theme.radius.lg,
+    borderWidth: 1,
     borderColor: theme.colors.border,
-    paddingHorizontal: theme.spacing.sm,
+    paddingHorizontal: theme.spacing.md,
+    paddingVertical: theme.spacing.md,
+    gap: theme.spacing.md,
+  },
+  weightHeroHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: theme.spacing.md,
+  },
+  weightHeroIcon: {
+    width: 42,
+    height: 42,
+    borderRadius: theme.radius.full,
+    backgroundColor: theme.colors.accentMuted,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  secondaryActionText: {
+  weightHeroText: {
+    flex: 1,
+    minWidth: 0,
+    gap: 6,
+  },
+  weightHeroValue: {
     color: theme.colors.text,
-    fontSize: theme.fontSize.xs,
-    fontFamily: theme.fontFamily.bold,
+    fontSize: 30,
+    fontFamily: theme.fontFamily.black,
+    includeFontPadding: false,
+  },
+  weightActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: theme.spacing.sm,
   },
   primaryActionButton: {
-    minHeight: 32,
+    flex: 1,
+    minHeight: 38,
     borderRadius: theme.radius.full,
     backgroundColor: theme.colors.accent,
-    paddingHorizontal: theme.spacing.md,
+    borderWidth: 1,
+    borderColor: theme.colors.accent,
+    paddingHorizontal: theme.spacing.sm,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -1875,30 +2334,122 @@ const stylesheet = createStyleSheet(theme => ({
     fontSize: theme.fontSize.xs,
     fontFamily: theme.fontFamily.bold,
   },
-  bodyWeightMain: {
-    minHeight: 52,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: theme.spacing.xs,
-  },
-  bodyWeightValueBlock: {
-    flex: 1,
-    minWidth: 0,
-    gap: 3,
-  },
-  bodyWeightValue: {
-    color: theme.colors.text,
-    fontSize: theme.fontSize.lg,
-    fontFamily: theme.fontFamily.extraBold,
-  },
   bodyWeightMeta: {
     color: theme.colors.textMuted,
     fontSize: theme.fontSize.xs,
     fontFamily: theme.fontFamily.medium,
-    lineHeight: 16,
+    lineHeight: 18,
   },
-  bodyWeightSparkline: {
-    width: 104,
+  weightHistoryCard: {
+    backgroundColor: theme.colors.surface,
+    borderRadius: theme.radius.lg,
+    borderWidth: 0.5,
+    borderColor: theme.colors.border,
+    overflow: 'hidden',
+  },
+  weightHistoryHeader: {
+    minHeight: 56,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: theme.spacing.sm,
+    paddingHorizontal: theme.spacing.md,
+    paddingVertical: theme.spacing.sm,
+    borderBottomWidth: 0.5,
+    borderBottomColor: theme.colors.border,
+  },
+  weightHistoryHeaderIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: theme.radius.full,
+    backgroundColor: theme.colors.accentMuted,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  weightHistoryHeaderText: {
+    flex: 1,
+    minWidth: 0,
+    gap: 2,
+  },
+  weightHistoryTitle: {
+    color: theme.colors.text,
+    fontSize: theme.fontSize.sm,
+    fontFamily: theme.fontFamily.extraBold,
+    textTransform: 'uppercase',
+    includeFontPadding: false,
+  },
+  weightHistoryMeta: {
+    color: theme.colors.textMuted,
+    fontSize: theme.fontSize.xs,
+    fontFamily: theme.fontFamily.medium,
+    marginTop: 2,
+  },
+  weightHistoryList: {
+    backgroundColor: theme.colors.surface,
+  },
+  weightHistoryRow: {
+    minHeight: 54,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: theme.spacing.sm,
+    paddingHorizontal: theme.spacing.md,
+    paddingVertical: theme.spacing.sm,
+    borderBottomWidth: 0.5,
+    borderBottomColor: theme.colors.border,
+  },
+  weightHistoryText: {
+    flex: 1,
+    minWidth: 0,
+    gap: 3,
+  },
+  weightHistoryValue: {
+    color: theme.colors.text,
+    fontSize: theme.fontSize.md,
+    fontFamily: theme.fontFamily.bold,
+  },
+  weightHistoryDate: {
+    color: theme.colors.textMuted,
+    fontSize: theme.fontSize.xs,
+    fontFamily: theme.fontFamily.medium,
+  },
+  weightHistoryActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: theme.spacing.xs,
+  },
+  weightHistoryIconButton: {
+    width: 34,
+    height: 34,
+    borderRadius: theme.radius.full,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.surface2,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  deleteWeightButton: {
+    backgroundColor: theme.colors.dangerMuted,
+    borderColor: theme.colors.dangerMuted,
+  },
+  emptyWeightHistory: {
+    minHeight: 72,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: theme.spacing.md,
+  },
+  showMoreWeightButton: {
+    minHeight: 42,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: theme.colors.surface2,
+    borderTopWidth: 0.5,
+    borderTopColor: theme.colors.border,
+    paddingHorizontal: theme.spacing.md,
+  },
+  showMoreWeightText: {
+    color: theme.colors.accent,
+    fontSize: theme.fontSize.sm,
+    fontFamily: theme.fontFamily.bold,
   },
   overlay: {
     flex: 1,

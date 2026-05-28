@@ -170,14 +170,15 @@ export default function CalendarScreen() {
     {},
   );
   const [loading, setLoading] = useState(true);
-  const [visibleWorkoutCount, setVisibleWorkoutCount] =
-    useState(WORKOUT_PAGE_SIZE);
+  const [loadingMoreDailyWorkouts, setLoadingMoreDailyWorkouts] =
+    useState(false);
   const [hasMoreDailyWorkouts, setHasMoreDailyWorkouts] = useState(false);
   const [loadedWorkoutsQueryKey, setLoadedWorkoutsQueryKey] = useState<
     string | null
   >(null);
   const workoutDetailRequestRef = useRef(0);
   const workoutListRequestRef = useRef(0);
+  const dailyAllWorkoutCountRef = useRef(WORKOUT_PAGE_SIZE);
 
   const range = useMemo(
     () => getRange(selectedDate, view, firstDayOfWeek),
@@ -187,11 +188,11 @@ export default function CalendarScreen() {
   const rangeEndMs = range.end.getTime();
   const workoutsQueryKey = useMemo(() => {
     if (view === 'daily' && dailyMode === 'all') {
-      return `daily:all:${visibleWorkoutCount}`;
+      return 'daily:all';
     }
 
     return `${view}:${rangeStartMs}:${rangeEndMs}`;
-  }, [dailyMode, rangeEndMs, rangeStartMs, view, visibleWorkoutCount]);
+  }, [dailyMode, rangeEndMs, rangeStartMs, view]);
   const showWorkoutLoading =
     loading || loadedWorkoutsQueryKey !== workoutsQueryKey;
 
@@ -201,10 +202,11 @@ export default function CalendarScreen() {
     setLoading(true);
     try {
       if (view === 'daily' && dailyMode === 'all') {
-        const rows = await getCompletedWorkoutsPage(visibleWorkoutCount + 1);
+        const requestedCount = dailyAllWorkoutCountRef.current;
+        const rows = await getCompletedWorkoutsPage(requestedCount + 1);
         if (workoutListRequestRef.current !== requestId) return;
-        setHasMoreDailyWorkouts(rows.length > visibleWorkoutCount);
-        setWorkouts(rows.slice(0, visibleWorkoutCount));
+        setHasMoreDailyWorkouts(rows.length > requestedCount);
+        setWorkouts(rows.slice(0, requestedCount));
       } else {
         const rows = await getCompletedWorkoutsInRange(
           rangeStartMs,
@@ -231,12 +233,11 @@ export default function CalendarScreen() {
     rangeEndMs,
     rangeStartMs,
     view,
-    visibleWorkoutCount,
     workoutsQueryKey,
   ]);
 
   useEffect(() => {
-    setVisibleWorkoutCount(WORKOUT_PAGE_SIZE);
+    dailyAllWorkoutCountRef.current = WORKOUT_PAGE_SIZE;
   }, [dailyMode, view]);
 
   useEffect(() => {
@@ -347,6 +348,30 @@ export default function CalendarScreen() {
       return next;
     });
     loadWorkouts().catch(console.error);
+  }
+
+  async function showMoreDailyWorkouts() {
+    if (loadingMoreDailyWorkouts) return;
+
+    const nextCount = workouts.length + WORKOUT_PAGE_SIZE;
+    const requestId = workoutListRequestRef.current + 1;
+    workoutListRequestRef.current = requestId;
+    setLoadingMoreDailyWorkouts(true);
+    try {
+      const rows = await getCompletedWorkoutsPage(nextCount + 1);
+      if (workoutListRequestRef.current !== requestId) return;
+      dailyAllWorkoutCountRef.current = nextCount;
+      setHasMoreDailyWorkouts(rows.length > nextCount);
+      setWorkouts(rows.slice(0, nextCount));
+      setLoadedWorkoutsQueryKey(workoutsQueryKey);
+    } catch (e) {
+      if (workoutListRequestRef.current !== requestId) return;
+      console.error('Failed to load more workouts', e);
+    } finally {
+      if (workoutListRequestRef.current === requestId) {
+        setLoadingMoreDailyWorkouts(false);
+      }
+    }
   }
 
   function moveDate(direction: -1 | 1) {
@@ -662,18 +687,15 @@ export default function CalendarScreen() {
         dailyMode === 'all' &&
         hasMoreDailyWorkouts ? (
           <TouchableOpacity
-            style={styles.showMoreButton}
-            onPress={() =>
-              setVisibleWorkoutCount(count => count + WORKOUT_PAGE_SIZE)
-            }
-            activeOpacity={0.82}
+            style={[
+              styles.showMoreButton,
+              loadingMoreDailyWorkouts && styles.showMoreButtonDisabled,
+            ]}
+            onPress={showMoreDailyWorkouts}
+            activeOpacity={loadingMoreDailyWorkouts ? 1 : 0.82}
+            disabled={loadingMoreDailyWorkouts}
           >
-            <Text style={styles.showMoreButtonText}>Show 10 More</Text>
-            <MaterialCommunityIcons
-              name="chevron-down"
-              size={18}
-              color={theme.colors.accent}
-            />
+            <Text style={styles.showMoreButtonText}>Show More</Text>
           </TouchableOpacity>
         ) : null}
       </ScrollView>
@@ -1069,6 +1091,9 @@ const stylesheet = createStyleSheet(theme => ({
     alignItems: 'center',
     justifyContent: 'center',
     gap: theme.spacing.xs,
+  },
+  showMoreButtonDisabled: {
+    opacity: 0.62,
   },
   showMoreButtonText: {
     color: theme.colors.accent,
